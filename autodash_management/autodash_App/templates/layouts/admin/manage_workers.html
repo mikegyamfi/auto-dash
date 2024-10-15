@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- Layout wrapper -->
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Menu -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Menu -->
+
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Manage Workers</h4>
+
+          <!-- Branch Filter -->
+          <form method="get" class="mb-4">
+            <div class="row">
+              <div class="col-md-4">
+                <select name="branch" class="form-control">
+                  <option value="">All Branches</option>
+                  {% for branch in branches %}
+                  <option value="{{ branch.id }}" {% if branch.id|stringformat:"s" == selected_branch %}selected{% endif %}>{{ branch.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-2">
+                <button type="submit" class="btn btn-primary">Filter</button>
+              </div>
+            </div>
+          </form>
+
+          <!-- Workers Table -->
+          <div class="card">
+            <div class="table-responsive">
+              <table class="table table-hover">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Branch</th>
+                    <th>Approved</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for worker in workers %}
+                  <tr>
+                    <td>{{ worker.user.first_name }} {{ worker.user.last_name }}</td>
+                    <td>{{ worker.user.email }}</td>
+                    <td>{{ worker.branch.name }}</td>
+                    <td>
+                      {% if worker.is_gh_card_approved %}
+                      <span class="badge bg-success">Yes</span>
+                      {% else %}
+                      <span class="badge bg-warning">No</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <a href="{% url 'worker_detail' worker.id %}" class="btn btn-sm btn-primary">View Details</a>
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="5">No workers found.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <!-- / Content -->
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- / Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+  <!-- / Layout container -->
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+<!-- / Layout wrapper -->
+{% endblock %}

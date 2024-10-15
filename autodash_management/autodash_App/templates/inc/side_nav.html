@@ -1,0 +1,125 @@
+<aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
+  <div class="app-brand demo">
+    <a href="{% url 'index' %}" class="app-brand-link">
+      <span class="app-brand-text demo menu-text fw-bolder ms-2">Auto Dash</span>
+    </a>
+
+    <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto d-block d-xl-none">
+      <i class="bx bx-chevron-left bx-sm align-middle"></i>
+    </a>
+  </div>
+
+  <div class="menu-inner-shadow"></div>
+
+  <ul class="menu-inner py-1">
+    <!-- Dashboard -->
+    {% if request.user.role == "worker" %}
+    <li class="menu-item active">
+      <a href="{% url 'index' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-home-circle"></i>
+        <div data-i18n="Analytics">Dashboard</div>
+      </a>
+    </li>
+    {% elif request.user.role == "customer" %}
+    <li class="menu-item active">
+      <a href="{% url 'customer_dashboard' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-home-circle"></i>
+        <div data-i18n="Analytics">Dashboard</div>
+      </a>
+    </li>
+    {% endif %}
+
+    <!-- Services -->
+    <li class="menu-item">
+      <a href="javascript:void(0);" class="menu-link menu-toggle">
+        <i class="menu-icon tf-icons bx bx-layout"></i>
+        <div data-i18n="Layouts">Services</div>
+      </a>
+
+      <ul class="menu-sub">
+        {% if request.user.role == "worker" %}
+        <li class="menu-item">
+          <a href="{% url 'log_service' %}" class="menu-link">
+            <div data-i18n="Without menu">Log a Service</div>
+          </a>
+        </li>
+
+        <li class="menu-item">
+          <a href="{% url 'service_history' %}" class="menu-link">
+            <div data-i18n="Without navbar">Service History</div>
+          </a>
+        </li>
+
+        <li class="menu-item">
+          <a href="{% url 'branch_customers' %}" class="menu-link">
+            <div data-i18n="Without navbar">Customers</div>
+          </a>
+        </li>
+        {% endif %}
+        {% if request.user.role == "customer" %}
+        <li class="menu-item">
+          <a href="{% url 'customer_service_history' %}" class="menu-link">
+            <div data-i18n="Without navbar">Service History</div>
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </li>
+
+    {% if request.user.role == "worker" %}
+    <li class="menu-item">
+      <a href="{% url 'worker_profile' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-user-circle"></i>
+        <div data-i18n="Analytics">Profile</div>
+      </a>
+    </li>
+    {% endif %}
+
+    <!-- Admin Links -->
+    {% if request.user.is_superuser %}
+    <li class="menu-header small text-uppercase"><span class="menu-header-text">Admin</span></li>
+
+    <li class="menu-item">
+      <a href="{% url 'admin_dashboard' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-bar-chart-alt-2"></i>
+        <div data-i18n="Analytics">Dashboard</div>
+      </a>
+    </li>
+
+    <li class="menu-item">
+  <a href="{% url 'manage_branches' %}" class="menu-link">
+    <i class="menu-icon tf-icons bx bx-building-house"></i>
+    <div data-i18n="Branches">Branches</div>
+  </a>
+</li>
+
+    <li class="menu-item">
+      <a href="{% url 'manage_workers' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-group"></i>
+        <div data-i18n="Workers">Workers</div>
+      </a>
+    </li>
+
+    <li class="menu-item">
+      <a href="{% url 'manage_customers' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-user"></i>
+        <div data-i18n="Customers">Customers</div>
+      </a>
+    </li>
+
+    <li class="menu-item">
+      <a href="{% url 'vehicle_groups' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-car"></i>
+        <div data-i18n="Vehicle Groups">Vehicle Groups</div>
+      </a>
+    </li>
+
+    <li class="menu-item">
+      <a href="#" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-line-chart"></i>
+        <div data-i18n="Analytics">Analytics</div>
+      </a>
+    </li>
+    {% endif %}
+  </ul>
+</aside>

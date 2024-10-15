@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <!-- Layout wrapper -->
+    <div class="layout-wrapper layout-content-navbar">
+        <div class="layout-container">
+            <!-- Menu -->
+            {% include 'inc/side_nav.html' %}
+            <!-- / Menu -->
+
+            <!-- Layout container -->
+            <div class="layout-page">
+                <!-- Navbar -->
+                {% include 'inc/header.html' %}
+                <!-- / Navbar -->
+
+                <!-- Content wrapper -->
+                <div class="content-wrapper">
+                    <!-- Content -->
+                    <div class="container-xxl flex-grow-1 container-p-y">
+                        <div class="row">
+                            <!-- Welcome Card -->
+                            <div class="col-lg-8 mb-4 order-0">
+                                <div class="card">
+                                    <div class="d-flex align-items-end row">
+                                        <div class="col-sm-7">
+                                            <div class="card-body">
+                                                <h5 class="card-title text-primary">Welcome, {{ customer.user.first_name }}🎉</h5>
+                                                <p class="mb-4">
+                                                    Manage your services, check your subscription, and view loyalty points easily.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Loyalty Points Card -->
+                            <div class="col-lg-4 col-md-4 order-1">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <span class="fw-semibold d-block mb-1">Your Loyalty Points</span>
+                                        <h3 class="card-title mb-2">{{ loyalty_points }}</h3>
+                                        <p>Keep using our services to earn more points!</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Subscription Card -->
+                            <div class="col-lg-4 col-md-6 mb-4">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <span class="fw-semibold d-block mb-1">Your Subscription</span>
+                                        {% if active_subscription %}
+                                            <p><strong>Subscription Name:</strong> {{ active_subscription.subscription.name }}</p>
+                                            <p><strong>Valid Until:</strong> {{ active_subscription.end_date }}</p>
+                                        {% else %}
+                                            <p>No active subscription</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Recent Services Rendered Card -->
+                            <div class="col-12 col-lg-6 mb-4">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Recent Services Rendered</h5>
+                                        <ul class="list-group">
+                                            {% for service in services_rendered %}
+                                                <li class="list-group-item">
+                                                    <div class="d-flex justify-content-between">
+                                                        <div>
+                                                            <h6>Service #{{ service.service_order_number }}</h6>
+                                                            <p><strong>Date:</strong> {{ service.date }} | <strong>Status:</strong> {{ service.get_status_display }}</p>
+                                                            <p>Payment Method: {{ service.payment_method }}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p><strong>Total:</strong> GHS{{ service.total_amount }}</p>
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            {% empty %}
+                                                <li class="list-group-item">No services rendered yet.</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                        <div class="col-12 col-lg-6 mb-4">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">My Vehicles</h5>
+                                        <ul class="list-group">
+                                            {% for vehicle in vehicles %}
+                                                <li class="list-group-item">
+                                                    <div class="d-flex justify-content-between">
+                                                        <div>
+                                                            <h6>Service #{{ vehicle.vehicle_group.car_make }}</h6>
+                                                            <p><strong>Plate:</strong> {{ vehicle.vehicle_group.car_plate }}</p>
+                                                            <p>Color: {{ vehicle.vehicle_group.car_color }}</p>
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            {% empty %}
+                                                <li class="list-group-item">No vehicle registered.</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Recent Loyalty Transactions -->
+                            <div class="col-12 col-lg-8 mb-4">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Recent Loyalty Transactions</h5>
+                                        <ul class="list-group">
+                                            {% for transaction in loyalty_transactions %}
+                                                <li class="list-group-item">
+                                                    <div class="d-flex justify-content-between">
+                                                        <div>
+                                                            <p><strong>Points:</strong> {{ transaction.points }} ({{ transaction.get_transaction_type_display }})</p>
+                                                        </div>
+                                                        <div>
+                                                            <p><strong>Date:</strong> {{ transaction.date }}</p>
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            {% empty %}
+                                                <li class="list-group-item">No loyalty transactions yet.</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                    <!-- / Content -->
+
+                    <!-- Footer -->
+                    {% include 'inc/footer.html' %}
+                    <!-- / Footer -->
+
+                    <div class="content-backdrop fade"></div>
+                </div>
+                <!-- Content wrapper -->
+            </div>
+            <!-- / Layout page -->
+        </div>
+
+        <!-- Overlay -->
+        <div class="layout-overlay layout-menu-toggle"></div>
+    </div>
+    <!-- / Layout wrapper -->
+{% endblock content %}

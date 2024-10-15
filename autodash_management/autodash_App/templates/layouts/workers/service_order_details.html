@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <!-- Layout wrapper -->
+    <div class="layout-wrapper layout-content-navbar">
+      <div class="layout-container">
+        <!-- Menu -->
+
+        {% include 'inc/side_nav.html' %}
+        <!-- / Menu -->
+
+        <!-- Layout container -->
+        <div class="layout-page">
+          <!-- Navbar -->
+          {% include 'inc/header.html' %}
+          <!-- / Navbar -->
+
+          <!-- Content wrapper -->
+          <div class="content-wrapper">
+            <!-- Content -->
+            <div class="container-xxl flex-grow-1 container-p-y">
+              <h2>Service Order Details</h2>
+
+              <!-- Service Order Information -->
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title">Service Order #{{ service_order.service_order_number }}</h5>
+                  <p><strong>Customer:</strong> {{ service_order.customer.user.first_name }} {{ service_order.customer.user.last_name }}</p>
+                  <p><strong>Workers:</strong>
+                    {% for worker in service_order.workers.all %}
+                      {{ worker.user.first_name }} {{ worker.user.last_name }}
+                      {% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                  </p>
+                  <p><strong>Branch:</strong> {{ service_order.branch }}</p>
+                  <p><strong>Status:</strong> {{ service_order.get_status_display }}</p>
+                  <p><strong>Date:</strong> {{ service_order.date }}</p>
+                  <p><strong>Payment Method:</strong> {{ service_order.get_payment_method_display }}</p>
+                  <p><strong>Total Amount:</strong> GHS{{ service_order.total_amount }}</p>
+                  <p><strong>Final Amount:</strong> GHS{{ service_order.final_amount }}</p>
+                  <p><strong>Customer Feedback:</strong> {{ service_order.customer_feedback }}</p>
+                  <p><strong>Customer Rating:</strong>
+                    {% if service_order.customer_rating %}
+                      {{ service_order.customer_rating }} / 5
+                    {% else %}
+                      No rating provided.
+                    {% endif %}
+                  </p>
+                </div>
+              </div>
+
+              <!-- Services Rendered Under This Order -->
+              <h3>Services Rendered</h3>
+              <table class="table table-bordered">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+{#                    <th>Workers</th>#}
+                    <th>Date Rendered</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for rendered_service in services_rendered %}
+                  <tr>
+                    <td>{{ rendered_service.service.service_type }}</td>
+{#                    <td>#}
+{#                      {% for worker in rendered_service.workers.all %}#}
+{#                        {{ worker.user.first_name }} {{ worker.user.last_name }}#}
+{#                        {% if not forloop.last %}, {% endif %}#}
+{#                      {% endfor %}#}
+{#                    </td>#}
+                    <td>{{ rendered_service.date }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="3">No services have been rendered under this order.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+
+              <!-- Back Button -->
+              <a href="{% url 'service_history' %}" class="btn btn-primary">Back to Service History</a>
+
+            </div>
+            <!-- / Content -->
+
+            <!-- Footer -->
+            {% include 'inc/footer.html' %}
+            <!-- / Footer -->
+
+            <div class="content-backdrop fade"></div>
+          </div>
+          <!-- Content wrapper -->
+        </div>
+        <!-- / Layout page -->
+      </div>
+
+      <!-- Overlay -->
+      <div class="layout-overlay layout-menu-toggle"></div>
+    </div>
+    <!-- / Layout wrapper -->
+{% endblock content %}

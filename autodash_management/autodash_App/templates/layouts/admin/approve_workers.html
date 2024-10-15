@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-xxl flex-grow-1 container-p-y">
+  <h4 class="fw-bold py-3 mb-4">Workers Pending Approval</h4>
+
+  <!-- GH Card Approvals -->
+  <h5>GH Card Approvals</h5>
+  {% if pending_gh_card_workers %}
+  <div class="card mb-4">
+    <div class="table-responsive">
+      <table class="table">
+        <!-- Table headers and content as before -->
+        <!-- Use 'gh_card' as approval_type in the URL -->
+        <form method="POST" action="{% url 'approve_worker' worker.id 'gh_card' %}">
+          <!-- ... -->
+        </form>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <p>No GH Card approvals pending.</p>
+  {% endif %}
+
+  <!-- Phone Number Approvals -->
+  <h5>Phone Number Approvals</h5>
+  {% if pending_phone_workers %}
+  <div class="card mb-4">
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Current Phone Number</th>
+            <th>New Phone Number</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for worker in pending_phone_workers %}
+          <tr>
+            <td>{{ worker.user.first_name }} {{ worker.user.last_name }}</td>
+            <td>{{ worker.user.phone_number }}</td>
+            <td>{{ worker.pending_phone_number }}</td>
+            <td>
+              <form method="POST" action="{% url 'approve_worker' worker.id 'phone' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-success">Approve</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <p>No phone number approvals pending.</p>
+  {% endif %}
+</div>
+{% endblock %}

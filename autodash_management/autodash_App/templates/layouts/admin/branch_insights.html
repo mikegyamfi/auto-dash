@@ -1,0 +1,174 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load custom_filters %}
+
+{% block content %}
+<!-- Layout wrapper -->
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Menu -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Menu -->
+
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Branch Insights: {{ branch.name }}</h4>
+
+          <!-- Time Period Selection -->
+          <form method="get" class="mb-4">
+            <div class="row">
+              <div class="col-md-4">
+                <select name="time_period" class="form-select">
+                  <option value="week" {% if time_period == 'week' %}selected{% endif %}>This Week</option>
+                  <option value="month" {% if time_period == 'month' %}selected{% endif %}>This Month</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <button type="submit" class="btn btn-primary">Update</button>
+              </div>
+            </div>
+          </form>
+
+          <!-- Insights Cards -->
+          <div class="row">
+            <div class="col-md-6 col-lg-4 mb-4">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">Average Customers Added per Day</h5>
+                  <p class="card-text">{{ avg_customers_per_day|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-6 col-lg-4 mb-4">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">Average Vehicles Added per Day</h5>
+                  <p class="card-text">{{ avg_vehicles_per_day|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-6 col-lg-4 mb-4">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">Number of Workers</h5>
+                  <p class="card-text">{{ num_workers }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-6 col-lg-4 mb-4">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">Average Worker Rating</h5>
+                  <p class="card-text">{{ avg_worker_rating|floatformat:1 }} / 5 stars</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {% if has_data %}
+          <!-- Services Rendered Over Time Chart -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h5 class="card-title">Services Rendered Over Time</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="servicesChart" style="max-height: 400px;"></canvas>
+            </div>
+          </div>
+
+          <!-- Revenue Over Time Chart -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h5 class="card-title">Revenue Over Time</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="revenueChart" style="max-height: 400px;"></canvas>
+            </div>
+          </div>
+          {% else %}
+          <div class="alert alert-info" role="alert">
+            No data available for the selected time period.
+          </div>
+          {% endif %}
+        </div>
+        <!-- / Content -->
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- / Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+  <!-- / Layout container -->
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+<!-- / Layout wrapper -->
+{% endblock content %}
+
+{% block scripts %}
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Services Rendered Over Time Chart
+  const servicesCtx = document.getElementById('servicesChart').getContext('2d');
+  const servicesChart = new Chart(servicesCtx, {
+    type: 'bar',
+    data: {
+      labels: {{ dates|safe }},
+      datasets: [{
+        label: 'Services Rendered',
+        data: {{ services_data|safe }},
+        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+        borderColor: 'rgba(54, 162, 235, 1)',
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { title: { display: true, text: 'Date' } },
+        y: { title: { display: true, text: 'Number of Services' }, beginAtZero: true }
+      }
+    }
+  });
+
+  // Revenue Over Time Chart
+  const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+  const revenueChart = new Chart(revenueCtx, {
+    type: 'bar',
+    data: {
+      labels: {{ dates|safe }},
+      datasets: [{
+        label: 'Revenue (GHS)',
+        data: {{ revenue_data|safe }},
+        backgroundColor: 'rgba(255, 159, 64, 0.6)',
+        borderColor: 'rgba(255, 159, 64, 1)',
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { title: { display: true, text: 'Date' } },
+        y: { title: { display: true, text: 'Revenue (GHS)' }, beginAtZero: true }
+      }
+    }
+  });
+</script>
+{% endblock scripts %}

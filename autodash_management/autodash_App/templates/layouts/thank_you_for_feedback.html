@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- Layout wrapper -->
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <div class="card text-center">
+            <div class="card-body">
+                <p>#{{ service_order.service_order_number }}</p>
+              <h2 class="card-title">Thank You for Your Review!</h2>
+              <p class="card-text">We appreciate your feedback and it helps us improve our services for you.</p>
+
+                <p>You gave {{ stars_given }} number of star(s)</p>
+
+              <!-- Image Section -->
+              <div class="my-4">
+                <img src="https://source.unsplash.com/800x400/?thank-you" class="img-fluid" alt="Thank You Image">
+              </div>
+
+              <!-- Link back to the home page or service page -->
+              <a href="/" class="btn btn-primary mt-3">Return to Home</a>
+            </div>
+          </div>
+        </div>
+        <!-- / Content -->
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+<!-- / Layout wrapper -->
+{% endblock content %}

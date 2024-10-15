@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+
+{% block style %}
+<style>
+  .amount.increased {
+    color: red;
+  }
+  .amount.decreased {
+    color: green;
+  }
+</style>
+{% endblock style %}
+
+{% block content %}
+<!-- Layout wrapper -->
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Menu -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Menu -->
+
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <div class="row">
+            <div class="col-lg-12">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title text-primary">Confirm Logged Service</h4>
+
+                  <form id="log-service-form" method="POST">
+                    {% csrf_token %}
+
+                    <!-- Customer Information -->
+                    <div class="row mb-3">
+                      <div class="col-md-8">
+                        <h6>Customer: {{ service_customer }}</h6>
+                        <p>Loyalty Points: <span id="customer-loyalty-points">{{ loyalty_points }}</span></p>
+
+                        {% if active_subscription %}
+                          <p>Subscription: {{ subscription.subscription.name }}</p>
+                          <p>Note: {{ subscription.subscription.name }} covers [{{ subscription.subscription.services.all|join:", " }}]</p>
+                        {% else %}
+                          <p class="text-danger">Subscription: Customer has no active subscription</p>
+                        {% endif %}
+
+                        <!-- Services Table -->
+                        <table class="table table-bordered table-striped table-responsive">
+                          <thead>
+                            <tr>
+                              <th>Service</th>
+                              <th>Price (GHS)</th>
+                              <th>Redeem with Loyalty Points</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for service_rendered in services %}
+                            <tr>
+                              <td>
+                                {{ service_rendered.service.service_type }}
+                                {% if active_subscription %}
+                                  {% if service_rendered.service in subscription.subscription.services.all and service_order.vehicle.vehicle_group in subscription.subscription.vehicle_group.all %}
+                                    [<span class="text-success">Covered by Subscription</span>]
+                                  {% endif %}
+                                {% endif %}
+                              </td>
+                              <td>{{ service_rendered.service.price }}</td>
+                              <td>
+                                {% if service_rendered.service.loyalty_points_required <= loyalty_points %}
+                                  <input type="checkbox" class="redeem-checkbox" name="redeem_service_{{ service_rendered.id }}" value="{{ service_rendered.id }}"
+                                    data-price="{{ service_rendered.service.price }}" data-points="{{ service_rendered.service.loyalty_points_required }}" data-service-name="{{ service_rendered.service.service_type }}">
+                                  (Requires {{ service_rendered.service.loyalty_points_required }} points)
+                                {% else %}
+                                  <input type="checkbox" disabled>
+                                  <span class="text-muted">Not enough loyalty points</span>
+                                {% endif %}
+                              </td>
+                            </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <!-- Payment Method Selection -->
+                    <div class="col-6 my-4">
+                      <label for="">Payment Method</label>
+                      <select class="form-control" name="payment_method" id="">
+                        <option value="Cash">Cash</option>
+                        <option value="Mobile Money">Mobile Money</option>
+                        <option value="Subscription">Subscription</option>
+                        <option value="Subscription & Cash">Subscription & Cash</option>
+                        <option value="Subscription & Momo">Subscription & Momo</option>
+                        <option value="Loyalty Points">Loyalty Points</option>
+                      </select>
+                    </div>
+
+                    <div class="col-6 my-4">
+                      <label for="discount-input">Discount(%)</label>
+                      <input min="0" max="100" class="form-control" type="number" step="0.1" placeholder="Discount %" name="discount" id="discount-input">
+                    </div>
+
+                    <h6>Total Amount: GHS<span id="total-amount" class="amount"> {{ service_order.total_amount }}</span></h6>
+                    <h6>Final Amount: GHS<span id="final-amount" class="amount"> {{ service_order.final_amount }}</span></h6>
+                    <p>Total Loyalty Points Required: <span id="total-loyalty-points">0</span></p>
+                    <p id="loyalty-points-warning" style="display: none; color: red;">Warning: Customer does not have enough loyalty points for selected services.</p>
+
+                    <!-- Hidden Inputs -->
+                    <input type="hidden" id="initial-final-amount" value="{{ service_order.final_amount }}">
+                    <input type="hidden" id="customer-loyalty-points-value" value="{{ loyalty_points }}">
+
+                    <!-- Action Buttons -->
+                    <button type="button" class="btn btn-primary" id="confirm-button" data-bs-toggle="modal" data-bs-target="#confirmationModal">Confirm</button>
+                    <a href="{% url 'discard_order' pk=service_order.id %}" class="btn btn-danger">Discard</a>
+                  </form>
+
+                  <!-- Confirmation Modal -->
+                  <div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                      <form method="POST" id="confirmation-form">
+                        {% csrf_token %}
+                        <div class="modal-content">
+                          <div class="modal-header">
+                            <h5 class="modal-title" id="confirmationModalLabel">Confirm Transaction</h5>
+                            <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">&times;</button>
+                          </div>
+                          <div class="modal-body">
+                            <p><strong>Customer:</strong> {{ service_customer }}</p>
+                            <p><strong>Services Redeemed with Loyalty Points:</strong></p>
+                              <p><strong>Discount Applied:</strong> <span id="modal-discount-percentage"></span>% (GHS<span id="modal-discount-amount"></span>)</p>
+                            <ul id="redeemed-services-list"></ul>
+                            <p><strong>Total Loyalty Points to be Used:</strong> <span id="modal-total-loyalty-points"></span></p>
+                            <p><strong>Final Amount to be Paid:</strong> GHS<span id="modal-final-amount"></span></p>
+                          </div>
+                          <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Edit</button>
+                            <button type="submit" class="btn btn-primary">Confirm</button>
+                          </div>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- / Content -->
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+<!-- / Layout wrapper -->
+
+<!-- JavaScript to handle dynamic updates -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Existing variables
+    const initialFinalAmount = parseFloat(document.getElementById('initial-final-amount').value);
+    let adjustedFinalAmount = initialFinalAmount;
+    const customerLoyaltyPoints = parseInt(document.getElementById('customer-loyalty-points-value').value);
+    const totalLoyaltyPointsElement = document.getElementById('total-loyalty-points');
+    const redeemCheckboxes = document.querySelectorAll('.redeem-checkbox');
+    const finalAmountElement = document.getElementById('final-amount');
+    const discountInput = document.getElementById('discount-input');
+
+    let discountAmount = 0; // Declare discountAmount globally
+
+    // Function to update the final amount and total loyalty points required
+    function updateFinalAmount() {
+      // Reset adjustedFinalAmount to initialFinalAmount
+      adjustedFinalAmount = initialFinalAmount;
+      let totalLoyaltyPointsRequired = 0;
+
+      // Loop through checkboxes and subtract price if checked
+      redeemCheckboxes.forEach(function(checkbox) {
+        if (checkbox.checked) {
+          const price = parseFloat(checkbox.getAttribute('data-price'));
+          const pointsRequired = parseInt(checkbox.getAttribute('data-points'));
+          adjustedFinalAmount -= price;
+          totalLoyaltyPointsRequired += pointsRequired;
+        }
+      });
+
+      // Ensure adjustedFinalAmount is not negative
+      adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
+
+      // Apply discount
+      let discountPercentage = parseFloat(discountInput.value) || 0;
+      if (discountPercentage > 100) discountPercentage = 100;
+      if (discountPercentage < 0) discountPercentage = 0;
+
+      // Calculate discount amount
+      discountAmount = (adjustedFinalAmount * discountPercentage) / 100;
+      adjustedFinalAmount -= discountAmount;
+
+      // Ensure adjustedFinalAmount is not negative
+      adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
+
+      // Update the displayed final amount
+      finalAmountElement.textContent = adjustedFinalAmount.toFixed(2);
+
+      // Update the total loyalty points required
+      totalLoyaltyPointsElement.textContent = totalLoyaltyPointsRequired;
+
+      // Highlight the final amount
+      if (adjustedFinalAmount < initialFinalAmount) {
+        finalAmountElement.classList.remove('increased');
+        finalAmountElement.classList.add('decreased');
+      } else if (adjustedFinalAmount > initialFinalAmount) {
+        finalAmountElement.classList.remove('decreased');
+        finalAmountElement.classList.add('increased');
+      } else {
+        finalAmountElement.classList.remove('increased', 'decreased');
+      }
+
+      // Check if customer has enough loyalty points
+      if (totalLoyaltyPointsRequired > customerLoyaltyPoints) {
+        // Disable the confirm button and show warning
+        document.getElementById('confirm-button').disabled = true;
+        document.getElementById('loyalty-points-warning').style.display = 'block';
+      } else {
+        // Enable the confirm button and hide warning
+        document.getElementById('confirm-button').disabled = false;
+        document.getElementById('loyalty-points-warning').style.display = 'none';
+      }
+    }
+
+    // Add event listeners to checkboxes and discount input
+    redeemCheckboxes.forEach(function(checkbox) {
+      checkbox.addEventListener('change', function() {
+        updateFinalAmount();
+      });
+    });
+    discountInput.addEventListener('input', function() {
+      updateFinalAmount();
+    });
+
+    // Initial update
+    updateFinalAmount();
+
+    // Update the confirmation modal with discount details
+    document.getElementById('confirm-button').addEventListener('click', function() {
+      // Get the list of redeemed services
+      const redeemedServicesList = document.getElementById('redeemed-services-list');
+      redeemedServicesList.innerHTML = ''; // Clear the list
+
+      redeemCheckboxes.forEach(function(checkbox) {
+        if (checkbox.checked) {
+          const serviceName = checkbox.getAttribute('data-service-name');
+          const listItem = document.createElement('li');
+          listItem.textContent = serviceName;
+          redeemedServicesList.appendChild(listItem);
+        }
+      });
+
+      // Set the total loyalty points and final amount in the modal
+      document.getElementById('modal-total-loyalty-points').textContent = totalLoyaltyPointsElement.textContent;
+      document.getElementById('modal-final-amount').textContent = adjustedFinalAmount.toFixed(2);
+
+      // Set discount percentage and amount in modal
+      const discountPercentage = discountInput.value || '0';
+      document.getElementById('modal-discount-percentage').textContent = discountPercentage;
+      document.getElementById('modal-discount-amount').textContent = discountAmount.toFixed(2);
+
+      // Copy the form data to the confirmation form
+      const confirmationForm = document.getElementById('confirmation-form');
+      const originalForm = document.getElementById('log-service-form');
+
+      // Remove existing inputs in confirmation form except CSRF token
+      const confirmationFormInputs = confirmationForm.querySelectorAll('input:not([name=csrfmiddlewaretoken])');
+      confirmationFormInputs.forEach(input => input.remove());
+
+      // Append hidden inputs for the selected services
+      redeemCheckboxes.forEach(function(checkbox) {
+        if (checkbox.checked) {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = checkbox.name;
+          input.value = checkbox.value;
+          confirmationForm.appendChild(input);
+        }
+      });
+
+      // Append payment method
+      const paymentMethod = originalForm.querySelector('select[name=payment_method]').value;
+      const paymentInput = document.createElement('input');
+      paymentInput.type = 'hidden';
+      paymentInput.name = 'payment_method';
+      paymentInput.value = paymentMethod;
+      confirmationForm.appendChild(paymentInput);
+
+      // Append discount
+      const discountInputHidden = document.createElement('input');
+      discountInputHidden.type = 'hidden';
+      discountInputHidden.name = 'discount';
+      discountInputHidden.value = discountPercentage;
+      confirmationForm.appendChild(discountInputHidden);
+    });
+  });
+</script>
+
+{% endblock %}

@@ -1,0 +1,442 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load custom_filters %}
+
+{% block content %}
+<!-- Layout wrapper -->
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Menu -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Menu -->
+
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Admin Dashboard</h4>
+
+          <!-- Overview Cards -->
+          <div class="row mb-4">
+            {% for data in branch_data %}
+            <div class="col-xl-3 col-lg-4 col-md-4 col-sm-6 col-12">
+              <div class="card mb-4">
+                <div class="card-header">
+                  <h5 class="card-title">{{ data.branch.name }}</h5>
+                </div>
+                <div class="card-body">
+                  <p><strong>Total Customers:</strong> {{ data.total_customers }}</p>
+                  <p><strong>Total Vehicles:</strong> {{ data.total_vehicles }}</p>
+
+                  <a href="{% url 'branch_insights' data.branch.id %}" class="btn btn-primary mt-2">View Insights</a>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+        <div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Branch with Highest Revenue This Month</h5>
+    {% if highest_revenue_branch %}
+    <p><strong>Branch:</strong> {{ highest_revenue_branch.name }}</p>
+    <p><strong>Revenue:</strong> GHS {{ highest_revenue|floatformat:2 }}</p>
+    {% else %}
+    <p>No revenue data available for this month.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Highest Services Rendered Card -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Branch with Highest Services Rendered This Month</h5>
+    {% if highest_services_branch %}
+    <p><strong>Branch:</strong> {{ highest_services_branch.name }}</p>
+    <p><strong>Services Rendered:</strong> {{ highest_services }}</p>
+    {% else %}
+    <p>No service data available for this month.</p>
+    {% endif %}
+  </div>
+</div>
+
+         <div class="row mb-4">
+  <!-- Revenue Comparison Chart -->
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h5 class="card-title mb-0">Revenue Comparison</h5>
+        <select id="revenueTimePeriod" class="form-select w-auto">
+          <option value="week">This Week</option>
+          <option value="1">January</option>
+          <option value="2">February</option>
+          <option value="3">March</option>
+          <option value="4">April</option>
+          <option value="5">May</option>
+          <option value="6">June</option>
+          <option value="7">July</option>
+          <option value="8">August</option>
+          <option value="9">September</option>
+          <option value="10">October</option>
+          <option value="11">November</option>
+          <option value="12">December</option>
+        </select>
+      </div>
+      <div class="card-body">
+        <canvas id="revenueChart" style="max-height: 400px;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Services Rendered Comparison Chart -->
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h5 class="card-title mb-0">Services Rendered Comparison</h5>
+        <select id="servicesTimePeriod" class="form-select w-auto">
+          <option value="week">This Week</option>
+          <option value="1">January</option>
+          <option value="2">February</option>
+          <option value="3">March</option>
+          <option value="4">April</option>
+          <option value="5">May</option>
+          <option value="6">June</option>
+          <option value="7">July</option>
+          <option value="8">August</option>
+          <option value="9">September</option>
+          <option value="10">October</option>
+          <option value="11">November</option>
+          <option value="12">December</option>
+        </select>
+      </div>
+      <div class="card-body">
+        <canvas id="servicesChart" style="max-height: 400px;"></canvas>
+      </div>
+    </div>
+  </div>
+             <div class="col-md-6">
+             <div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h5 class="card-title mb-0">Customer Vehicles Registered</h5>
+    <select id="vehiclesTimePeriod" class="form-select w-auto">
+      <option value="week">This Week</option>
+      <option value="1">January</option>
+      <option value="2">February</option>
+      <option value="3">March</option>
+      <option value="4">April</option>
+      <option value="5">May</option>
+      <option value="6">June</option>
+      <option value="7">July</option>
+      <option value="8">August</option>
+      <option value="9">September</option>
+      <option value="10">October</option>
+      <option value="11">November</option>
+      <option value="12">December</option>
+    </select>
+  </div>
+  <div class="card-body">
+    <canvas id="vehiclesChart" style="max-height: 400px;"></canvas>
+  </div>
+</div>
+                 </div>
+
+             <!-- Yearly Branch Revenue Chart -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Yearly Branch Revenue</h5>
+    <canvas id="yearlyRevenueChart" style="max-height: 400px;"></canvas>
+  </div>
+</div>
+
+<!-- Yearly Branch Services Rendered Chart -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Yearly Branch Services Rendered</h5>
+    <canvas id="yearlyServicesChart" style="max-height: 400px;"></canvas>
+  </div>
+</div>
+
+             <div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h5 class="card-title mb-0">Branch Service Performance</h5>
+    <div class="d-flex">
+      <select id="serviceSelect" class="form-select w-auto me-2">
+        {% for service in services %}
+        <option value="{{ service.id }}">{{ service.service_type }}</option>
+        {% endfor %}
+      </select>
+      <select id="serviceTimePeriod" class="form-select w-auto">
+        <option value="week">This Week</option>
+        <option value="month">This Month</option>
+        <!-- Add months if needed -->
+      </select>
+    </div>
+  </div>
+  <div class="card-body">
+    <canvas id="servicePerformanceChart" style="max-height: 400px;"></canvas>
+  </div>
+</div>
+</div>
+
+          <!-- Total Vehicle Groups -->
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">Total Vehicle Groups Registered</h5>
+              <h2>{{ vehicle_groups_count }}</h2>
+            </div>
+          </div>
+        </div>
+        <!-- / Content -->
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- / Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+  <!-- / Layout container -->
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+<!-- / Layout wrapper -->
+{% endblock %}
+
+{% block scripts %}
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Initialize charts with default 'week' data
+    initChart('revenue', 'week');
+    initChart('services', 'week');
+    initVehiclesChart('week');
+
+    initServicePerformanceChart();
+
+    // Event listeners for service selection and time period
+    document.getElementById('serviceSelect').addEventListener('change', function () {
+      updateServicePerformanceChart();
+    });
+    document.getElementById('serviceTimePeriod').addEventListener('change', function () {
+      updateServicePerformanceChart();
+    });
+
+    let servicePerformanceChartInstance;
+
+    function initServicePerformanceChart() {
+      fetchServicePerformanceData().then(data => {
+        const ctx = document.getElementById('servicePerformanceChart').getContext('2d');
+        const chartData = {
+          labels: data.branch_names,
+          datasets: [{
+            label: 'Services Rendered',
+            data: data.branch_values,
+            backgroundColor: 'rgba(255, 205, 86, 0.6)',
+            borderColor: 'rgba(255, 205, 86, 1)',
+            borderWidth: 1
+          }]
+        };
+        const chartOptions = {
+          scales: {
+            y: { beginAtZero: true }
+          }
+        };
+        servicePerformanceChartInstance = new Chart(ctx, {
+          type: 'bar',
+          data: chartData,
+          options: chartOptions
+        });
+      });
+    }
+
+    function updateServicePerformanceChart() {
+      fetchServicePerformanceData().then(data => {
+        servicePerformanceChartInstance.data.labels = data.branch_names;
+        servicePerformanceChartInstance.data.datasets[0].data = data.branch_values;
+        servicePerformanceChartInstance.update();
+      });
+    }
+
+    function fetchServicePerformanceData() {
+      const serviceId = document.getElementById('serviceSelect').value;
+      const timePeriod = document.getElementById('serviceTimePeriod').value;
+      const url = `{% url 'get_service_performance_data' %}?service_id=${serviceId}&time_period=${timePeriod}`;
+      return fetch(url)
+        .then(response => response.json())
+        .catch(error => console.error('Error fetching service performance data:', error));
+    }
+
+    // Yearly Branch Revenue Chart
+    const yearlyBranchNames = JSON.parse('{{ yearly_branch_names_json|escapejs }}');
+    const yearlyBranchRevenues = JSON.parse('{{ yearly_branch_revenues_json|escapejs }}');
+
+    const yearlyRevenueCtx = document.getElementById('yearlyRevenueChart').getContext('2d');
+    const yearlyRevenueChart = new Chart(yearlyRevenueCtx, {
+      type: 'bar',
+      data: {
+        labels: yearlyBranchNames,
+        datasets: [{
+          label: 'Yearly Revenue (GHS)',
+          data: yearlyBranchRevenues,
+          backgroundColor: 'rgba(54, 162, 235, 0.6)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    // Yearly Branch Services Rendered Chart
+    const yearlyBranchServices = JSON.parse('{{ yearly_branch_services_json|escapejs }}');
+
+    const yearlyServicesCtx = document.getElementById('yearlyServicesChart').getContext('2d');
+    const yearlyServicesChart = new Chart(yearlyServicesCtx, {
+      type: 'bar',
+      data: {
+        labels: yearlyBranchNames,
+        datasets: [{
+          label: 'Yearly Services Rendered',
+          data: yearlyBranchServices,
+          backgroundColor: 'rgba(255, 99, 132, 0.6)',
+          borderColor: 'rgba(255, 99, 132, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    // Event listeners for time period dropdowns
+    document.getElementById('revenueTimePeriod').addEventListener('change', function () {
+      const timePeriod = this.value;
+      updateChart('revenue', timePeriod);
+    });
+
+    document.getElementById('servicesTimePeriod').addEventListener('change', function () {
+      const timePeriod = this.value;
+      updateChart('services', timePeriod);
+    });
+
+    document.getElementById('vehiclesTimePeriod').addEventListener('change', function () {
+      const timePeriod = this.value;
+      updateVehiclesChart(timePeriod);
+    });
+
+    // Store chart instances globally to update later
+    let revenueChartInstance;
+    let servicesChartInstance;
+    let vehiclesChartInstance;
+
+    function initChart(dataType, timePeriod) {
+      fetchChartData(dataType, timePeriod).then(data => {
+        const ctx = document.getElementById(dataType + 'Chart').getContext('2d');
+        const chartData = {
+          labels: data.branch_names,
+          datasets: [{
+            label: dataType === 'revenue' ? 'Revenue (GHS)' : 'Services Rendered',
+            data: data.branch_values,
+            backgroundColor: dataType === 'revenue' ? 'rgba(75, 192, 192, 0.6)' : 'rgba(255, 159, 64, 0.6)',
+            borderColor: dataType === 'revenue' ? 'rgba(75, 192, 192, 1)' : 'rgba(255, 159, 64, 1)',
+            borderWidth: 1
+          }]
+        };
+        const chartOptions = {
+          scales: {
+            y: { beginAtZero: true }
+          }
+        };
+        if (dataType === 'revenue') {
+          revenueChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: chartData,
+            options: chartOptions
+          });
+        } else {
+          servicesChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: chartData,
+            options: chartOptions
+          });
+        }
+      });
+    }
+
+    function updateChart(dataType, timePeriod) {
+      fetchChartData(dataType, timePeriod).then(data => {
+        const chartInstance = dataType === 'revenue' ? revenueChartInstance : servicesChartInstance;
+        chartInstance.data.labels = data.branch_names;
+        chartInstance.data.datasets[0].data = data.branch_values;
+        chartInstance.update();
+      });
+    }
+
+    function initVehiclesChart(timePeriod) {
+      fetchVehiclesData(timePeriod).then(data => {
+        const ctx = document.getElementById('vehiclesChart').getContext('2d');
+        const chartData = {
+          labels: data.dates,
+          datasets: [{
+            label: 'Vehicles Registered',
+            data: data.values,
+            backgroundColor: 'rgba(153, 102, 255, 0.6)',
+            borderColor: 'rgba(153, 102, 255, 1)',
+            borderWidth: 1
+          }]
+        };
+        const chartOptions = {
+          scales: {
+            x: { title: { display: true, text: 'Date' } },
+            y: { beginAtZero: true }
+          }
+        };
+        vehiclesChartInstance = new Chart(ctx, {
+          type: 'bar',
+          data: chartData,
+          options: chartOptions
+        });
+      });
+    }
+
+    function updateVehiclesChart(timePeriod) {
+      fetchVehiclesData(timePeriod).then(data => {
+        vehiclesChartInstance.data.labels = data.dates;
+        vehiclesChartInstance.data.datasets[0].data = data.values;
+        vehiclesChartInstance.update();
+      });
+    }
+
+    function fetchChartData(dataType, timePeriod) {
+      const url = `{% url 'get_branch_comparison_data' %}?data_type=${dataType}&time_period=${timePeriod}`;
+      return fetch(url)
+        .then(response => response.json())
+        .catch(error => console.error('Error fetching chart data:', error));
+    }
+
+    function fetchVehiclesData(timePeriod) {
+      const url = `{% url 'get_vehicles_data' %}?time_period=${timePeriod}`;
+      return fetch(url)
+        .then(response => response.json())
+        .catch(error => console.error('Error fetching vehicles data:', error));
+    }
+  });
+</script>
+
+{% endblock %}
