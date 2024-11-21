@@ -7,6 +7,8 @@ urlpatterns = [
     path('', views.home, name='index'),
     path('log_service', views.log_service, name='log_service'),
     path('check-customer-status/<int:customer_id>/', views.check_customer_status, name='check_customer_status'),
+    path('elevated/select_branch/', views.home, name='select_branch'),  # Admin branch selection
+    path('elevated/dashboard/', views.home, name='admin_dashboard'),
 
     # URL path for creating a new customer via modal
     path('create-customer/', views.create_customer, name='create_customer'),
@@ -43,7 +45,7 @@ urlpatterns = [
     path('elevated/customers/', views.manage_customers, name='manage_customers'),
     path('elevated/customers/<int:customer_id>/', views.customer_detail_admin, name='customer_detail_admin'),
     path('elevated/vehicle-groups/', views.vehicle_groups, name='vehicle_groups'),
-    path('elevated/dashboard/', views.admin_dashboard, name='admin_dashboard'),
+    path('elevated/dashboard_analytics/', views.analytics_dashboard, name='admin_analytics'),
     path('admin_dashboard/get_branch_comparison_data/', views.get_branch_comparison_data,
          name='get_branch_comparison_data'),
 path('admin_dashboard/get_service_performance_data/', views.get_service_performance_data, name='get_service_performance_data'),

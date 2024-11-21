@@ -3,7 +3,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
 from autodash_App import models
-from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch
+from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product
 
 
 class CustomUserForm(UserCreationForm):
@@ -57,9 +57,15 @@ class LogServiceForm(forms.Form):
         }),
     )
 
+    products = forms.ModelMultipleChoiceField(queryset=Product.objects.all(), widget=forms.CheckboxSelectMultiple,
+                                              required=False)
+    product_quantities = forms.CharField(widget=forms.HiddenInput(),
+                                         required=False)  # To capture quantities via JavaScript
+
     def __init__(self, branch, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['workers'].queryset = Worker.objects.filter(branch=branch)
+        self.fields['products'].queryset = Product.objects.filter(branch=branch, stock__gt=0)
 
         # Set vehicle queryset based on customer
         if 'customer' in self.data:

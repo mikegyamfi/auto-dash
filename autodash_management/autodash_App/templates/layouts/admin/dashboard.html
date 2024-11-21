@@ -1,4 +1,4 @@
-<!-- templates/layouts/index.html -->
+<!-- templates/layouts/admin/dashboard.html -->
 
 {% extends 'base.html' %}
 
@@ -28,11 +28,11 @@
                 <div class="d-flex align-items-end row">
                   <div class="col-sm-7">
                     <div class="card-body">
-                      <h4 class="card-title text-primary">Welcome, {{ request.user.first_name }} 🎉</h4>
+                      <h4 class="card-title text-primary">Welcome, Admin 🎉</h4>
                       <p class="mb-4">
-                        AutoDash Management helps manage your branch in a simple and effective manner. Log services and add customers as you work.
+                        AutoDash Management helps you manage all branches effectively. Select a branch to view detailed statistics.
                       </p>
-                      <p><strong>Branch: </strong>{{ account.branch }}</p>
+                      <p><strong>Branch: </strong>{{ branch.name }} - {{ branch.location }}</p>
 
                       <a href="{% url 'log_service' %}" class="btn btn-outline-primary">Log Service</a>
                     </div>
@@ -121,12 +121,10 @@
             <div class="col-lg-4 col-md-4 order-2 mb-4">
               <div class="card shadow-sm">
                 <div class="card-body">
-                  <h5 class="card-title text-primary">Your Statistics</h5>
+                  <h5 class="card-title text-primary">Branch Statistics</h5>
                   <p><strong>Completed Orders:</strong> {{ completed_orders }}</p>
                   <p><strong>On Credit Orders:</strong> {{ on_credit_orders }}</p>
                   <p><strong>Pending Orders Today:</strong> {{ pending_orders_today }}</p>
-                  <p><strong>Average Rating:</strong> {{ average_rating }} / 5 stars</p>
-                  <p><strong>Total Ratings:</strong> {{ services_count }}</p>
                 </div>
               </div>
             </div>

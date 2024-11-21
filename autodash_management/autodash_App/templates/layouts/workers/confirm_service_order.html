@@ -1,3 +1,5 @@
+<!-- confirm_service_order.html -->
+
 {% extends 'base.html' %}
 
 {% block style %}
@@ -53,6 +55,7 @@
                         {% endif %}
 
                         <!-- Services Table -->
+                        <h5>Services</h5>
                         <table class="table table-bordered table-striped table-responsive">
                           <thead>
                             <tr>
@@ -83,6 +86,29 @@
                                   <span class="text-muted">Not enough loyalty points</span>
                                 {% endif %}
                               </td>
+                            </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+
+                        <!-- Products Table -->
+                        <h5>Products Purchased</h5>
+                        <table class="table table-bordered table-striped table-responsive">
+                          <thead>
+                            <tr>
+                              <th>Product</th>
+                              <th>Quantity</th>
+                              <th>Price (GHS)</th>
+                              <th>Total (GHS)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for product in products_purchased %}
+                            <tr>
+                              <td>{{ product.product.name }}</td>
+                              <td>{{ product.quantity }}</td>
+                              <td>{{ product.product.price }}</td>
+                              <td>{{ product.total_price }}</td>
                             </tr>
                             {% endfor %}
                           </tbody>
@@ -135,8 +161,8 @@
                           <div class="modal-body">
                             <p><strong>Customer:</strong> {{ service_customer }}</p>
                             <p><strong>Services Redeemed with Loyalty Points:</strong></p>
-                              <p><strong>Discount Applied:</strong> <span id="modal-discount-percentage"></span>% (GHS<span id="modal-discount-amount"></span>)</p>
                             <ul id="redeemed-services-list"></ul>
+                            <p><strong>Discount Applied:</strong> <span id="modal-discount-percentage"></span>% (GHS<span id="modal-discount-amount"></span>)</p>
                             <p><strong>Total Loyalty Points to be Used:</strong> <span id="modal-total-loyalty-points"></span></p>
                             <p><strong>Final Amount to be Paid:</strong> GHS<span id="modal-final-amount"></span></p>
                           </div>
@@ -288,7 +314,7 @@
       const originalForm = document.getElementById('log-service-form');
 
       // Remove existing inputs in confirmation form except CSRF token
-      const confirmationFormInputs = confirmationForm.querySelectorAll('input:not([name=csrfmiddlewaretoken])');
+      const confirmationFormInputs = confirmationForm.querySelectorAll('input:not([name=csrfmiddlewaretoken]), select[name=payment_method]');
       confirmationFormInputs.forEach(input => input.remove());
 
       // Append hidden inputs for the selected services

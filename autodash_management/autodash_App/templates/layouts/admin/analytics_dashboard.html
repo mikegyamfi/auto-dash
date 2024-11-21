@@ -1,0 +1,426 @@
+<!-- templates/layouts/admin/analytics_dashboard.html -->
+
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- Layout wrapper -->
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Menu -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Menu -->
+
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h2 class="mb-4">Admin Analytics Dashboard</h2>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" id="analytics-form" class="row g-3">
+                <div class="col-md-3">
+                  <label for="month" class="form-label">Select Month</label>
+                  <select id="month" name="month" class="form-select" required>
+                    <option value="" disabled>Select month</option>
+                    {% for month in months %}
+                      <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>
+                        {{ month.name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label for="year" class="form-label">Select Year</label>
+                  <select id="year" name="year" class="form-select" required>
+                    <option value="" disabled>Select year</option>
+                    {% for year in years %}
+                      <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3 align-self-end">
+                  <button type="submit" class="btn btn-primary">Apply</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Revenue vs Expenses Chart -->
+          <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">Revenue vs. Expenses</h5>
+              <div>
+                <span class="badge bg-primary">Daily Budget: GHS{{ daily_budget }}</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <canvas id="revenueExpensesChart" height="100"></canvas>
+            </div>
+          </div>
+
+          <!-- Services Rendered per Branch -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h5 class="mb-0">Services Rendered per Branch</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="servicesPerBranchChart" height="100"></canvas>
+            </div>
+          </div>
+
+          <!-- Products Sold Pie Chart -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h5 class="mb-0">Products Sold</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="productsSoldChart" height="100"></canvas>
+            </div>
+          </div>
+
+          <!-- New Customer Vehicles Line Chart -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h5 class="mb-0">New Customer Vehicles Added</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="newVehiclesChart" height="100"></canvas>
+            </div>
+          </div>
+
+          <!-- Daily Expense vs Budget -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h5 class="mb-0">Daily Expenses vs. Budget</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="dailyExpenseChart" height="100"></canvas>
+            </div>
+          </div>
+        </div>
+        <!-- / Content -->
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+<!-- / Layout wrapper -->
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Analytics Scripts -->
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const revenueExpensesCtx = document.getElementById('revenueExpensesChart').getContext('2d');
+    const servicesPerBranchCtx = document.getElementById('servicesPerBranchChart').getContext('2d');
+    const productsSoldCtx = document.getElementById('productsSoldChart').getContext('2d');
+    const newVehiclesCtx = document.getElementById('newVehiclesChart').getContext('2d');
+    const dailyExpenseCtx = document.getElementById('dailyExpenseChart').getContext('2d');
+
+    // Revenue vs Expenses Data
+    const revenueExpensesChart = new Chart(revenueExpensesCtx, {
+      type: 'line',
+      data: {
+        labels: {{ dates|safe }},
+        datasets: [{
+          label: 'Revenue',
+          data: {{ revenues|safe }},
+          borderColor: 'rgba(75, 192, 192, 1)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          fill: true,
+          tension: 0.4
+        },
+        {
+          label: 'Expenses',
+          data: {{ expenses|safe }},
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+          },
+          legend: {
+            position: 'top',
+          },
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false
+        },
+        scales: {
+          x: {
+            display: true,
+            title: {
+              display: true,
+              text: 'Date'
+            }
+          },
+          y: {
+            display: true,
+            title: {
+              display: true,
+              text: 'Amount (GHS)'
+            },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    // Services Rendered per Branch Data
+    const servicesPerBranchChart = new Chart(servicesPerBranchCtx, {
+      type: 'bar',
+      data: {
+        labels: {{ services_branch_names|safe }},
+        datasets: [{
+          label: 'Services Rendered',
+          data: {{ services_total_services|safe }},
+          backgroundColor: 'rgba(54, 162, 235, 0.6)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+          },
+          legend: {
+            display: false,
+          },
+        },
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Branches'
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Number of Services'
+            },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    // Products Sold Pie Chart Data
+    const productsSoldChart = new Chart(productsSoldCtx, {
+      type: 'pie',
+      data: {
+        labels: {{ products_sold_labels|safe }},
+        datasets: [{
+          data: {{ products_sold_values|safe }},
+          backgroundColor: [
+            'rgba(255, 99, 132, 0.6)',
+            'rgba(54, 162, 235, 0.6)',
+            'rgba(255, 206, 86, 0.6)',
+            'rgba(75, 192, 192, 0.6)',
+            'rgba(153, 102, 255, 0.6)',
+            'rgba(255, 159, 64, 0.6)'
+          ],
+          borderColor: [
+            'rgba(255,99,132,1)',
+            'rgba(54, 162, 235, 1)',
+            'rgba(255, 206, 86, 1)',
+            'rgba(75, 192, 192, 1)',
+            'rgba(153, 102, 255, 1)',
+            'rgba(255, 159, 64, 1)'
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                let label = context.label || '';
+                if (label) {
+                  label += ': ';
+                }
+                if (context.parsed !== null) {
+                  label += context.parsed;
+                }
+                return label;
+              }
+            }
+          },
+          legend: {
+            position: 'right',
+          },
+        }
+      }
+    });
+
+    // New Customer Vehicles Line Chart Data
+    const newVehiclesChart = new Chart(newVehiclesCtx, {
+      type: 'line',
+      data: {
+        labels: {{ dates|safe }},
+        datasets: [{
+          label: 'New Vehicles Added',
+          data: {{ new_vehicles_data|safe }},
+          borderColor: 'rgba(255, 206, 86, 1)',
+          backgroundColor: 'rgba(255, 206, 86, 0.2)',
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+          },
+          legend: {
+            position: 'top',
+          },
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false
+        },
+        scales: {
+          x: {
+            display: true,
+            title: {
+              display: true,
+              text: 'Date'
+            }
+          },
+          y: {
+            display: true,
+            title: {
+              display: true,
+              text: 'Number of Vehicles'
+            },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    // Daily Expense vs Budget Line Chart Data
+    const dailyExpenseChart = new Chart(dailyExpenseCtx, {
+      type: 'line',
+      data: {
+        labels: {{ dates|safe }},
+        datasets: [{
+          label: 'Expenses',
+          data: {{ expenses|safe }},
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: true,
+          tension: 0.4
+        },
+        {
+          label: 'Daily Budget',
+          data: Array({{ dates|length }}).fill({{ daily_budget }}),
+          borderColor: 'rgba(54, 162, 235, 1)',
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          borderDash: [10,5],
+          fill: false,
+          tension: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+          },
+          legend: {
+            position: 'top',
+          },
+          // Uncomment the following lines if you include the annotation plugin
+          /*
+          annotation: {
+            annotations: {
+              line1: {
+                type: 'line',
+                yMin: {{ daily_budget }},
+                yMax: {{ daily_budget }},
+                borderColor: 'rgba(75, 192, 192, 1)',
+                borderWidth: 2,
+                label: {
+                  enabled: true,
+                  content: 'Daily Budget',
+                  position: 'end'
+                }
+              }
+            }
+          }
+          */
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false
+        },
+        scales: {
+          x: {
+            display: true,
+            title: {
+              display: true,
+              text: 'Date'
+            }
+          },
+          y: {
+            display: true,
+            title: {
+              display: true,
+              text: 'Amount (GHS)'
+            },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    // If you wish to use the annotation plugin, ensure it's included and registered
+    // Uncomment the following lines after including the plugin
+    /*
+    Chart.register(ChartAnnotation);
+    */
+  });
+</script>
+
+{% endblock %}

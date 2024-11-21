@@ -4,7 +4,9 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
-from django.db.models import Sum, Avg
+from django.db import transaction
+from django.db.models import Sum, Avg, functions
+from django.db.models.functions import TruncDate
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.http import HttpResponse
@@ -18,71 +20,252 @@ from . import models, helper, forms
 @login_required(login_url='login')
 def home(request):
     user = models.CustomUser.objects.get(id=request.user.id)
-    user_role = user.role
+    user_role = user.role.lower()
 
-    if user_role == 'worker' or user_role == "Worker":
-        account = Worker.objects.get(user=user)
-        today = timezone.now().date()
+    today = timezone.now().date()
+    yesterday = today - timezone.timedelta(days=1)
 
-        # Get yesterday's date
-        yesterday = today - timezone.timedelta(days=1)
+    if user.is_superuser or user.is_staff:
+        # Admin View
+        branch_id = request.GET.get('branch_id')
+        if not branch_id:
+            # Render Branch Selection Page
+            branches = models.Branch.objects.all()
+            context = {
+                'branches': branches,
+            }
+            return render(request, "layouts/admin/select_branch.html", context=context)
+        else:
+            # Validate and Get Selected Branch
+            selected_branch = get_object_or_404(models.Branch, id=branch_id)
 
-        # Calculate total revenue for today
-        total_revenue_today = Revenue.objects.filter(date=today, user=request.user).aggregate(total=Sum('amount'))[
+            # Revenue Calculations
+            total_revenue_today = \
+                models.Revenue.objects.filter(branch=selected_branch, date=today).aggregate(total=Sum('amount'))[
+                    'total'] or 0
+            total_revenue_yesterday = \
+                models.Revenue.objects.filter(branch=selected_branch, date=yesterday).aggregate(total=Sum('amount'))[
+                    'total'] or 0
+
+            # Percentage Increase in Revenue
+            if total_revenue_yesterday == 0 and total_revenue_today > 0:
+                percentage_increase = 100
+            elif total_revenue_yesterday > 0:
+                percentage_increase = ((total_revenue_today - total_revenue_yesterday) / total_revenue_yesterday) * 100
+            else:
+                percentage_increase = 0
+
+            # Services Rendered Calculations
+            services_rendered_today = models.ServiceRenderedOrder.objects.filter(
+                branch=selected_branch,
+                date__date=today
+            ).count()
+
+            services_rendered_yesterday = models.ServiceRenderedOrder.objects.filter(
+                branch=selected_branch,
+                date__date=yesterday
+            ).count()
+
+            # Percentage Change in Services Rendered
+            if services_rendered_yesterday == 0 and services_rendered_today > 0:
+                percentage_change = 100
+            elif services_rendered_yesterday > 0:
+                percentage_change = ((
+                                             services_rendered_today - services_rendered_yesterday) / services_rendered_yesterday) * 100
+            else:
+                percentage_change = 0
+
+            # Expenses Calculations
+            total_expenses_today = \
+                models.Expense.objects.filter(branch=selected_branch, date=today).aggregate(total=Sum('amount'))[
+                    'total'] or 0
+
+            # Orders Calculations
+            pending_orders_today = models.ServiceRenderedOrder.objects.filter(
+                branch=selected_branch,
+                status='pending',
+                date__date=today
+            ).count()
+
+            completed_orders = models.ServiceRenderedOrder.objects.filter(
+                branch=selected_branch,
+                status='completed'
+            ).count()
+
+            on_credit_orders = models.ServiceRenderedOrder.objects.filter(
+                branch=selected_branch,
+                payment_method='credit'
+            ).count()
+
+            # Commission Calculations
+            total_commission = models.Commission.objects.filter(
+                service_rendered__order__branch=selected_branch,
+                date=today
+            ).aggregate(total=Sum('amount'))['total'] or 0
+
+            # Products Sold Calculations
+            products_sold_today = models.ProductPurchased.objects.filter(
+                service_order__branch=selected_branch,
+                service_order__date__date=today
+            ).aggregate(total=Sum('quantity'))['total'] or 0
+
+            # Revenue Generated Calculations
+            revenue_generated = models.Revenue.objects.filter(
+                branch=selected_branch,
+                date=today
+            ).aggregate(total=Sum('final_amount'))['total'] or 0
+
+            # Aggregate Data for Admin Dashboard
+            context = {
+                'user': user,
+                'branch': selected_branch,
+                'revenue_today': total_revenue_today,
+                'percentage_increase': round(percentage_increase, 2),
+                'services_rendered_today': services_rendered_today,
+                'services_percentage_change': round(percentage_change, 2),
+                'expenses_today': total_expenses_today,
+                'pending_orders_today': pending_orders_today,
+                'completed_orders': completed_orders,
+                'on_credit_orders': on_credit_orders,
+                'total_commission': total_commission,
+                'products_sold_today': products_sold_today,
+                'revenue_generated': revenue_generated,
+                'branches': models.Branch.objects.all(),  # For branch selection UI
+            }
+
+            return render(request, "layouts/admin/dashboard.html", context=context)
+
+    elif user_role == 'worker':
+        # Worker View
+        account = models.Worker.objects.get(user=user)
+        branch = account.branch
+
+        # Revenue Calculations
+        total_revenue_today = models.Revenue.objects.filter(branch=branch, date=today).aggregate(total=Sum('amount'))[
                                   'total'] or 0
         total_revenue_yesterday = \
-            Revenue.objects.filter(date=yesterday, user=request.user).aggregate(total=Sum('amount'))['total'] or 0
+            models.Revenue.objects.filter(branch=branch, date=yesterday).aggregate(total=Sum('amount'))['total'] or 0
 
-        # Calculate percentage increase
-        percentage_increase = 100 if total_revenue_yesterday == 0 and total_revenue_today > 0 else (
-            ((
-                     total_revenue_today - total_revenue_yesterday) / total_revenue_yesterday) * 100 if total_revenue_yesterday > 0 else 0)
+        # Percentage Increase in Revenue
+        if total_revenue_yesterday == 0 and total_revenue_today > 0:
+            percentage_increase = 100
+        elif total_revenue_yesterday > 0:
+            percentage_increase = ((total_revenue_today - total_revenue_yesterday) / total_revenue_yesterday) * 100
+        else:
+            percentage_increase = 0
 
-        # Services rendered today and yesterday
-        services_rendered_today = ServiceRenderedOrder.objects.filter(workers__in=[account],
-                                                                      date__date=today).count()
-        print(services_rendered_today)
-        services_rendered_yesterday = ServiceRenderedOrder.objects.filter(workers__in=[account],
-                                                                          date__date=yesterday).count()
+        # Services Rendered Calculations
+        services_rendered_today = models.ServiceRenderedOrder.objects.filter(
+            workers=account,
+            date__date=today
+        ).count()
 
-        # Percentage change in services rendered
-        percentage_change = 100 if services_rendered_yesterday == 0 and services_rendered_today > 0 else (
-            ((
-                     services_rendered_today - services_rendered_yesterday) / services_rendered_yesterday) * 100 if services_rendered_yesterday > 0 else 0)
+        services_rendered_yesterday = models.ServiceRenderedOrder.objects.filter(
+            workers=account,
+            date__date=yesterday
+        ).count()
 
-        # Calculate the worker's rating
-        completed_orders = ServiceRenderedOrder.objects.filter(workers__in=[account], status='completed')
-        pending_orders = ServiceRenderedOrder.objects.filter(workers__in=[account], status='pending').order_by('-date')[
-                         :5]
-        total_ratings = completed_orders.aggregate(Sum('customer_rating'))['customer_rating__sum'] or 0
-        rating_count = completed_orders.filter(customer_rating__isnull=False).count()
+        # Percentage Change in Services Rendered
+        if services_rendered_yesterday == 0 and services_rendered_today > 0:
+            percentage_change = 100
+        elif services_rendered_yesterday > 0:
+            percentage_change = ((
+                                         services_rendered_today - services_rendered_yesterday) / services_rendered_yesterday) * 100
+        else:
+            percentage_change = 0
+
+        # Expenses Calculations
+        total_expenses_today = models.Expense.objects.filter(branch=branch, date=today).aggregate(total=Sum('amount'))[
+                                   'total'] or 0
+
+        # Orders Calculations
+        pending_orders_today = models.ServiceRenderedOrder.objects.filter(
+            workers=account,
+            status='pending',
+            date__date=today
+        ).count()
+
+        completed_orders = models.ServiceRenderedOrder.objects.filter(
+            workers=account,
+            status='completed'
+        ).count()
+
+        on_credit_orders = models.ServiceRenderedOrder.objects.filter(
+            workers=account,
+            payment_method='credit',
+            branch=branch
+        ).count()
+
+        # Commission Calculations
+        total_commission = models.Commission.objects.filter(
+            worker=account,
+            date=today
+        ).aggregate(total=Sum('amount'))['total'] or 0
+
+        # Products Sold Calculations
+        products_sold_today = models.ProductPurchased.objects.filter(
+            service_order__workers=account,
+            service_order__branch=branch,
+            service_order__date__date=today
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+
+        # Revenue Generated Calculations
+        revenue_generated = models.Revenue.objects.filter(
+            branch=branch,
+            date=today
+        ).aggregate(total=Sum('final_amount'))['total'] or 0
+
+        # Rating Calculations
+        completed_orders_with_rating = models.ServiceRenderedOrder.objects.filter(
+            workers=account,
+            status='completed',
+            customer_rating__isnull=False
+        )
+        total_ratings = completed_orders_with_rating.aggregate(Sum('customer_rating'))['customer_rating__sum'] or 0
+        rating_count = completed_orders_with_rating.count()
         average_rating = round(total_ratings / rating_count, 2) if rating_count > 0 else 0
 
-        # Get the recent 5 services rendered
-        recent_services = completed_orders.order_by('-date')[:5]
+        # Recent Services
+        recent_services = completed_orders_with_rating.order_by('-date')[:5]
 
+        # Pending Services (Last 5)
+        pending_orders = models.ServiceRenderedOrder.objects.filter(
+            workers=account,
+            status='pending'
+        ).order_by('-date')[:5]
+
+        # Aggregate Data for Worker Dashboard
         context = {
             'user': user,
             'account': account,
+            'branch': branch,
             'revenue_today': total_revenue_today,
-            'percentage_increase': percentage_increase,
+            'percentage_increase': round(percentage_increase, 2),
             'services_rendered_today': services_rendered_today,
-            'services_percentage_change': percentage_change,
+            'services_percentage_change': round(percentage_change, 2),
+            'expenses_today': total_expenses_today,
+            'pending_orders_today': pending_orders_today,
+            'completed_orders': completed_orders,
+            'on_credit_orders': on_credit_orders,
+            'total_commission': total_commission,
+            'products_sold_today': products_sold_today,
+            'revenue_generated': revenue_generated,
             'average_rating': average_rating,
-            'services_count': completed_orders.count(),
-            'recent_services': recent_services,  # Passing the recent 5 services to the template
+            'services_count': completed_orders_with_rating.count(),
+            'recent_services': recent_services,
             'pending_services': pending_orders,
         }
 
         return render(request, "layouts/index.html", context=context)
 
-    # If customer
     elif user_role == 'customer':
+        # Redirect Customers to Their Dashboard
         return redirect('customer_dashboard')
 
-    # If superuser or staff
-    elif user.is_superuser or user.is_staff:
-        ...
+    else:
+        # Handle Undefined Roles
+        messages.info(request, 'You are not allowed to access this page.')
+        return redirect('index')
 
 
 # def service(request):
@@ -106,6 +289,7 @@ from django.template.loader import render_to_string
 
 
 @login_required(login_url='login')
+@transaction.atomic
 def log_service(request):
     user = models.CustomUser.objects.get(id=request.user.id)
     worker = models.Worker.objects.get(user=user)
@@ -114,16 +298,33 @@ def log_service(request):
         if request.method == 'POST':
             form = LogServiceForm(data=request.POST, branch=worker.branch)
             if form.is_valid():
-                print("got here")
                 # Get form data
                 customer = form.cleaned_data['customer']
                 vehicle = form.cleaned_data['vehicle']
                 selected_services = form.cleaned_data['service']
                 selected_workers = form.cleaned_data['workers']
+                selected_products = form.cleaned_data.get('products', [])
+                product_quantities = request.POST.getlist('product_quantity')  # Assuming quantities are sent as a list
 
-                # Calculate total amount
-                total = sum([float(service.price) for service in selected_services])
+                # Calculate total amount for services
+                total_services = sum([float(service.price) for service in selected_services])
 
+                # Calculate total amount for products
+                total_products = 0
+                products_purchased = []
+                for product, qty in zip(selected_products, product_quantities):
+                    quantity = int(qty) if qty.isdigit() else 1
+                    if product.stock < quantity:
+                        messages.error(request, f'Not enough stock for {product.name}. Available: {product.stock}')
+                        return redirect('log_service')
+                    total_products += product.price * quantity
+                    products_purchased.append(
+                        {'product': product, 'quantity': quantity, 'total_price': product.price * quantity})
+
+                # Total amount
+                total = total_services + total_products
+
+                # Generate unique order number
                 order_number = helper.generate_service_order_number(prefix=worker.branch.name[:3])
 
                 # Create new ServiceRenderedOrder
@@ -132,7 +333,9 @@ def log_service(request):
                     customer=customer,
                     user=user,
                     total_amount=total,
-                    vehicle=vehicle
+                    final_amount=total,  # Initial final_amount equals total
+                    vehicle=vehicle,
+                    branch=worker.branch
                 )
                 new_order.workers.set(selected_workers)
 
@@ -143,30 +346,50 @@ def log_service(request):
                         order=new_order,
                     )
 
+                # Handle Product Purchases
+                for item in products_purchased:
+                    product = item['product']
+                    quantity = item['quantity']
+                    total_price = item['total_price']
+                    models.ProductPurchased.objects.create(
+                        service_order=new_order,
+                        product=product,
+                        quantity=quantity,
+                        total_price=total_price
+                    )
+                    # Update product stock
+                    product.stock -= quantity
+                    product.save()
+
+                # Calculate Revenue
                 revenue = models.Revenue.objects.create(
                     user=user,
                     amount=total,
                     branch=worker.branch,
-                    service_rendered=new_order
+                    service_rendered=new_order,
+                    final_amount=total  # Initially, final_amount equals total
                 )
                 revenue.save()
-                messages.success(request, 'Service awaiting confirmation.')
+
+                messages.success(request, 'Service and products logged successfully.')
                 return redirect('confirm_service_rendered', pk=new_order.pk)
             else:
-                messages.info(request, "Form invalid")
+                messages.error(request, "Form is invalid. Please correct the errors below.")
                 print(form.errors)
         else:
             form = LogServiceForm(branch=worker.branch)
 
-        # Fetch vehicle groups to pass to the template
+        # Fetch vehicle groups and products to pass to the template
         vehicle_groups = models.VehicleGroup.objects.all()
+        products = models.Product.objects.filter(branch=worker.branch)
 
         return render(request, 'layouts/workers/log_service.html', {
             'form': form,
-            'vehicle_groups': vehicle_groups,  # Pass vehicle groups to the template
+            'vehicle_groups': vehicle_groups,
+            'products': products,  # Pass products to the template
         })
     else:
-        messages.info(request, 'You are not allowed to log in to this page.')
+        messages.info(request, 'You are not allowed to access this page.')
         return redirect('index')
 
 
@@ -928,6 +1151,7 @@ def admin_dashboard(request):
 
     return render(request, 'layouts/admin/admin_dashboard.html', context)
 
+
 @staff_member_required
 def get_branch_comparison_data(request):
     # Get the time period from the request
@@ -1021,7 +1245,9 @@ def get_service_performance_data(request):
     branch_values = []
 
     for branch in branches:
-        service_rendered_orders_count = ServiceRendered.objects.filter(service_id=service_id, order__branch_id=branch.id, order__status='completed') \
+        service_rendered_orders_count = ServiceRendered.objects.filter(service_id=service_id,
+                                                                       order__branch_id=branch.id,
+                                                                       order__status='completed') \
             .values('order') \
             .distinct() \
             .count()
@@ -1098,7 +1324,6 @@ def get_vehicles_data(request):
     }
 
     return JsonResponse(data)
-
 
 
 @staff_member_required
@@ -1263,6 +1488,7 @@ from django.utils import timezone
 from datetime import timedelta
 from django.db.models import Sum, Count, Avg
 
+
 @staff_member_required
 def branch_insights(request, branch_id):
     from . import models  # Ensure models are imported
@@ -1358,3 +1584,222 @@ def branch_insights(request, branch_id):
 
     return render(request, 'layouts/admin/branch_insights.html', context)
 
+
+def daily_profit_loss(branch, date):
+    total_revenue = models.Revenue.objects.filter(branch=branch, date=date).aggregate(total=Sum('final_amount'))[
+                        'total'] or 0
+    total_expenses = models.Expense.objects.filter(branch=branch, date=date).aggregate(total=Sum('amount'))[
+                         'total'] or 0
+    profit = total_revenue - total_expenses
+    return profit
+
+
+@staff_member_required
+def analytics_dashboard(request):
+    # Get the selected month and year from GET parameters
+    selected_month = request.GET.get('month')
+    selected_year = request.GET.get('year')
+
+    today = timezone.now().date()
+    current_year = today.year
+    current_month = today.month
+
+    # Define a list of months with their names
+    months = [
+        {'num': 1, 'name': 'January'},
+        {'num': 2, 'name': 'February'},
+        {'num': 3, 'name': 'March'},
+        {'num': 4, 'name': 'April'},
+        {'num': 5, 'name': 'May'},
+        {'num': 6, 'name': 'June'},
+        {'num': 7, 'name': 'July'},
+        {'num': 8, 'name': 'August'},
+        {'num': 9, 'name': 'September'},
+        {'num': 10, 'name': 'October'},
+        {'num': 11, 'name': 'November'},
+        {'num': 12, 'name': 'December'},
+    ]
+
+    # Define a range of years (e.g., from 2020 to current year)
+    start_year = 2020
+    years = list(range(start_year, current_year + 1))
+
+    # Determine date range based on the selected time period (month)
+    if selected_month and selected_year:
+        try:
+            selected_month = int(selected_month)
+            selected_year = int(selected_year)
+            start_date = datetime(selected_year, selected_month, 1).date()
+            if selected_month == 12:
+                end_date = datetime(selected_year + 1, 1, 1).date() - timedelta(days=1)
+            else:
+                end_date = datetime(selected_year, selected_month + 1, 1).date() - timedelta(days=1)
+        except ValueError:
+            # If invalid month/year, default to current month
+            start_date = today.replace(day=1)
+            end_date = today
+    else:
+        # Default to current month
+        start_date = today.replace(day=1)
+        end_date = today
+
+    # Fetch admin's daily expense budget
+    try:
+        admin_account = request.user.admin_profile
+        daily_budget = admin_account.daily_expense_amount
+    except models.AdminAccount.DoesNotExist:
+        daily_budget = 0  # Default value if not set
+
+    # Revenue Data
+    revenue_data = models.Revenue.objects.filter(
+        branch__isnull=False,
+        date__gte=start_date,
+        date__lte=end_date
+    ).values('branch__name', 'date').annotate(total_revenue=Sum('final_amount'))
+
+    # Expenses Data
+    expenses_data = models.Expense.objects.filter(
+        branch__isnull=False,
+        date__gte=start_date,
+        date__lte=end_date
+    ).values('branch__name', 'date').annotate(total_expense=Sum('amount'))
+
+    # Services Rendered Data
+    services_data = models.ServiceRenderedOrder.objects.filter(
+        branch__isnull=False,
+        status='completed',
+        date__date__gte=start_date,
+        date__date__lte=end_date
+    ).values('branch__name').annotate(total_services=Count('id'))
+
+    # Products Sold Data
+    products_sold_data = models.ProductPurchased.objects.filter(
+        service_order__branch__isnull=False,
+        service_order__date__date__gte=start_date,
+        service_order__date__date__lte=end_date
+    ).values('product__name').annotate(total_quantity=Sum('quantity'))
+
+    # New Customer Vehicles Data
+    new_vehicles_data = models.CustomerVehicle.objects.filter(
+        date_added__date__gte=start_date,
+        date_added__date__lte=end_date
+    ).annotate(date_added_only=TruncDate('date_added')).values('date_added_only').annotate(total=Count('id')).order_by('date_added_only')
+
+    # Prepare data for charts (dates for the selected month)
+    date_counts = {}
+    current_date = start_date
+    while current_date <= end_date:
+        date_str = current_date.strftime('%Y-%m-%d')
+        date_counts[date_str] = {'revenue': 0, 'expense': 0}
+        current_date += timedelta(days=1)
+
+    for entry in revenue_data:
+        date_str = entry['date'].strftime('%Y-%m-%d')
+        if date_str in date_counts:
+            date_counts[date_str]['revenue'] += entry['total_revenue']
+
+    for entry in expenses_data:
+        date_str = entry['date'].strftime('%Y-%m-%d')
+        if date_str in date_counts:
+            date_counts[date_str]['expense'] += entry['total_expense']
+
+    dates = sorted(date_counts.keys())
+    revenues = [date_counts[date]['revenue'] for date in dates]
+    expenses = [date_counts[date]['expense'] for date in dates]
+
+    # New Vehicles Added per day
+    new_vehicles_dict = {entry['date_added_only'].strftime('%Y-%m-%d'): entry['total'] for entry in new_vehicles_data}
+    new_vehicles = [new_vehicles_dict.get(date, 0) for date in dates]
+
+    # Prepare Services Rendered per Branch
+    services_branch_names = [entry['branch__name'] for entry in services_data]
+    services_total_services = [entry['total_services'] for entry in services_data]
+
+    # Prepare Products Sold Data
+    products_sold_labels = [entry['product__name'] for entry in products_sold_data]
+    products_sold_values = [entry['total_quantity'] for entry in products_sold_data]
+
+    # Pass context to template
+    context = {
+        'months': months,
+        'years': years,
+        'selected_year': selected_year if selected_month and selected_year else current_year,
+        'selected_month': selected_month if selected_month and selected_year else current_month,
+        'daily_budget': daily_budget,
+        'dates': dates,
+        'revenues': revenues,
+        'expenses': expenses,
+        'services_branch_names': services_branch_names,
+        'services_total_services': services_total_services,
+        'products_sold_labels': products_sold_labels,
+        'products_sold_values': products_sold_values,
+        'new_vehicles_data': new_vehicles,
+    }
+
+    return render(request, 'layouts/admin/analytics_dashboard.html', context)
+
+
+@staff_member_required
+def api_revenue_expenses(request):
+    # [As defined above]
+    # Fetch selected month and year
+    selected_month = request.GET.get('month')
+    selected_year = request.GET.get('year')
+
+    today = timezone.now().date()
+    current_year = today.year
+    current_month = today.month
+
+    if selected_month and selected_year:
+        try:
+            selected_month = int(selected_month)
+            selected_year = int(selected_year)
+            start_date = datetime(selected_year, selected_month, 1).date()
+            if selected_month == 12:
+                end_date = datetime(selected_year + 1, 1, 1).date() - timedelta(days=1)
+            else:
+                end_date = datetime(selected_year, selected_month + 1, 1).date() - timedelta(days=1)
+        except ValueError:
+            # Invalid month/year, default to current month
+            start_date = today.replace(day=1)
+            end_date = today
+    else:
+        # Default to current month
+        start_date = today.replace(day=1)
+        end_date = today
+
+    # Revenue Data
+    revenue_data = models.Revenue.objects.filter(
+        branch__isnull=False,
+        date__gte=start_date,
+        date__lte=end_date
+    ).values('branch__name').annotate(total_revenue=Sum('final_amount'))
+
+    # Expenses Data
+    expenses_data = models.Expense.objects.filter(
+        branch__isnull=False,
+        date__gte=start_date,
+        date__lte=end_date
+    ).values('branch__name').annotate(total_expense=Sum('amount'))
+
+    # Prepare a dictionary for easy lookup
+    revenue_dict = {entry['branch__name']: entry['total_revenue'] for entry in revenue_data}
+    expenses_dict = {entry['branch__name']: entry['total_expense'] for entry in expenses_data}
+
+    branches = models.Branch.objects.all()
+    branch_names = []
+    branch_revenues = []
+    branch_expenses = []
+
+    for branch in branches:
+        branch_names.append(branch.name)
+        branch_revenues.append(revenue_dict.get(branch.name, 0))
+        branch_expenses.append(expenses_dict.get(branch.name, 0))
+
+    data = {
+        'branch_names': branch_names,
+        'branch_revenues': branch_revenues,
+        'branch_expenses': branch_expenses,
+    }
+
+    return JsonResponse(data)
