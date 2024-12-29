@@ -62,72 +62,100 @@
                       {{ form.workers }}
                     </div>
 
-<div class="row mb-3">
-        <div class="col-md-12">
-            <h5>Products</h5>
-            <div id="products-container">
-                {% for product in products %}
-                    <div class="form-group row">
-                        <div class="col-md-6">
-                            <label>
-                                <input type="checkbox" name="products" value="{{ product.id }}" class="product-checkbox" data-price="{{ product.price }}">
-                                {{ product.name }} (GHS{{ product.price }}) - Stock: {{ product.stock }}
-                            </label>
+                    <!-- Products -->
+                    <div class="row mb-3">
+                      <div class="col-md-12">
+                        <h5>Products</h5>
+                        <div id="products-container">
+                          {% for product in products %}
+                            <div class="form-group row">
+                              <div class="col-md-6">
+                                <label>
+                                  <input type="checkbox" name="products" value="{{ product.id }}" class="product-checkbox" data-price="{{ product.price }}">
+                                  {{ product.name }} (GHS{{ product.price }}) - Stock: {{ product.stock }}
+                                </label>
+                              </div>
+                              <div class="col-md-6">
+                                <input type="number" name="product_quantity_{{ product.id }}" min="1" max="{{ product.stock }}" value="1" class="form-control product-quantity" placeholder="Quantity" disabled>
+                              </div>
+                            </div>
+                          {% endfor %}
                         </div>
-                        <div class="col-md-6">
-                            <input type="number" name="product_quantity" min="1" max="{{ product.stock }}" value="1" class="form-control product-quantity" placeholder="Quantity" disabled>
-                        </div>
+                      </div>
                     </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
 
                     <button type="submit" class="btn btn-primary">Submit</button>
                   </form>
 
                   <!-- Modal for adding new customer -->
-                  <!-- ... [Existing modal code for new customer] ... -->
+                  <div id="new-customer-modal" class="modal fade" tabindex="-1" aria-labelledby="newCustomerModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                      <div class="modal-content">
+                        <div class="modal-header">
+                          <h5 class="modal-title" id="newCustomerModalLabel">Add New Customer</h5>
+                          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                          <form id="new-customer-form">
+                            {% csrf_token %}
+                            <div class="mb-3">
+                              <label for="first_name" class="form-label">First Name</label>
+                              <input type="text" name="first_name" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                              <label for="last_name" class="form-label">Last Name</label>
+                              <input type="text" name="last_name" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                              <label for="phone_number" class="form-label">Phone Number</label>
+                              <input type="text" name="phone_number" class="form-control" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Customer</button>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
                   <!-- Modal for adding new vehicle -->
-                  <div id="new-vehicle-modal" class="modal fade" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Add New Vehicle</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <form id="new-vehicle-form" method="POST" action="{% url 'create_vehicle' %}">
-          {% csrf_token %}
-          <input type="hidden" name="customer_id" id="new-vehicle-customer-id">
-          <div class="mb-3">
-            <label for="vehicle_group" class="form-label">Vehicle Group</label>
-            <select name="vehicle_group" class="form-control" required>
-              <option value="">Select Vehicle Group</option>
-              {% for group in vehicle_groups %}
-                <option value="{{ group.id }}">{{ group.group_name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-3">
-            <label for="car_make" class="form-label">Car Make</label>
-            <input type="text" name="car_make" class="form-control" required>
-          </div>
-          <div class="mb-3">
-            <label for="car_plate" class="form-label">Car Plate</label>
-            <input type="text" name="car_plate" class="form-control" required>
-          </div>
-          <div class="mb-3">
-            <label for="car_color" class="form-label">Car Color</label>
-            <input type="text" name="car_color" class="form-control" required>
-          </div>
-          <button type="submit" class="btn btn-primary">Save Vehicle</button>
-        </form>
-      </div>
-    </div>
-  </div>
-</div>
+                  <div id="new-vehicle-modal" class="modal fade" tabindex="-1" aria-labelledby="newVehicleModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                      <div class="modal-content">
+                        <div class="modal-header">
+                          <h5 class="modal-title" id="newVehicleModalLabel">Add New Vehicle</h5>
+                          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                          <form id="new-vehicle-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="customer_id" id="new-vehicle-customer-id">
+                            <div class="mb-3">
+                              <label for="vehicle_group" class="form-label">Vehicle Group</label>
+                              <select name="vehicle_group" class="form-control" required>
+                                <option value="">Select Vehicle Group</option>
+                                {% for group in vehicle_groups %}
+                                  <option value="{{ group.id }}">{{ group.group_name }}</option>
+                                {% endfor %}
+                              </select>
+                            </div>
+                            <div class="mb-3">
+                              <label for="car_make" class="form-label">Car Make</label>
+                              <input type="text" name="car_make" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                              <label for="car_plate" class="form-label">Car Plate</label>
+                              <input type="text" name="car_plate" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                              <label for="car_color" class="form-label">Car Color</label>
+                              <input type="text" name="car_color" class="form-control" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Vehicle</button>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
                 </div>
               </div>
@@ -151,13 +179,107 @@
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
 <!-- / Layout wrapper -->
+{% endblock %}
 
-<!-- JavaScript to handle dynamic updates -->
+{% block scripts %}
+<!-- Include Bootstrap JS (ensure the path is correct) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
-   // Function to update vehicle options based on selected customer
-  document.getElementById('customer-select').addEventListener('change', function() {
+document.addEventListener('DOMContentLoaded', function() {
+  // Handle adding a new customer via AJAX
+  document.getElementById('new-customer-form').addEventListener('submit', function(event) {
+    event.preventDefault();
+    const formData = new FormData(this);
+
+    fetch('{% url "create_customer" %}', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-CSRFToken': '{{ csrf_token }}',
+      },
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        // Close the modal using Bootstrap's JS API
+        var modalElement = document.getElementById('new-customer-modal');
+        var modalInstance = bootstrap.Modal.getInstance(modalElement);
+        modalInstance.hide();
+
+        // Update the customer select field
+        const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
+        const option = document.createElement('option');
+        option.value = data.customer.id;
+        option.textContent = data.customer.name;
+        customerSelect.appendChild(option);
+        // Select the new customer
+        customerSelect.value = data.customer.id;
+        // Trigger change event to update vehicles
+        const event = new Event('change');
+        customerSelect.dispatchEvent(event);
+      } else {
+        alert('Error creating customer: ' + data.error);
+      }
+    })
+    .catch(error => console.error('Error:', error));
+  });
+
+  // Handle adding a new vehicle via AJAX
+  document.getElementById('new-vehicle-form').addEventListener('submit', function(event) {
+    event.preventDefault();
+    const formData = new FormData(this);
+
+    fetch('{% url "create_vehicle" %}', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-CSRFToken': '{{ csrf_token }}',
+      },
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        // Close the modal
+        var modalElement = document.getElementById('new-vehicle-modal');
+        var modalInstance = bootstrap.Modal.getInstance(modalElement);
+        modalInstance.hide();
+
+        // Update the vehicle select field
+        const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
+        const option = document.createElement('option');
+        option.value = data.vehicle.id;
+        option.textContent = data.vehicle.display;
+        vehicleSelect.appendChild(option);
+        // Select the new vehicle
+        vehicleSelect.value = data.vehicle.id;
+      } else {
+        alert('Error creating vehicle: ' + data.error);
+      }
+    })
+    .catch(error => console.error('Error:', error));
+  });
+
+  // Ensure customer is selected before adding a vehicle
+  document.getElementById('new-vehicle-btn').addEventListener('click', function() {
+    const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
+    const customerId = customerSelect.value;
+    if (!customerId) {
+      alert('Please select a customer first.');
+      // Hide the modal
+      var modalElement = document.getElementById('new-vehicle-modal');
+      var modalInstance = bootstrap.Modal.getInstance(modalElement);
+      modalInstance.hide();
+      return;
+    }
+    // Set the customer_id in the new vehicle form
+    document.getElementById('new-vehicle-customer-id').value = customerId;
+  });
+
+  // Function to update vehicle options based on selected customer
+  document.getElementById('{{ form.customer.id_for_label }}').addEventListener('change', function() {
     const customerId = this.value;
-    const vehicleSelect = document.getElementById('vehicle-select');
+    const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
 
     // Clear existing options
     vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
@@ -177,88 +299,18 @@
     }
   });
 
-  // Function to update service options based on selected vehicle
-  document.getElementById('vehicle-select').addEventListener('change', function() {
-    const vehicleId = this.value;
-    const serviceSelect = document.getElementById('service-select');
-
-    // Clear existing options
-    serviceSelect.innerHTML = '';
-
-    if (vehicleId) {
-      fetch(`/get_vehicle_services/${vehicleId}/`)
-        .then(response => response.json())
-        .then(data => {
-          data.services.forEach(service => {
-            const option = document.createElement('option');
-            option.value = service.id;
-            option.textContent = service.name;
-            serviceSelect.appendChild(option);
-          });
-        })
-        .catch(error => console.error('Error fetching services:', error));
-    }
-  });
-
-  // Ensure customer is selected before adding a vehicle
-  document.getElementById('new-vehicle-btn').addEventListener('click', function() {
-    const customerSelect = document.getElementById('customer-select');
-    const customerId = customerSelect.value;
-    if (!customerId) {
-      alert('Please select a customer first.');
-      // Hide the modal
-      $('#new-vehicle-modal').modal('hide');
-      return;
-    }
-    // Set the customer_id in the new vehicle form
-    document.getElementById('new-vehicle-customer-id').value = customerId;
-  });
-
-  // Handle adding a new vehicle via AJAX
-  document.getElementById('new-vehicle-form').onsubmit = function(event) {
-    event.preventDefault();
-    const formData = new FormData(this);
-
-    fetch('{% url "create_vehicle" %}', {
-      method: 'POST',
-      body: formData,
-      headers: {
-        'X-CSRFToken': '{{ csrf_token }}'
-      },
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        // Close the modal
-        $('#new-vehicle-modal').modal('hide');
-        // Update the vehicle select field
-        const vehicleSelect = document.getElementById('vehicle-select');
-        const option = document.createElement('option');
-        option.value = data.vehicle.id;
-        option.textContent = data.vehicle.display;
-        vehicleSelect.appendChild(option);
-        // Select the new vehicle
-        vehicleSelect.value = data.vehicle.id;
-      } else {
-        alert('Error creating vehicle');
+  // Enable/disable quantity inputs based on product selection
+  const productCheckboxes = document.querySelectorAll('.product-checkbox');
+  productCheckboxes.forEach(function(checkbox) {
+    checkbox.addEventListener('change', function() {
+      const productId = this.value;
+      const quantityInput = document.querySelector(`input[name="product_quantity_${productId}"]`);
+      quantityInput.disabled = !this.checked;
+      if (!this.checked) {
+        quantityInput.value = '1';
       }
-    })
-    .catch(error => console.error('Error:', error));
-  };
-</script>
-
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const productCheckboxes = document.querySelectorAll('.product-checkbox');
-        productCheckboxes.forEach(function(checkbox) {
-            checkbox.addEventListener('change', function() {
-                const quantityInput = this.closest('.form-group').querySelector('.product-quantity');
-                quantityInput.disabled = !this.checked;
-                if (!this.checked) {
-                    quantityInput.value = '1';
-                }
-            });
-        });
     });
+  });
+});
 </script>
 {% endblock %}

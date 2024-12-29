@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Edit Expense</h4>
+
+          <div class="card">
+            <div class="card-body">
+              <form method="POST">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                <div class="alert alert-danger">
+                  {{ form.non_field_errors }}
+                </div>
+                {% endif %}
+
+                <div class="mb-3">
+                  {{ form.description.label_tag }}
+                  {{ form.description }}
+                  {% if form.description.errors %}
+                  <div class="text-danger">
+                    {{ form.description.errors }}
+                  </div>
+                  {% endif %}
+                </div>
+
+                <div class="mb-3">
+                  {{ form.amount.label_tag }}
+                  {{ form.amount }}
+                  {% if form.amount.errors %}
+                  <div class="text-danger">
+                    {{ form.amount.errors }}
+                  </div>
+                  {% endif %}
+                </div>
+
+                <div class="mb-3">
+                  {{ form.branch.label_tag }}
+                  {{ form.branch }}
+                  {% if form.branch.errors %}
+                  <div class="text-danger">
+                    {{ form.branch.errors }}
+                  </div>
+                  {% endif %}
+                </div>
+
+                <button type="submit" class="btn btn-primary">Update Expense</button>
+                <a href="{% url 'expense_list' %}" class="btn btn-secondary">Cancel</a>
+              </form>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

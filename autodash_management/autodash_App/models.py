@@ -90,16 +90,16 @@ class AdminAccount(models.Model):
     daily_expense_amount = models.FloatField(default=0)
 
 
-@receiver(post_save, sender=CustomUser)
-def create_admin_account(sender, instance, created, **kwargs):
-    if created and (instance.is_staff or instance.is_superuser):
-        AdminAccount.objects.create(user=instance)
-
-
-@receiver(post_save, sender=CustomUser)
-def save_admin_account(sender, instance, **kwargs):
-    if instance.is_staff or instance.is_superuser:
-        instance.admin_profile.save()
+# @receiver(post_save, sender=CustomUser)
+# def create_admin_account(sender, instance, created, **kwargs):
+#     if created and (instance.is_staff or instance.is_superuser):
+#         AdminAccount.objects.create(user=instance)
+#
+#
+# @receiver(post_save, sender=CustomUser)
+# def save_admin_account(sender, instance, **kwargs):
+#     if instance.is_staff or instance.is_superuser:
+#         instance.admin_profile.save()
 
 
 # Subscription Model
@@ -236,9 +236,14 @@ class ServiceRenderedOrder(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
     workers = models.ManyToManyField(Worker, blank=True)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    STATUS_CHOICES = [
+        ('completed', 'Completed'),
+        ('pending', 'Pending'),
+        ('canceled', 'Canceled'),
+        ('onCredit', 'On Credit'),
+    ]
     status = models.CharField(max_length=50,
-                              choices=[('completed', 'Completed'), ('pending', 'Pending'), ('canceled', 'Canceled'),
-                                       ('onCredit', 'OnCredit')],
+                              choices=STATUS_CHOICES,
                               default='pending')
     total_amount = models.FloatField()
     amount_paid = models.FloatField(null=True, blank=True)

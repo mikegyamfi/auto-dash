@@ -3,7 +3,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
 from autodash_App import models
-from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product
+from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product, Expense
 
 
 class CustomUserForm(UserCreationForm):
@@ -174,4 +174,30 @@ class BranchForm(forms.ModelForm):
             }),
         }
 
+
+class ExpenseForm(forms.ModelForm):
+    class Meta:
+        model = Expense
+        fields = ['description', 'amount', 'branch']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+            'amount': forms.NumberInput(attrs={'step': 0.01,  'class': 'form-control'}),
+            'branch': forms.Select(attrs={'class': 'form-control'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop('user', None)
+        super(ExpenseForm, self).__init__(*args, **kwargs)
+        if user:
+            if not user.is_staff and not user.is_superuser:
+                try:
+                    worker = user.worker_profile
+                    self.fields['branch'].queryset = Branch.objects.filter(pk=worker.branch.pk)
+                    self.fields['branch'].initial = worker.branch
+                except Worker.DoesNotExist:
+                    self.fields['branch'].queryset = Branch.objects.none()
+            else:
+                self.fields['branch'].queryset = Branch.objects.all()
+        else:
+            self.fields['branch'].queryset = Branch.objects.none()
 

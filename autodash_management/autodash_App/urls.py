@@ -60,4 +60,9 @@ path('admin_dashboard/get_service_performance_data/', views.get_service_performa
     path('customer-service-history/', views.customer_service_history, name='customer_service_history'),
     path('login', auth_views.login_page, name='login'),
     path('logout', auth_views.logout_page, name='logout'),
+
+    path('expenses/', views.expense_list, name='expense_list'),
+    path('expenses/add/', views.add_expense, name='add_expense'),
+    path('expenses/edit/<int:pk>/', views.edit_expense, name='edit_expense'),
+    path('expenses/delete/<int:pk>/', views.delete_expense, name='delete_expense'),
 ]

@@ -1,74 +1,128 @@
+<!-- templates/layouts/workers/service_history.html -->
+
 {% extends 'base.html' %}
 
 {% block content %}
-    <!-- Layout wrapper -->
-    <div class="layout-wrapper layout-content-navbar">
-      <div class="layout-container">
-        <!-- Menu -->
+<!-- Layout wrapper -->
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Menu -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Menu -->
 
-        {% include 'inc/side_nav.html' %}
-        <!-- / Menu -->
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
 
-        <!-- Layout container -->
-        <div class="layout-page">
-          <!-- Navbar -->
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h2>Service History</h2>
 
-          {% include 'inc/header.html' %}
-
-          <!-- / Navbar -->
-
-          <!-- Content wrapper -->
-          <div class="content-wrapper">
-            <!-- Content -->
-
-            <div class="container-xxl flex-grow-1 container-p-y">
-              <h2>Service History</h2>
-          <table id="myTable" class="table table-bordered">
-            <thead>
-              <tr>
-                <th>Service Number</th>
-                <th>Customer</th>
-                <th>Workers</th>
-                <th>Branch</th>
-                <th>Date</th>
-                <th>Payment Method</th>
-                <th>Total Amount</th>
-                  <th>Final Amount</th>
-                  <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for service in services_rendered %}
-              <tr>
-                <td>{{ service.service_order_number }}</td>
-                <td>{{ service.customer.user.first_name }} {{ service.customer.user.last_name }}</td>
-                <td>{% for worker in service.workers.all %} {{ worker.user.first_name }} {% endfor %}</td>
-                <td>{{ service.branch}}</td>
-                <td>{{ service.date }}</td>
-                <td>{{ service.payment_method }}</td>
-                <td>GHS{{ service.total_amount }}</td>
-              <td>GHS{{ service.final_amount }}</td>
-              <td><a href="{% url 'service_order_details' pk=service.id %}">Details</a></td>
-              </tr>
+          <!-- Filter Form -->
+          <form method="get" class="form-inline mb-3">
+            <label for="status">Filter by Status:</label>
+            <select name="status" id="status" class="form-control mx-2">
+              <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option>
+              {% for key, value in statuses %}
+              <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>{{ value }}</option>
               {% endfor %}
-            </tbody>
-          </table>
+            </select>
+            <button type="submit" class="btn btn-primary">Filter</button>
+          </form>
+
+          <!-- Bulk Status Update Form -->
+          <form method="post" id="bulk-status-form">
+            {% csrf_token %}
+            <div class="table-responsive">
+              <table id="service-table" class="table table-bordered">
+                <thead>
+                  <tr>
+                    <th><input type="checkbox" id="select-all"></th>
+                    <th>Service Number</th>
+                    <th>Customer</th>
+                    <th>Workers</th>
+                    <th>Branch</th>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th>Payment Method</th>
+                    <th>Total Amount (GHS)</th>
+                    <th>Final Amount (GHS)</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for service in services_rendered %}
+                  <tr>
+                    <td><input type="checkbox" name="selected_orders" value="{{ service.id }}" class="order-checkbox"></td>
+                    <td>{{ service.service_order_number }}</td>
+                    <td>{{ service.customer.user.first_name }} {{ service.customer.user.last_name }}</td>
+                    <td>
+                      {% for worker in service.workers.all %}
+                        {{ worker.user.first_name }} {{ worker.user.last_name }}{% if not forloop.last %}, {% endif %}
+                      {% endfor %}
+                    </td>
+                    <td>{{ service.branch.name }}</td>
+                    <td>{{ service.date|date:"Y-m-d H:i" }}</td>
+                    <td>{{ service.get_status_display }}</td>
+                    <td>{{ service.payment_method }}</td>
+                    <td>{{ service.total_amount|floatformat:2 }}</td>
+                    <td>{{ service.final_amount|floatformat:2 }}</td>
+                    <td><a href="{% url 'service_order_details' pk=service.id %}">Details</a></td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="11" class="text-center">No services found.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
             </div>
-            <!-- / Content -->
 
-            <!-- Footer -->
-            {% include 'inc/footer.html' %}
-            <!-- / Footer -->
+            <!-- Bulk Status Update Controls -->
+            <div class="form-group mt-3">
+              <label for="new_status">Change Status of Selected Orders To:</label>
+              <select name="new_status" id="new_status" class="form-control mx-2" required>
+                {% for key, value in statuses %}
+                <option value="{{ key }}">{{ value }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-success">Update Status</button>
+            </div>
+          </form>
 
-            <div class="content-backdrop fade"></div>
-          </div>
-          <!-- Content wrapper -->
         </div>
-        <!-- / Layout page -->
-      </div>
+        <!-- / Content -->
 
-      <!-- Overlay -->
-      <div class="layout-overlay layout-menu-toggle"></div>
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- Content wrapper -->
     </div>
-    <!-- / Layout wrapper -->
+    <!-- / Layout page -->
+  </div>
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+<!-- / Layout wrapper -->
+
 {% endblock content %}
+
+{% block scripts %}
+<script>
+  // JavaScript to handle "Select All" checkbox functionality
+  document.getElementById('select-all').addEventListener('change', function() {
+    const checkboxes = document.querySelectorAll('.order-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = this.checked;
+    });
+  });
+</script>
+{% endblock scripts %}

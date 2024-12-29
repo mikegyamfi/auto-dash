@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Expense List</h4>
+
+          <div class="mb-3">
+            <a href="{% url 'add_expense' %}" class="btn btn-primary">Add Expense</a>
+          </div>
+
+          <div class="card">
+            <h5 class="card-header">Expenses</h5>
+            <div class="table-responsive text-nowrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th>Amount</th>
+                    <th>Branch</th>
+                    <th>Date</th>
+                    <th>User</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for expense in expenses %}
+                  <tr>
+                    <td>{{ expense.description }}</td>
+                    <td>GHS {{ expense.amount }}</td>
+                    <td>{{ expense.branch.name }}</td>
+                    <td>{{ expense.date }}</td>
+                    <td>{{ expense.user.get_full_name }}</td>
+                    <td>
+                      <a href="{% url 'edit_expense' expense.pk %}" class="btn btn-sm btn-warning">Edit</a>
+                      <a href="{% url 'delete_expense' expense.pk %}" class="btn btn-sm btn-danger">Delete</a>
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="6">No expenses found.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

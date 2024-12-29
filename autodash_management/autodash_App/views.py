@@ -5,7 +5,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.db import transaction
-from django.db.models import Sum, Avg, functions
+from django.db.models import Sum, Avg, functions, Q
 from django.db.models.functions import TruncDate
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -16,256 +16,265 @@ from django.utils.http import urlsafe_base64_encode
 
 from . import models, helper, forms
 
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib.auth.decorators import login_required
+from django.utils import timezone
+from django.db.models import Sum, Count, Avg
+from .models import (
+    AdminAccount, Expense, Revenue, ServiceRenderedOrder, Worker, ProductPurchased,
+    Commission, Branch, DailyExpenseBudget, ServiceRendered
+)
+
 
 @login_required(login_url='login')
 def home(request):
-    user = models.CustomUser.objects.get(id=request.user.id)
-    user_role = user.role.lower()
-
+    user = request.user
     today = timezone.now().date()
-    yesterday = today - timezone.timedelta(days=1)
+    yesterday = today - timedelta(days=1)
 
-    if user.is_superuser or user.is_staff:
+    if user.is_staff or user.is_superuser:
         # Admin View
+
+        # Check if branch is selected
         branch_id = request.GET.get('branch_id')
-        if not branch_id:
-            # Render Branch Selection Page
-            branches = models.Branch.objects.all()
-            context = {
-                'branches': branches,
-            }
-            return render(request, "layouts/admin/select_branch.html", context=context)
-        else:
-            # Validate and Get Selected Branch
-            selected_branch = get_object_or_404(models.Branch, id=branch_id)
 
-            # Revenue Calculations
-            total_revenue_today = \
-                models.Revenue.objects.filter(branch=selected_branch, date=today).aggregate(total=Sum('amount'))[
-                    'total'] or 0
-            total_revenue_yesterday = \
-                models.Revenue.objects.filter(branch=selected_branch, date=yesterday).aggregate(total=Sum('amount'))[
-                    'total'] or 0
+        if branch_id:
+            # Branch is selected, proceed to generate dashboard
+            try:
+                branch = Branch.objects.get(id=branch_id)
+            except Branch.DoesNotExist:
+                messages.error(request, 'Selected branch does not exist.')
+                return redirect('home')  # Redirect back to branch selection
 
-            # Percentage Increase in Revenue
-            if total_revenue_yesterday == 0 and total_revenue_today > 0:
-                percentage_increase = 100
-            elif total_revenue_yesterday > 0:
-                percentage_increase = ((total_revenue_today - total_revenue_yesterday) / total_revenue_yesterday) * 100
+            # Get number of days for worker statistics
+            days = request.GET.get('days', '10')  # Default to past 10 days
+            try:
+                days = int(days)
+                if days <= 0:
+                    days = 10
+            except (ValueError, TypeError):
+                days = 10
+
+            # Get start and end days ago for expenses
+            start_days_ago = request.GET.get('start_days_ago', '20')
+            end_days_ago = request.GET.get('end_days_ago', '10')
+            try:
+                start_days_ago = int(start_days_ago)
+                end_days_ago = int(end_days_ago)
+                if start_days_ago < 0:
+                    start_days_ago = 20
+                if end_days_ago < 0:
+                    end_days_ago = 10
+                if end_days_ago > start_days_ago:
+                    end_days_ago = start_days_ago
+            except (ValueError, TypeError):
+                start_days_ago = 20
+                end_days_ago = 10
+
+            # Calculate date ranges
+            start_date = today - timedelta(days=days)
+            expense_start_date = today - timedelta(days=start_days_ago)
+            expense_end_date = today - timedelta(days=end_days_ago)
+
+            # Total expenses today
+            expenses_today = Expense.objects.filter(branch=branch, date=today).aggregate(total=Sum('amount'))['total'] or 0
+
+            # Daily expense budget
+            daily_budget = DailyExpenseBudget.objects.filter(branch=branch, date=today).first()
+            daily_expense_budget = daily_budget.budgeted_amount if daily_budget else 0
+
+            expenses_over_budget = expenses_today > daily_expense_budget
+
+            # Calculate budget difference
+            budget_difference = abs(expenses_today - daily_expense_budget)
+
+            # Total revenue today
+            revenue_today = Revenue.objects.filter(branch=branch, date=today).aggregate(total=Sum('final_amount'))['total'] or 0
+            revenue_yesterday = Revenue.objects.filter(branch=branch, date=yesterday).aggregate(total=Sum('final_amount'))['total'] or 0
+
+            # Calculate profit
+            profit_today = revenue_today - expenses_today
+
+            # Percentage increase in revenue
+            if revenue_yesterday > 0:
+                percentage_increase = ((revenue_today - revenue_yesterday) / revenue_yesterday) * 100
             else:
                 percentage_increase = 0
+            percentage_increase = round(percentage_increase, 2)
 
-            # Services Rendered Calculations
-            services_rendered_today = models.ServiceRenderedOrder.objects.filter(
-                branch=selected_branch,
-                date__date=today
+            # Services rendered today
+            services_rendered_today = ServiceRenderedOrder.objects.filter(
+                branch=branch, date__date=today, status='completed'
+            ).count()
+            services_rendered_yesterday = ServiceRenderedOrder.objects.filter(
+                branch=branch, date__date=yesterday, status='completed'
             ).count()
 
-            services_rendered_yesterday = models.ServiceRenderedOrder.objects.filter(
-                branch=selected_branch,
-                date__date=yesterday
-            ).count()
-
-            # Percentage Change in Services Rendered
-            if services_rendered_yesterday == 0 and services_rendered_today > 0:
-                percentage_change = 100
-            elif services_rendered_yesterday > 0:
-                percentage_change = ((
-                                             services_rendered_today - services_rendered_yesterday) / services_rendered_yesterday) * 100
+            if services_rendered_yesterday > 0:
+                services_percentage_change = ((services_rendered_today - services_rendered_yesterday) / services_rendered_yesterday) * 100
             else:
-                percentage_change = 0
+                services_percentage_change = 0
+            services_percentage_change = round(services_percentage_change, 2)
 
-            # Expenses Calculations
-            total_expenses_today = \
-                models.Expense.objects.filter(branch=selected_branch, date=today).aggregate(total=Sum('amount'))[
-                    'total'] or 0
+            # Total commission today
+            total_commission = Commission.objects.filter(worker__branch=branch, date=today).aggregate(total=Sum('amount'))['total'] or 0
 
-            # Orders Calculations
-            pending_orders_today = models.ServiceRenderedOrder.objects.filter(
-                branch=selected_branch,
-                status='pending',
-                date__date=today
-            ).count()
-
-            completed_orders = models.ServiceRenderedOrder.objects.filter(
-                branch=selected_branch,
-                status='completed'
-            ).count()
-
-            on_credit_orders = models.ServiceRenderedOrder.objects.filter(
-                branch=selected_branch,
-                payment_method='credit'
-            ).count()
-
-            # Commission Calculations
-            total_commission = models.Commission.objects.filter(
-                service_rendered__order__branch=selected_branch,
-                date=today
-            ).aggregate(total=Sum('amount'))['total'] or 0
-
-            # Products Sold Calculations
-            products_sold_today = models.ProductPurchased.objects.filter(
-                service_order__branch=selected_branch,
-                service_order__date__date=today
+            # Products sold today
+            products_sold_today = ProductPurchased.objects.filter(
+                service_order__branch=branch, service_order__date__date=today
             ).aggregate(total=Sum('quantity'))['total'] or 0
 
-            # Revenue Generated Calculations
-            revenue_generated = models.Revenue.objects.filter(
-                branch=selected_branch,
-                date=today
-            ).aggregate(total=Sum('final_amount'))['total'] or 0
+            # Recent services
+            recent_services = ServiceRenderedOrder.objects.filter(branch=branch).order_by('-date')[:5]
 
-            # Aggregate Data for Admin Dashboard
+            # Pending services
+            pending_services = ServiceRenderedOrder.objects.filter(branch=branch, status='pending').order_by('-date')
+
+            # Completed and pending orders
+            completed_orders = ServiceRenderedOrder.objects.filter(branch=branch, status='completed').count()
+            on_credit_orders = ServiceRenderedOrder.objects.filter(branch=branch, status='onCredit').count()
+            pending_orders_today = ServiceRenderedOrder.objects.filter(branch=branch, status='pending', date__date=today).count()
+
+            # Add counts of orders under each status
+            total_orders = ServiceRenderedOrder.objects.filter(branch=branch).count()
+            completed_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='completed').count()
+            pending_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='pending').count()
+            canceled_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='canceled').count()
+            on_credit_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='onCredit').count()
+
+            # Services by each worker in the past N days
+            workers = Worker.objects.filter(branch=branch)
+
+            services_by_worker = workers.annotate(
+                total_services=Count(
+                    'servicerenderedorder',
+                    filter=Q(servicerenderedorder__date__gte=start_date, servicerenderedorder__status='completed')
+                )
+            ).order_by('-total_services')
+
+            # Commission by worker in the past N days
+            commission_by_worker = workers.annotate(
+                total_commission=Sum(
+                    'commissions__amount',
+                    filter=Q(commissions__date__gte=start_date)
+                )
+            ).order_by('-total_commission')
+
+            # Expenses of the branch from expense_start_date to expense_end_date
+            expenses_in_range = Expense.objects.filter(
+                branch=branch,
+                date__range=[expense_end_date, expense_start_date]
+            ).order_by('-date')
+
+            # Total expenses in the range
+            total_expenses_in_range = expenses_in_range.aggregate(total=Sum('amount'))['total'] or 0
+
+            # Define options for days selection
+            days_options = [5, 10, 15, 30, 60, 90]
+
             context = {
-                'user': user,
-                'branch': selected_branch,
-                'revenue_today': total_revenue_today,
-                'percentage_increase': round(percentage_increase, 2),
+                'is_admin': True,
+                'branch': branch,
+                'expenses_today': expenses_today,
+                'daily_expense_budget': daily_expense_budget,
+                'expenses_over_budget': expenses_over_budget,
+                'budget_difference': budget_difference,
+                'revenue_today': revenue_today,
+                'profit_today': profit_today,
+                'percentage_increase': percentage_increase,
                 'services_rendered_today': services_rendered_today,
-                'services_percentage_change': round(percentage_change, 2),
-                'expenses_today': total_expenses_today,
-                'pending_orders_today': pending_orders_today,
-                'completed_orders': completed_orders,
-                'on_credit_orders': on_credit_orders,
+                'services_percentage_change': services_percentage_change,
                 'total_commission': total_commission,
                 'products_sold_today': products_sold_today,
-                'revenue_generated': revenue_generated,
-                'branches': models.Branch.objects.all(),  # For branch selection UI
+                'recent_services': recent_services,
+                'pending_services': pending_services,
+                'completed_orders': completed_orders,
+                'on_credit_orders': on_credit_orders,
+                'pending_orders_today': pending_orders_today,
+                'services_by_worker': services_by_worker,
+                'commission_by_worker': commission_by_worker,
+                'days': days,
+                'start_days_ago': start_days_ago,
+                'end_days_ago': end_days_ago,
+                'expenses_in_range': expenses_in_range,
+                'total_expenses_in_range': total_expenses_in_range,
+                'days_options': days_options,
+                'total_orders': total_orders,
+                'completed_orders_count': completed_orders_count,
+                'pending_orders_count': pending_orders_count,
+                'canceled_orders_count': canceled_orders_count,
+                'on_credit_orders_count': on_credit_orders_count,
             }
 
-            return render(request, "layouts/admin/dashboard.html", context=context)
+            return render(request, 'layouts/admin/dashboard.html', context)
 
-    elif user_role == 'worker':
-        # Worker View
-        account = models.Worker.objects.get(user=user)
-        branch = account.branch
-
-        # Revenue Calculations
-        total_revenue_today = models.Revenue.objects.filter(branch=branch, date=today).aggregate(total=Sum('amount'))[
-                                  'total'] or 0
-        total_revenue_yesterday = \
-            models.Revenue.objects.filter(branch=branch, date=yesterday).aggregate(total=Sum('amount'))['total'] or 0
-
-        # Percentage Increase in Revenue
-        if total_revenue_yesterday == 0 and total_revenue_today > 0:
-            percentage_increase = 100
-        elif total_revenue_yesterday > 0:
-            percentage_increase = ((total_revenue_today - total_revenue_yesterday) / total_revenue_yesterday) * 100
         else:
-            percentage_increase = 0
-
-        # Services Rendered Calculations
-        services_rendered_today = models.ServiceRenderedOrder.objects.filter(
-            workers=account,
-            date__date=today
-        ).count()
-
-        services_rendered_yesterday = models.ServiceRenderedOrder.objects.filter(
-            workers=account,
-            date__date=yesterday
-        ).count()
-
-        # Percentage Change in Services Rendered
-        if services_rendered_yesterday == 0 and services_rendered_today > 0:
-            percentage_change = 100
-        elif services_rendered_yesterday > 0:
-            percentage_change = ((
-                                         services_rendered_today - services_rendered_yesterday) / services_rendered_yesterday) * 100
-        else:
-            percentage_change = 0
-
-        # Expenses Calculations
-        total_expenses_today = models.Expense.objects.filter(branch=branch, date=today).aggregate(total=Sum('amount'))[
-                                   'total'] or 0
-
-        # Orders Calculations
-        pending_orders_today = models.ServiceRenderedOrder.objects.filter(
-            workers=account,
-            status='pending',
-            date__date=today
-        ).count()
-
-        completed_orders = models.ServiceRenderedOrder.objects.filter(
-            workers=account,
-            status='completed'
-        ).count()
-
-        on_credit_orders = models.ServiceRenderedOrder.objects.filter(
-            workers=account,
-            payment_method='credit',
-            branch=branch
-        ).count()
-
-        # Commission Calculations
-        total_commission = models.Commission.objects.filter(
-            worker=account,
-            date=today
-        ).aggregate(total=Sum('amount'))['total'] or 0
-
-        # Products Sold Calculations
-        products_sold_today = models.ProductPurchased.objects.filter(
-            service_order__workers=account,
-            service_order__branch=branch,
-            service_order__date__date=today
-        ).aggregate(total=Sum('quantity'))['total'] or 0
-
-        # Revenue Generated Calculations
-        revenue_generated = models.Revenue.objects.filter(
-            branch=branch,
-            date=today
-        ).aggregate(total=Sum('final_amount'))['total'] or 0
-
-        # Rating Calculations
-        completed_orders_with_rating = models.ServiceRenderedOrder.objects.filter(
-            workers=account,
-            status='completed',
-            customer_rating__isnull=False
-        )
-        total_ratings = completed_orders_with_rating.aggregate(Sum('customer_rating'))['customer_rating__sum'] or 0
-        rating_count = completed_orders_with_rating.count()
-        average_rating = round(total_ratings / rating_count, 2) if rating_count > 0 else 0
-
-        # Recent Services
-        recent_services = completed_orders_with_rating.order_by('-date')[:5]
-
-        # Pending Services (Last 5)
-        pending_orders = models.ServiceRenderedOrder.objects.filter(
-            workers=account,
-            status='pending'
-        ).order_by('-date')[:5]
-
-        # Aggregate Data for Worker Dashboard
-        context = {
-            'user': user,
-            'account': account,
-            'branch': branch,
-            'revenue_today': total_revenue_today,
-            'percentage_increase': round(percentage_increase, 2),
-            'services_rendered_today': services_rendered_today,
-            'services_percentage_change': round(percentage_change, 2),
-            'expenses_today': total_expenses_today,
-            'pending_orders_today': pending_orders_today,
-            'completed_orders': completed_orders,
-            'on_credit_orders': on_credit_orders,
-            'total_commission': total_commission,
-            'products_sold_today': products_sold_today,
-            'revenue_generated': revenue_generated,
-            'average_rating': average_rating,
-            'services_count': completed_orders_with_rating.count(),
-            'recent_services': recent_services,
-            'pending_services': pending_orders,
-        }
-
-        return render(request, "layouts/index.html", context=context)
-
-    elif user_role == 'customer':
-        # Redirect Customers to Their Dashboard
-        return redirect('customer_dashboard')
+            # Branch not selected, display branch selection page
+            branches = Branch.objects.all()
+            context = {'branches': branches}
+            return render(request, 'layouts/admin/select_branch.html', context)
 
     else:
-        # Handle Undefined Roles
-        messages.info(request, 'You are not allowed to access this page.')
-        return redirect('index')
+        # Worker View
+        try:
+            worker = Worker.objects.get(user=user)
+            branch = worker.branch
+        except Worker.DoesNotExist:
+            # Handle the case where the user is not associated with a worker profile
+            messages.error(request, 'Your account is not properly configured.')
+            return redirect('logout')
+
+        # Commission earned by the worker today
+        worker_commission_today = Commission.objects.filter(worker=worker, date=today).aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+
+        # Services rendered by the worker today
+        services_rendered_today = ServiceRenderedOrder.objects.filter(
+            workers=worker, date__date=today
+        ).count()
+
+        # Recent services performed by the worker
+        recent_services = ServiceRenderedOrder.objects.filter(
+            workers=worker
+        ).distinct().order_by('-date')[:5]
+
+        # Pending services assigned to the worker
+        pending_services = ServiceRenderedOrder.objects.filter(
+            status='pending', workers=worker
+        ).distinct().order_by('-date')
+
+        # Completed orders by the worker
+        completed_orders = ServiceRenderedOrder.objects.filter(
+            status='completed', workers=worker
+        ).distinct().count()
+
+        # On credit orders handled by the worker
+        on_credit_orders = ServiceRenderedOrder.objects.filter(
+            status='onCredit', workers=worker
+        ).distinct().count()
+
+        # Average rating (assuming you have a method to calculate this)
+        average_rating = worker.average_rating()  # Implement this method in your Worker model
+
+        # Total services count
+        services_count = ServiceRenderedOrder.objects.filter(workers=worker).count()
+
+        context = {
+            'is_admin': False,
+            'worker': worker,
+            'branch': branch,
+            'worker_commission_today': worker_commission_today,
+            'services_rendered_today': services_rendered_today,
+            'recent_services': recent_services,
+            'pending_services': pending_services,
+            'completed_orders': completed_orders,
+            'on_credit_orders': on_credit_orders,
+            'average_rating': average_rating,
+            'services_count': services_count,
+        }
+
+        return render(request, 'layouts/index.html', context)
 
 
 # def service(request):
@@ -276,8 +285,8 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.utils import timezone
 from .models import Customer, Worker, Service, ServiceRendered, Subscription, CustomerSubscription, CustomUser, \
-    ServiceRenderedOrder, Revenue, Branch
-from .forms import LogServiceForm, NewCustomerForm, BranchForm
+    ServiceRenderedOrder, Revenue, Branch, Expense, DailyExpenseBudget, Commission, ProductPurchased
+from .forms import LogServiceForm, NewCustomerForm, BranchForm, ExpenseForm
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.sites.shortcuts import get_current_site
 from django.utils.encoding import force_bytes
@@ -560,11 +569,12 @@ def confirm_service(request, pk):
     services_rendered = models.ServiceRendered.objects.filter(order=service_order)
     customer = service_order.customer
 
-    # Initialize total_amount as the sum of all service prices
-    total_amount = sum([service_rendered.service.price for service_rendered in services_rendered])
+    # Initialize total_amount as the sum of all service and product prices
+    total_service_amount = sum([service_rendered.service.price for service_rendered in services_rendered])
+    total_product_amount = sum([product_purchased.total_price for product_purchased in service_order.products_purchased.all()])
+    total_amount = total_service_amount + total_product_amount
     final_amount = total_amount  # Start with total_amount
 
-    # GET request processing
     if request.method == 'GET':
         loyalty_points = customer.loyalty_points
 
@@ -580,17 +590,15 @@ def confirm_service(request, pk):
                 subscription_services = subscription.services.all()
                 subscription_vehicle_groups = subscription.vehicle_group.all()
 
-                # Loop through services rendered
+                # Adjust final_amount for services covered by subscription
                 for service_rendered in services_rendered:
                     service = service_rendered.service
-                    vehicle = service_order.vehicle  # Ensure ServiceRenderedOrder has a 'vehicle' field
+                    vehicle = service_order.vehicle
                     vehicle_group = vehicle.vehicle_group if vehicle else None
 
-                    # Check if service and vehicle group are covered
                     if service in subscription_services and vehicle_group in subscription_vehicle_groups:
                         final_amount -= service.price
 
-                # Ensure final_amount is not negative
                 final_amount = max(final_amount, 0)
 
         except models.CustomerSubscription.DoesNotExist:
@@ -602,6 +610,9 @@ def confirm_service(request, pk):
         service_order.final_amount = final_amount
         service_order.save()
 
+        # Get available products
+        available_products = models.Product.objects.filter(branch=worker.branch)
+
         context = {
             'service_order': service_order,
             'services': services_rendered,
@@ -609,12 +620,14 @@ def confirm_service(request, pk):
             'active_subscription': active_subscription,
             'subscription': customer_subscription,
             'service_customer': customer,
+            'available_products': available_products,
         }
         return render(request, "layouts/workers/confirm_service_order.html", context=context)
 
-    # POST request processing
     elif request.method == 'POST':
-        service_order.status = "completed"
+        # Get status from POST data
+        status = request.POST.get('status', 'completed')
+        service_order.status = status
         payment_method = request.POST.get('payment_method')
         service_order.payment_method = payment_method
         service_order.branch = worker.branch
@@ -638,11 +651,8 @@ def confirm_service(request, pk):
         final_amount = service_order.final_amount  # After subscription adjustments
 
         for service_rendered in services_to_redeem:
-            # Deduct the service price from the final amount
             final_amount -= service_rendered.service.price
-            # Deduct loyalty points from the customer
             customer.loyalty_points -= service_rendered.service.loyalty_points_required
-            # Record the loyalty redemption transaction
             models.LoyaltyTransaction.objects.create(
                 customer=customer,
                 points=-service_rendered.service.loyalty_points_required,
@@ -651,24 +661,63 @@ def confirm_service(request, pk):
                 branch=worker.branch,
             )
 
-        # Ensure final_amount is not negative
         final_amount = max(final_amount, 0)
 
-        # Get discount percentage from POST data
-        discount_percentage = float(request.POST.get('discount', '0'))
-        discount_percentage = min(max(discount_percentage, 0), 100)  # Clamp between 0 and 100
+        # Collect additional products added
+        product_ids = [key.split('_')[1] for key in request.POST.keys() if key.startswith('product_')]
+        products_purchased = []
+        total_products_price = 0
 
-        # Calculate discount amount
-        discount_amount = (float(final_amount) * float(discount_percentage)) / 100
+        for product_id in product_ids:
+            quantity_str = request.POST.get(f'product_{product_id}')
+            quantity = int(quantity_str) if quantity_str and quantity_str.isdigit() else 0
+            if quantity > 0:
+                product = get_object_or_404(models.Product, id=product_id)
+                if product.stock < quantity:
+                    messages.error(request, f'Not enough stock for {product.name}. Available: {product.stock}')
+                    return redirect(request.path)
+                total_price = product.price * quantity
+                total_products_price += total_price
+                products_purchased.append({'product': product, 'quantity': quantity, 'total_price': total_price})
 
-        # Adjust final amount
+        # Adjust final_amount and total_amount based on additional products
+        service_order.total_amount += total_products_price
+        final_amount += total_products_price
+
+        # Create ProductPurchased entries and update product stock
+        for item in products_purchased:
+            product = item['product']
+            quantity = item['quantity']
+            total_price = item['total_price']
+            models.ProductPurchased.objects.create(
+                service_order=service_order,
+                product=product,
+                quantity=quantity,
+                total_price=total_price
+            )
+            # Update product stock
+            product.stock -= quantity
+            product.save()
+
+        # Get discount type and value from POST data
+        discount_type = request.POST.get('discount_type', 'amount')
+        discount_value_str = request.POST.get('discount_value')
+        discount_value = float(discount_value_str) if discount_value_str and discount_value_str.strip() != '' else 0.0
+        discount_value = max(discount_value, 0)
+
+        # Apply discount
+        if discount_type == 'percentage':
+            discount_value = min(discount_value, 100)
+            discount_amount = (final_amount * discount_value) / 100
+        else:
+            discount_amount = min(discount_value, final_amount)
+
         final_amount -= discount_amount
-
-        # Ensure final_amount is not negative
         final_amount = max(final_amount, 0)
 
         # Save the discount to the service_order
-        service_order.discount = float(discount_amount)  # Assuming 'discount' field stores the discount amount
+        service_order.discount_type = discount_type
+        service_order.discount_value = discount_value
         service_order.final_amount = final_amount
         service_order.save()
 
@@ -687,18 +736,26 @@ def confirm_service(request, pk):
 
         customer.save()
 
-        # Send Feedback URL (Optional)
-        feedback_url = f"http://localhost:8000/feedback/{service_order.id}"
-        service_names = ', '.join([service_rendered.service.service_type for service_rendered in services_rendered])
+        # Handle Revenue based on status
+        if service_order.status == 'completed':
+            revenue, created = models.Revenue.objects.get_or_create(
+                service_rendered=service_order,
+                defaults={
+                    'user': user,
+                    'branch': worker.branch,
+                    'amount': service_order.total_amount,
+                    'final_amount': final_amount,
+                    'date': service_order.date.date(),
+                }
+            )
+            if not created:
+                revenue.amount = service_order.total_amount
+                revenue.final_amount = final_amount
+                revenue.save()
+        else:
+            # If Revenue object exists, delete it
+            models.Revenue.objects.filter(service_rendered=service_order).delete()
 
-        # Format the SMS message
-        message = (
-            f"Thank you for your patronage #{service_order.service_order_number}. "
-            f"Services rendered: {service_names}. Total: GHS{service_order.final_amount}. "
-            f"Please provide your feedback as it helps us improve our services: {feedback_url}"
-        )
-
-        print(message)
         messages.success(request, 'Service Log confirmed.')
         return redirect('index')
 
@@ -738,33 +795,36 @@ def check_customer_status(request, customer_id):
     })
 
 
+
 @login_required(login_url='login')
 def create_customer(request):
     if request.method == 'POST':
-        form = NewCustomerForm(request.POST)
-        if form.is_valid():
-            new_custom_user = form.save(commit=False)
-
-            new_custom_user.role = 'customer'
-            new_custom_user.save()
-
-            new_custom_user.username = form.cleaned_data['phone_number']
-            new_custom_user.save()
-
+        first_name = request.POST.get('first_name')
+        last_name = request.POST.get('last_name')
+        phone_number = request.POST.get('phone_number')
+        if first_name and last_name and phone_number:
+            if CustomUser.objects.filter(phone_number=phone_number).exists():
+                return JsonResponse({'success': False, 'error': 'Customer with this phone number already exists.'})
+            new_custom_user = CustomUser.objects.create(
+                first_name=first_name,
+                last_name=last_name,
+                phone_number=phone_number,
+                username=phone_number,
+                role='customer',
+            )
             new_customer = models.Customer.objects.create(user=new_custom_user)
-            new_customer.save()
-
-            print("customer saved")
-
             # Send password reset email to new customer
-            send_password_reset(new_custom_user)
-
+            # send_password_reset(new_custom_user)
             return JsonResponse({
                 'success': True,
+                'customer': {
+                    'id': new_custom_user.id,
+                    'name': f"{new_custom_user.first_name} {new_custom_user.last_name}",
+                },
             })
-        return JsonResponse({'success': False})
-
-    return JsonResponse({'success': False})
+        else:
+            return JsonResponse({'success': False, 'error': 'Missing required fields.'})
+    return JsonResponse({'success': False, 'error': 'Invalid request method.'})
 
 
 def send_password_reset(user):
@@ -803,11 +863,43 @@ def send_password_reset(user):
 
 @login_required(login_url='login')
 def service_history(request):
-    user = models.CustomUser.objects.get(id=request.user.id)
-    worker = models.Worker.objects.get(user=user)
-    services_rendered = ServiceRenderedOrder.objects.filter(workers__in=[worker]).order_by('-date')[:20]
-    print(services_rendered)
-    return render(request, 'layouts/workers/service_history.html', {'services_rendered': services_rendered})
+    user = request.user
+
+    # Check if user is a worker or admin
+    if user.role not in ["worker", "Admin"]:
+        messages.error(request, "You are not authorized to view this page.")
+        return redirect('index')
+
+    # Retrieve all service orders, ordered by date descending
+    services_rendered = ServiceRenderedOrder.objects.all().order_by('-date')
+
+    # Get all status choices from the model
+    statuses = ServiceRenderedOrder.STATUS_CHOICES
+
+    # Filter by status if provided in GET parameters
+    status_filter = request.GET.get('status', 'all')
+    if status_filter != 'all':
+        services_rendered = services_rendered.filter(status=status_filter)
+
+    # Handle bulk status change
+    if request.method == 'POST':
+        selected_order_ids = request.POST.getlist('selected_orders')
+        new_status = request.POST.get('new_status')
+        valid_statuses = [choice[0] for choice in ServiceRenderedOrder.STATUS_CHOICES]
+        if selected_order_ids and new_status in valid_statuses:
+            # Update the status of selected orders
+            ServiceRenderedOrder.objects.filter(id__in=selected_order_ids).update(status=new_status)
+            messages.success(request, "Selected orders have been updated.")
+            return redirect('service_history')
+        else:
+            messages.error(request, "Please select orders and a valid status to update.")
+
+    context = {
+        'services_rendered': services_rendered,
+        'statuses': statuses,
+        'status_filter': status_filter,
+    }
+    return render(request, 'layouts/workers/service_history.html', context)
 
 
 # ============================================================================================================================================================
@@ -1683,7 +1775,8 @@ def analytics_dashboard(request):
     new_vehicles_data = models.CustomerVehicle.objects.filter(
         date_added__date__gte=start_date,
         date_added__date__lte=end_date
-    ).annotate(date_added_only=TruncDate('date_added')).values('date_added_only').annotate(total=Count('id')).order_by('date_added_only')
+    ).annotate(date_added_only=TruncDate('date_added')).values('date_added_only').annotate(total=Count('id')).order_by(
+        'date_added_only')
 
     # Prepare data for charts (dates for the selected month)
     date_counts = {}
@@ -1803,3 +1896,72 @@ def api_revenue_expenses(request):
     }
 
     return JsonResponse(data)
+
+
+@login_required(login_url='login')
+def expense_list(request):
+    user = request.user
+    if user.is_staff or user.is_superuser:
+        expenses = Expense.objects.all().order_by('-date')
+    else:
+        try:
+            worker = user.worker_profile
+            expenses = Expense.objects.filter(branch=worker.branch).order_by('-date')
+        except Worker.DoesNotExist:
+            messages.error(request, 'You are not authorized to view this page.')
+            return redirect('index')
+    return render(request, 'layouts/expense_list.html', {'expenses': expenses})
+
+
+@login_required(login_url='login')
+def add_expense(request):
+    user = request.user
+    if request.method == 'POST':
+        form = ExpenseForm(request.POST, user=user)
+        if form.is_valid():
+            expense = form.save(commit=False)
+            expense.user = user
+            expense.save()
+            messages.success(request, 'Expense added successfully.')
+            return redirect('expense_list')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = ExpenseForm(user=user)
+    return render(request, 'layouts/add_expense.html', {'form': form})
+
+
+@login_required(login_url='login')
+def edit_expense(request, pk):
+    expense = get_object_or_404(Expense, pk=pk)
+    user = request.user
+    if not user.is_staff and not user.is_superuser and expense.user != user:
+        messages.error(request, 'You are not authorized to edit this expense.')
+        return redirect('expense_list')
+    if request.method == 'POST':
+        form = ExpenseForm(request.POST, instance=expense, user=user)
+        if form.is_valid():
+            expense = form.save(commit=False)
+            expense.user = user
+            expense.save()
+            messages.success(request, 'Expense updated successfully.')
+            return redirect('expense_list')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = ExpenseForm(instance=expense, user=user)
+    return render(request, 'layouts/edit_expense.html', {'form': form, 'expense': expense})
+
+
+@login_required(login_url='login')
+def delete_expense(request, pk):
+    expense = get_object_or_404(Expense, pk=pk)
+    user = request.user
+    if not user.is_staff and not user.is_superuser and expense.user != user:
+        messages.error(request, 'You are not authorized to delete this expense.')
+        return redirect('expense_list')
+    if request.method == 'POST':
+        expense.delete()
+        messages.success(request, 'Expense deleted successfully.')
+        return redirect('expense_list')
+    return render(request, 'layouts/delete_expense.html', {'expense': expense})
