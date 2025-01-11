@@ -421,6 +421,9 @@ def log_service(request):
 
 @login_required(login_url='login')
 def get_customer_vehicles(request, customer_id):
+    """
+    Fetches vehicles associated with a given customer and returns them as JSON.
+    """
     customer = get_object_or_404(models.Customer, id=customer_id)
     vehicles = models.CustomerVehicle.objects.filter(customer=customer)
     vehicle_list = []
@@ -433,7 +436,62 @@ def get_customer_vehicles(request, customer_id):
 
 
 @login_required(login_url='login')
+def get_vehicle_services(request, vehicle_id):
+    """
+    Fetches services related to the vehicle's group and returns them as JSON.
+    """
+    vehicle = get_object_or_404(models.CustomerVehicle, id=vehicle_id)
+    vehicle_group = vehicle.vehicle_group
+    services = models.Service.objects.filter(vehicle_group=vehicle_group, active=True)
+
+    service_list = []
+    for service in services:
+        # Customize display text as needed
+        service_list.append({
+            'id': service.id,
+            'name': service.service_type,
+        })
+
+    return JsonResponse({'services': service_list})
+
+
+@login_required(login_url='login')
+def create_customer(request):
+    """
+    Creates a new customer via AJAX.
+    """
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name')
+        last_name = request.POST.get('last_name')
+        phone_number = request.POST.get('phone_number')
+
+        # Basic validation
+        if not all([first_name, last_name, phone_number]):
+            return JsonResponse({'success': False, 'error': 'All fields are required.'})
+
+        # Create the customer
+        new_customer = models.Customer.objects.create(
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone_number
+        )
+
+        return JsonResponse({
+            'success': True,
+            'customer': {
+                'id': new_customer.id,
+                'name': f"{new_customer.first_name} {new_customer.last_name}",
+            }
+        })
+    else:
+        return JsonResponse({'success': False, 'error': 'Invalid request method.'})
+
+
+@login_required(login_url='login')
 def create_vehicle(request):
+    """
+    Creates a new vehicle via AJAX.
+    """
     if request.method == 'POST':
         customer_id = request.POST.get('customer_id')
         vehicle_group_id = request.POST.get('vehicle_group')
@@ -441,10 +499,12 @@ def create_vehicle(request):
         car_plate = request.POST.get('car_plate')
         car_color = request.POST.get('car_color')
 
+        if not all([customer_id, vehicle_group_id, car_make, car_plate, car_color]):
+            return JsonResponse({'success': False, 'error': 'All fields are required.'})
+
         customer = get_object_or_404(models.Customer, id=customer_id)
         vehicle_group = get_object_or_404(models.VehicleGroup, id=vehicle_group_id)
 
-        # Create new vehicle
         vehicle = models.CustomerVehicle.objects.create(
             customer=customer,
             vehicle_group=vehicle_group,
@@ -453,36 +513,33 @@ def create_vehicle(request):
             car_color=car_color,
         )
 
-        # Return success response
         vehicle_data = {
             'id': vehicle.id,
             'display': f"{vehicle.car_make} {vehicle.car_plate} ({vehicle.car_color})",
         }
         return JsonResponse({'success': True, 'vehicle': vehicle_data})
     else:
-        return JsonResponse({'success': False})
+        return JsonResponse({'success': False, 'error': 'Invalid request method.'})
 
 
 @login_required(login_url='login')
 def add_vehicle_to_customer(request, customer_id):
+    """
+    Alternate method if you want a distinct endpoint for adding vehicles to customers.
+    """
     if request.method == 'POST':
-        # Get the customer
         customer = get_object_or_404(models.Customer, id=customer_id)
 
-        # Get form data
         vehicle_group_id = request.POST.get('vehicle_group')
         car_make = request.POST.get('car_make')
         car_plate = request.POST.get('car_plate')
         car_color = request.POST.get('car_color')
 
-        # Validate data
         if not all([vehicle_group_id, car_make, car_plate, car_color]):
             return JsonResponse({'success': False, 'message': 'All fields are required.'})
 
-        # Get the vehicle group
         vehicle_group = get_object_or_404(models.VehicleGroup, id=vehicle_group_id)
 
-        # Create the vehicle
         vehicle = models.CustomerVehicle.objects.create(
             customer=customer,
             vehicle_group=vehicle_group,
@@ -491,7 +548,6 @@ def add_vehicle_to_customer(request, customer_id):
             car_color=car_color,
         )
 
-        # Return success response with vehicle data
         return JsonResponse({
             'success': True,
             'vehicle': {
@@ -502,23 +558,8 @@ def add_vehicle_to_customer(request, customer_id):
                 'vehicle_group': vehicle_group.group_name,
             }
         })
-
     else:
         return JsonResponse({'success': False, 'message': 'Invalid request method.'})
-
-
-@login_required(login_url='login')
-def get_vehicle_services(request, vehicle_id):
-    vehicle = get_object_or_404(models.CustomerVehicle, id=vehicle_id)
-    vehicle_group = vehicle.vehicle_group
-    services = models.Service.objects.filter(vehicle_group=vehicle_group, active=True)
-    service_list = []
-    for service in services:
-        service_list.append({
-            'id': service.id,
-            'name': f"{service.service_type}-{service.vehicle_group}",
-        })
-    return JsonResponse({'services': service_list})
 
 
 def service_feedback_page(request, pk):
