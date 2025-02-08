@@ -53,6 +53,7 @@ from .models import (
 )
 
 
+@login_required(login_url='login')
 def home(request):
     """
     Main dashboard:
