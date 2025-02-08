@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Sidebar -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Sidebar -->
+
+    <!-- Layout page -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Expenses by Date</h4>
+
+          <!-- Filter Form -->
+          <form method="GET" class="row mb-4">
+            <div class="col-md-3">
+              <label for="date" class="form-label">Select Date</label>
+              <input 
+                type="date" 
+                name="date" 
+                id="date" 
+                class="form-control"
+                value="{{ selected_date|date:'Y-m-d' }}"
+              >
+            </div>
+            <div class="col-md-3">
+              <label for="branch" class="form-label">Branch (optional)</label>
+              <select name="branch" id="branch" class="form-control">
+                <option value="">All Branches</option>
+                {% for b in branches %}
+                  <option 
+                    value="{{ b.id }}"
+                    {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}
+                  >
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <button type="submit" class="btn btn-primary">
+                Filter
+              </button>
+            </div>
+          </form>
+          <!-- / Filter Form -->
+
+          <!-- Expenses Table -->
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">
+                Expenses for {{ selected_date|date:'Y-m-d' }}
+                {% if total_expenses %}
+                  (Total: GHS {{ total_expenses|floatformat:2 }})
+                {% endif %}
+              </h5>
+              <div class="table-responsive">
+                <table class="table table-bordered">
+                  <thead>
+                    <tr>
+                      <th>Description</th>
+                      <th>Amount (GHS)</th>
+                      <th>Branch</th>
+                      <th>Date</th>
+                      <th>User</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% if expenses %}
+                      {% for expense in expenses %}
+                        <tr>
+                          <td>{{ expense.description }}</td>
+                          <td>{{ expense.amount|floatformat:2 }}</td>
+                          <td>{{ expense.branch.name }}</td>
+                          <td>{{ expense.date|date:"Y-m-d" }}</td>
+                          <td>{{ expense.user.get_full_name|default_if_none:"System" }}</td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr>
+                        <td colspan="5">No expenses found for this date.</td>
+                      </tr>
+                    {% endif %}
+                  </tbody>
+                  {% if total_expenses %}
+                  <tfoot>
+                    <tr>
+                      <th colspan="1">Total</th>
+                      <th>GHS {{ total_expenses|floatformat:2 }}</th>
+                      <th colspan="3"></th>
+                    </tr>
+                  </tfoot>
+                  {% endif %}
+                </table>
+              </div>
+            </div>
+          </div>
+          <!-- / Expenses Table -->
+        </div>
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

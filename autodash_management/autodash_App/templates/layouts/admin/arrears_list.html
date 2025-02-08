@@ -1,0 +1,307 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Sidebar -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Sidebar -->
+
+    <!-- Layout page -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Arrears (Admin/Staff View)</h4>
+
+          <!-- Filter Form -->
+          <form method="GET" class="row mb-4 align-items-end">
+            <!-- Branch -->
+            <div class="col-md-2">
+              <label for="branch" class="form-label">Branch</label>
+              <select id="branch" name="branch" class="form-control">
+                <option value="">All Branches</option>
+                {% for b in branches %}
+                  <option 
+                    value="{{ b.id }}" 
+                    {% if b.id|stringformat:'s' == branch_id %}selected{% endif %}
+                  >
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Start Date -->
+            <div class="col-md-2">
+              <label for="start_date" class="form-label">Start Date</label>
+              <input 
+                type="date" 
+                name="start_date" 
+                id="start_date" 
+                class="form-control"
+                value="{{ start_date_str }}"
+              >
+            </div>
+
+            <!-- End Date -->
+            <div class="col-md-2">
+              <label for="end_date" class="form-label">End Date</label>
+              <input 
+                type="date" 
+                name="end_date" 
+                id="end_date" 
+                class="form-control"
+                value="{{ end_date_str }}"
+              >
+            </div>
+
+            <!-- Paid Filter -->
+            <div class="col-md-2">
+              <label for="paid_filter" class="form-label">Paid Status</label>
+              <select id="paid_filter" name="paid_filter" class="form-control">
+                <option value="all" {% if paid_filter == 'all' %}selected{% endif %}>All</option>
+                <option value="paid" {% if paid_filter == 'paid' %}selected{% endif %}>Paid</option>
+                <option value="unpaid" {% if paid_filter == 'unpaid' %}selected{% endif %}>Unpaid</option>
+              </select>
+            </div>
+
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-primary w-100">Filter</button>
+            </div>
+          </form>
+          <!-- / Filter Form -->
+
+          <!-- Summary -->
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">
+                Total Owed: GHS {{ total_owed|floatformat:2 }}
+              </h5>
+            </div>
+          </div>
+
+          <!-- Arrears Table -->
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">Arrears List</h5>
+              <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                  <thead>
+                    <tr>
+                      <th>Order #</th>
+                      <th>Branch</th>
+                      <th>Amount Owed (GHS)</th>
+                      <th>Date Created</th>
+                      <th>Paid Status</th>
+                      <th>Date Paid</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% if arrears_list %}
+                      {% for arr in arrears_list %}
+                        <tr 
+                          data-arrears-id="{{ arr.id }}"
+                        >
+                          <td>
+                            <!-- Clickable link to open modal with details -->
+                            <a 
+                              href="#" 
+                              class="arrears-details-link"
+                              data-arrears-id="{{ arr.id }}"
+                            >
+                              {{ arr.service_order.service_order_number }}
+                            </a>
+                          </td>
+                          <td>{{ arr.branch.name }}</td>
+                          <td>{{ arr.amount_owed|floatformat:2 }}</td>
+                          <td>{{ arr.date_created|date:"Y-m-d H:i" }}</td>
+                          <td>
+                            {% if arr.is_paid %}
+                              <span class="badge bg-success">Paid</span>
+                            {% else %}
+                              <span class="badge bg-danger">Unpaid</span>
+                            {% endif %}
+                          </td>
+                          <td>
+                            {% if arr.is_paid %}
+                              {{ arr.date_paid|date:"Y-m-d H:i" }}
+                            {% else %}
+                              ---
+                            {% endif %}
+                          </td>
+                          <td>
+                            <div class="d-flex flex-wrap gap-2">
+                              {% if not arr.is_paid %}
+                                <a 
+                                  href="{% url 'mark_arrears_as_paid' arr.id %}"
+                                  class="btn btn-sm btn-primary"
+                                  onclick="return confirm('Mark this arrears as paid?');"
+                                >
+                                  Mark as Paid
+                                </a>
+                                <!-- Send Reminder button -->
+                                <a 
+                                  href="{% url 'send_arrears_reminder' arr.id %}"
+                                  class="btn btn-sm btn-warning"
+                                >
+                                  Send Reminder
+                                </a>
+                              {% else %}
+                                <button class="btn btn-secondary btn-sm" disabled>
+                                  Already Paid
+                                </button>
+                              {% endif %}
+                            </div>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr>
+                        <td colspan="7">No arrears found.</td>
+                      </tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <!-- / Arrears Table -->
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+
+<!-- Modal for Arrears/Service Details -->
+<div 
+  class="modal fade" 
+  id="arrearsDetailModal" 
+  tabindex="-1"
+  aria-labelledby="arrearsDetailModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="arrearsDetailModalLabel">Service Order Details</h5>
+        <button 
+          type="button"
+          class="close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        >
+          &times;
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- We'll fill these dynamically via JS -->
+        <p><strong>Order Number:</strong> <span id="detail-order-number"></span></p>
+          <p><strong>Customer:</strong> <span id="detail-customer"></span></p>
+        <p><strong>Date:</strong> <span id="detail-date"></span></p>
+        <p><strong>Status:</strong> <span id="detail-status"></span></p>
+        <p><strong>Payment Method:</strong> <span id="detail-payment-method"></span></p>
+        <p><strong>Final Amount:</strong> GHS <span id="detail-final-amount"></span></p>
+
+        <h6>Vehicle Info</h6>
+        <p id="vehicle-info"></p>
+
+        <h6>Workers</h6>
+        <ul id="workers-list"></ul>
+
+        <h6>Services</h6>
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>Price (GHS)</th>
+            </tr>
+          </thead>
+          <tbody id="services-list">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- / Modal -->
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // When user clicks on service_order link => AJAX to fetch details => show modal
+  const detailsLinks = document.querySelectorAll('.arrears-details-link');
+  const detailModal = new bootstrap.Modal(document.getElementById('arrearsDetailModal'));
+  
+  detailsLinks.forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      const arrearsId = this.getAttribute('data-arrears-id');
+      fetch(`/arrears/${arrearsId}/details/`) 
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            const orderData = data.data;
+            // Fill the modal fields
+            document.getElementById('detail-order-number').textContent = orderData.order_number;
+            document.getElementById('detail-customer').textContent = orderData.customer;
+            document.getElementById('detail-date').textContent = orderData.date;
+            document.getElementById('detail-status').textContent = orderData.status;
+            document.getElementById('detail-payment-method').textContent = orderData.payment_method;
+            document.getElementById('detail-final-amount').textContent = orderData.final_amount.toFixed(2);
+
+            // Vehicle
+            const vehicleDiv = document.getElementById('vehicle-info');
+            if (orderData.vehicle) {
+              vehicleDiv.innerHTML = 
+                `Plate: ${orderData.vehicle.car_plate}, ` + 
+                `Make: ${orderData.vehicle.car_make}, ` + 
+                `Color: ${orderData.vehicle.car_color}`;
+            } else {
+              vehicleDiv.textContent = 'No vehicle info';
+            }
+
+            // Workers
+            const workersList = document.getElementById('workers-list');
+            workersList.innerHTML = '';
+            orderData.workers.forEach(function(wName) {
+              const li = document.createElement('li');
+              li.textContent = wName;
+              workersList.appendChild(li);
+            });
+
+            // Services
+            const servicesList = document.getElementById('services-list');
+            servicesList.innerHTML = '';
+            orderData.services.forEach(function(svc) {
+              const row = document.createElement('tr');
+              row.innerHTML = 
+                `<td>${svc.service_type}</td>` + 
+                `<td>${svc.price.toFixed(2)}</td>`;
+              servicesList.appendChild(row);
+            });
+
+            // Show modal
+            detailModal.show();
+          } else {
+            alert("Unable to fetch order details.");
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert("Error fetching details. Please try again later.");
+        });
+    });
+  });
+});
+</script>
+{% endblock scripts %}

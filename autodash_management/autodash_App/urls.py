@@ -2,6 +2,8 @@ from django.urls import path
 
 from autodash_App import views
 from autodash_App.auth import auth_views
+from autodash_App.views import standalone_product_receipt, worker_commissions, enroll_worker, generate_report, \
+    create_customer_page, create_vehicle_page
 
 urlpatterns = [
     path('', views.home, name='index'),
@@ -48,8 +50,10 @@ urlpatterns = [
     path('elevated/dashboard_analytics/', views.analytics_dashboard, name='admin_analytics'),
     path('admin_dashboard/get_branch_comparison_data/', views.get_branch_comparison_data,
          name='get_branch_comparison_data'),
-path('admin_dashboard/get_service_performance_data/', views.get_service_performance_data, name='get_service_performance_data'),
+    path('admin_dashboard/get_service_performance_data/', views.get_service_performance_data,
+         name='get_service_performance_data'),
     path('admin_dashboard/get_vehicles_data/', views.get_vehicles_data, name='get_vehicles_data'),
+    path('elevated/enroll-worker/', enroll_worker, name='enroll_worker'),
     path('elevated/branch-insights/<int:branch_id>/', views.branch_insights, name='branch_insights'),
     path('elevated/add_branch', views.add_branch, name='add_branch'),
     path('elevated/edit_branch/<int:branch_id>/', views.edit_branch, name='edit_branch'),
@@ -63,6 +67,23 @@ path('admin_dashboard/get_service_performance_data/', views.get_service_performa
 
     path('expenses/', views.expense_list, name='expense_list'),
     path('expenses/add/', views.add_expense, name='add_expense'),
+    path('sell_product', views.standalone_product_sale, name='sell_product'),
+    path('standalone_product_receipt/<uuid:batch_id>/', standalone_product_receipt, name='standalone_product_receipt'),
+    path('elevated/generate-report/', generate_report, name='generate_report'),
     path('expenses/edit/<int:pk>/', views.edit_expense, name='edit_expense'),
     path('expenses/delete/<int:pk>/', views.delete_expense, name='delete_expense'),
+
+    path('elevated/commissions/', views.commissions_by_date, name='commissions_by_date'),
+    path('elevated/commission_breakdown', views.commission_breakdown, name='commission_breakdown'),
+    path('worker-commissions/', worker_commissions, name='worker_commissions'),
+    path('elevated/expenses/', views.expenses_by_date, name='expenses_by_date'),
+    path('elevated/financial-overview/', views.financial_overview, name='financial_overview'),
+    path('elevated/product-sales-report/', views.product_sales_report, name='product_sales_report'),
+    path('elevated/arrears/', views.arrears_list, name='arrears_list'),
+    path('elevated/arrears/<int:arrears_id>/mark-paid/', views.mark_arrears_as_paid, name='mark_arrears_as_paid'),
+    path('arrears/<int:arrears_id>/details/', views.arrears_details, name='arrears_details'),
+    path('arrears/<int:arrears_id>/send-reminder/', views.send_arrears_reminder, name='send_arrears_reminder'),
+    path('elevated/create-customer/', create_customer_page, name='create_customer_page'),
+    path('elevated/create-vehicle/', create_vehicle_page, name='create_vehicle_page'),
+    path('approve-worker/<int:worker_id>/', views.approve_worker, name='approve_worker'),
 ]

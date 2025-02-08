@@ -42,6 +42,13 @@
           <a href="{% url 'log_service' %}" class="menu-link">
             <div data-i18n="Without menu">Log a Service</div>
           </a>
+        </li>
+
+            <li class="menu-item">
+          <a href="{% url 'sell_product' %}" class="menu-link">
+            <div data-i18n="Without menu">Sell Product</div>
+          </a>
+        </li>
 
 
             <li class="menu-item">
@@ -49,6 +56,12 @@
             <div data-i18n="Without menu">Expenses</div>
           </a>
         </li>
+
+            <li class="menu-item">
+  <a href="{% url 'arrears_list' %}" class="menu-link">
+    <div data-i18n="Arrears">Arrears</div>
+  </a>
+</li>
 
             <li class="menu-item">
           <a href="{% url 'add_expense' %}" class="menu-link">
@@ -76,6 +89,27 @@
         </li>
         {% endif %}
       </ul>
+    </li>
+  
+  <li class="menu-item">
+      <a href="{% url 'create_customer_page' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-user-circle"></i>
+        <div data-i18n="Analytics">Add Customer</div>
+      </a>
+    </li>
+  
+  <li class="menu-item">
+      <a href="{% url 'create_vehicle_page' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-car"></i>
+        <div data-i18n="Analytics">Add Vehicle</div>
+      </a>
+    </li>
+
+  <li class="menu-item">
+      <a href="{% url 'worker_commissions' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-money"></i>
+        <div data-i18n="Analytics">My Commissions</div>
+      </a>
     </li>
 
     {% if request.user.role == "worker" %}
@@ -111,6 +145,41 @@
         <div data-i18n="Workers">Workers</div>
       </a>
     </li>
+        
+        <li class="menu-item">
+      <a href="{% url 'enroll_worker' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-group"></i>
+        <div data-i18n="Workers">Enrol Worker</div>
+      </a>
+    </li>
+
+    <li class="menu-item">
+  <a href="{% url 'commissions_by_date' %}" class="menu-link">
+    <i class="menu-icon tf-icons bx bx-money"></i>
+    <div data-i18n="Commissions">Commissions</div>
+  </a>
+</li>
+
+<li class="menu-item">
+  <a href="{% url 'expenses_by_date' %}" class="menu-link">
+    <i class="menu-icon tf-icons bx bx-credit-card"></i>
+    <div data-i18n="Expenses">Expenses</div>
+  </a>
+</li>
+
+<li class="menu-item">
+  <a href="{% url 'financial_overview' %}" class="menu-link">
+    <i class="menu-icon tf-icons bx bx-line-chart"></i>
+    <div data-i18n="Financial Overview">Financial Overview</div>
+  </a>
+</li>
+
+<li class="menu-item">
+  <a href="{% url 'product_sales_report' %}" class="menu-link">
+    <i class="menu-icon tf-icons bx bx-shopping-bag"></i>
+    <div data-i18n="Product Sales">Product Sales</div>
+  </a>
+</li>
 
     <li class="menu-item">
       <a href="{% url 'manage_customers' %}" class="menu-link">
@@ -123,6 +192,13 @@
       <a href="{% url 'vehicle_groups' %}" class="menu-link">
         <i class="menu-icon tf-icons bx bx-car"></i>
         <div data-i18n="Vehicle Groups">Vehicle Groups</div>
+      </a>
+    </li>
+        
+        <li class="menu-item">
+      <a href="{% url 'generate_report' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bxs-report"></i>
+        <div data-i18n="Vehicle Groups">Reporting</div>
       </a>
     </li>
 

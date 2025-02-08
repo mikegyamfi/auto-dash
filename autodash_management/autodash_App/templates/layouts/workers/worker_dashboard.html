@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+
+    <!-- Side Nav -->
+    {% include "inc/side_nav.html" %}
+    <!-- / Side Nav -->
+
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include "inc/header.html" %}
+      <!-- / Navbar -->
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold py-3 mb-4">
+            Worker Dashboard - {{ worker.user.get_full_name }} ({{ branch.name }})
+          </h4>
+
+          <!-- Custom style for glass effect -->
+          <style>
+          </style>
+
+          <!-- Row 0: Worker Rating (Glassy Card + Star Icons) -->
+          <div class="row">
+            <div class="col-md-3 col-sm-6 mb-4">
+              <div class="card glass-card">
+                <div class="card-body text-center">
+                  <h5 class="card-title">My Average Rating</h5>
+                  <div class="display-6 mb-2">{{ average_rating }}</div>
+                  <!-- Star Icons -->
+                  <div>
+                    {% comment %}
+                    Loop over full_stars_list => <i class="fa fa-star text-warning"></i>
+                    If has_half_star => <i class="fa fa-star-half-o text-warning"></i>
+                    Loop over empty_stars_list => <i class="fa fa-star-o text-warning"></i>
+                    {% endcomment %}
+                    {% for i in full_stars_list %}
+                      <i class="fa fa-star text-warning"></i>
+                    {% endfor %}
+                    {% if has_half_star %}
+                      <i class="fa fa-star-half-o text-warning"></i>
+                    {% endif %}
+                    {% for i in empty_stars_list %}
+                      <i class="fa fa-star-o text-warning"></i>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 1: Revenue, Expenses, Profit, Commission -->
+          <div class="row">
+            <!-- Revenue Today -->
+            <div class="col-md-3 col-sm-6 mb-4">
+              <div class="card bg-warning text-white">
+                <div class="card-body">
+                  <h5 class="card-title text-white">Today's Revenue</h5>
+                  <p class="card-text display-6">GHS {{ revenue_today|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Expenses Today -->
+            <div class="col-md-3 col-sm-6 mb-4">
+              <div class="card bg-danger text-white">
+                <div class="card-body">
+                  <h5 class="card-title text-white">Today's Expenses</h5>
+                  <p class="card-text display-6">GHS {{ expenses_today|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Profit Today -->
+            <div class="col-md-3 col-sm-6 mb-4">
+              <div class="card bg-success text-white">
+                <div class="card-body">
+                  <h5 class="card-title text-white">Profit Today</h5>
+                  <p class="card-text display-6">GHS {{ profit_today|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- My Commission Today -->
+            <div class="col-md-3 col-sm-6 mb-4">
+              <div class="card bg-primary text-white">
+                <div class="card-body">
+                  <h5 class="card-title text-white">My Commission Today</h5>
+                  <p class="card-text display-6">GHS {{ worker_commission_today|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 2: Services Rendered Today, Products Sold, Budget Check -->
+          <div class="row">
+            <!-- Services Rendered Today -->
+            <div class="col-md-3 col-sm-6 mb-4">
+              <div class="card bg-info text-white">
+                <div class="card-body">
+                  <h5 class="card-title text-white">Services Rendered (Today)</h5>
+                  <p class="card-text display-6">{{ services_rendered_today }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Products Sold Today -->
+            <div class="col-md-3 col-sm-6 mb-4">
+              <div class="card bg-black text-white">
+                <div class="card-body">
+                  <h5 class="card-title text-white">Products Sold Today</h5>
+                  <p class="card-text display-6">{{ products_sold_today }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Daily Expense Budget Check -->
+            <div class="col-md-6 mb-4">
+              <div class="card bg-gradient bg-gray text-white">
+                <div class="card-body">
+                  <h5 class="card-title text-white">Daily Expense Budget</h5>
+                  <p>Budget: GHS {{ daily_expense_budget|floatformat:2 }}</p>
+                  <p>Expenses: GHS {{ expenses_today|floatformat:2 }}</p>
+                  {% if expenses_over_budget %}
+                    <p>Over Budget by GHS {{ budget_difference|floatformat:2 }}</p>
+                  {% else %}
+                    <p>Under Budget by GHS {{ budget_difference|floatformat:2 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 3: Recent & Pending Services for this worker -->
+          <div class="row">
+            <!-- Recent Services -->
+            <div class="col-md-6">
+              <h5>Recent Services</h5>
+              <table class="table table-bordered">
+                <thead>
+                  <tr>
+                    <th>Order #</th>
+                    <th>Customer</th>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for s in recent_services %}
+                  <tr>
+                    <td>
+                      <a href="{% url 'confirm_service_rendered' pk=s.id %}">
+                        {{ s.service_order_number }}
+                      </a>
+                    </td>
+                    <td>{{ s.customer.user.get_full_name }}</td>
+                    <td>{{ s.date|date:"Y-m-d H:i" }}</td>
+                    <td>{{ s.get_status_display }}</td>
+                    <td>
+                      <a class="btn btn-sm btn-primary"
+                         href="{% url 'confirm_service_rendered' pk=s.id %}">
+                        Details
+                      </a>
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="5">No recent services.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pending Services -->
+            <div class="col-md-6">
+              <h5>Pending Services</h5>
+              <table class="table table-bordered">
+                <thead>
+                  <tr>
+                    <th>Order #</th>
+                    <th>Customer</th>
+                    <th>Date</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for s in pending_services %}
+                  <tr>
+                    <td>{{ s.service_order_number }}</td>
+                    <td>{{ s.customer.user.get_full_name }}</td>
+                    <td>{{ s.date|date:"Y-m-d H:i" }}</td>
+                    <td>{{ s.get_status_display }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="4">No pending services.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+        <!-- /container-xxl -->
+        {% include "inc/footer.html" %}
+      </div>
+      <!-- /content-wrapper -->
+    </div>
+    <!-- /layout-page -->
+  </div>
+  <!-- /layout-container -->
+</div>
+{% endblock %}

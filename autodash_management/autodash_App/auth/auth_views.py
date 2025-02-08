@@ -41,7 +41,7 @@ def worker_sign_up(request):
 def login_page(request):
     if request.user.is_authenticated:
         messages.warning(request, "You are already logged in")
-        return redirect('home')
+        return redirect('index')
     else:
         if request.method == 'POST':
             name = request.POST.get('phone_number')

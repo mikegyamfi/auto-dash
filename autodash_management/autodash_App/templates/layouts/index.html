@@ -1,5 +1,4 @@
 <!-- templates/layouts/admin/dashboard.html -->
-
 {% extends 'base.html' %}
 
 {% block content %}
@@ -162,6 +161,7 @@
                     <th>Date</th>
                     <th>Total Amount</th>
                     <th>Final Amount</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -177,10 +177,15 @@
                     <td>{{ service.date|date:"Y-m-d H:i" }}</td>
                     <td>GHS {{ service.total_amount|floatformat:2 }}</td>
                     <td>GHS {{ service.final_amount|floatformat:2 }}</td>
+                    <td>
+                      <a href="{% url 'confirm_service_rendered' pk=service.id %}">
+                        Details
+                      </a>
+                    </td>
                   </tr>
                   {% empty %}
                   <tr>
-                    <td colspan="6">No pending services.</td>
+                    <td colspan="7">No pending services.</td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -205,7 +210,13 @@
                   <tr>
                     <td>{{ worker.user.get_full_name }}</td>
                     <td>{{ worker.total_services }}</td>
-                    <td>GHS {{ worker.total_commission|floatformat:2 }}</td>
+                    <td>
+                      GHS 
+                      {# If you store total_commission as "commission_by_worker" in the context, 
+                         might need to cross-check. 
+                         Possibly you want worker.total_commission from the same queryset. #}
+                      {{ worker.total_commission|default_if_none:"0"|floatformat:2 }}
+                    </td>
                   </tr>
                   {% empty %}
                   <tr>
@@ -269,5 +280,4 @@
   <!-- Overlay -->
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
-<!-- / Layout wrapper -->
 {% endblock %}

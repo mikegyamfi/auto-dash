@@ -1,0 +1,311 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Sidebar -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Sidebar -->
+
+    <!-- Layout page -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Financial Overview</h4>
+
+          <!-- Filter Form -->
+          <form method="GET" class="row g-3 mb-4 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label">Branch</label>
+              <select name="branch" class="form-control">
+                <option value="">All Branches</option>
+                {% for b in branches %}
+                  <option value="{{ b.id }}" {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}>
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label">View Type</label>
+              <select name="view_type" id="view_type" class="form-control">
+                <option value="date_range" {% if view_type == 'date_range' %}selected{% endif %}>Date Range</option>
+                <option value="month_year" {% if view_type == 'month_year' %}selected{% endif %}>Month &amp; Year</option>
+                <option value="week" {% if view_type == 'week' %}selected{% endif %}>Week</option>
+              </select>
+            </div>
+
+            <!-- Date Range Inputs -->
+            <div class="col-md-2 date-range-field" {% if view_type != 'date_range' %}style="display:none;"{% endif %}>
+              <label class="form-label">Start Date</label>
+              <input 
+                type="date" 
+                name="start_date" 
+                class="form-control" 
+                value="{{ start_date|date:'Y-m-d' }}"
+              >
+            </div>
+            <div class="col-md-2 date-range-field" {% if view_type != 'date_range' %}style="display:none;"{% endif %}>
+              <label class="form-label">End Date</label>
+              <input 
+                type="date" 
+                name="end_date" 
+                class="form-control" 
+                value="{{ end_date|date:'Y-m-d' }}"
+              >
+            </div>
+
+            <!-- Month & Year Inputs -->
+            <div class="col-md-2 month-year-field" {% if view_type != 'month_year' %}style="display:none;"{% endif %}>
+              <label class="form-label">Month</label>
+              <select name="month" class="form-control">
+                {% for month_num, month_name in months %}
+                  <option value="{{ month_num }}" 
+                          {% if month_num|stringformat:'s' == month %}selected{% endif %}
+                  >
+                    {{ month_name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2 month-year-field" {% if view_type != 'month_year' %}style="display:none;"{% endif %}>
+              <label class="form-label">Year</label>
+              <input 
+                type="number" 
+                name="year" 
+                class="form-control" 
+                value="{{ year|default_if_none:2000 }}"
+              >
+            </div>
+
+            <!-- Week Input -->
+            <div class="col-md-2 week-field" {% if view_type != 'week' %}style="display:none;"{% endif %}>
+              <label class="form-label">Week #</label>
+              <input 
+                type="number" 
+                name="week" 
+                class="form-control" 
+                value="{{ week|default_if_none:1 }}" 
+                min="1" 
+                max="53"
+              >
+            </div>
+
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-primary w-100">Filter</button>
+            </div>
+          </form>
+          <!-- / Filter Form -->
+
+          <!-- Overview Cards -->
+          <div class="row mb-4">
+            <div class="col-md-3">
+              <div class="card text-white bg-success">
+                <div class="card-body">
+                  <h5 class="card-title">Total Revenue</h5>
+                  <p class="card-text display-6">GHS {{ total_revenue|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card text-white bg-danger">
+                <div class="card-body">
+                  <h5 class="card-title">Total Expenses</h5>
+                  <p class="card-text display-6">GHS {{ total_expenses|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card text-white bg-info">
+                <div class="card-body">
+                  <h5 class="card-title">Total Commissions</h5>
+                  <p class="card-text display-6">GHS {{ total_commissions|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card text-white bg-warning">
+                <div class="card-body">
+                  <h5 class="card-title">Total Arrears</h5>
+                  <p class="card-text display-6">GHS {{ total_arrears|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- / Overview Cards -->
+
+          <!-- Chart Section -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <h5 class="card-title">Daily Trends</h5>
+              <canvas id="financeChart" style="max-height: 400px;"></canvas>
+            </div>
+          </div>
+
+          <!-- Daily Breakdown Table -->
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">
+                Daily Breakdown 
+                ({{ start_date|date:'Y-m-d' }} to {{ end_date|date:'Y-m-d' }})
+              </h5>
+              <div class="table-responsive">
+                <table class="table table-bordered table-sm">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Revenue</th>
+                      <th>Expense</th>
+                      <th>Net (Revenue - Expense)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in daily_data_list %}
+                      <tr>
+                        <td>{{ row.date }}</td>
+                        <td>GHS {{ row.revenue|floatformat:2 }}</td>
+                        <td>GHS {{ row.expense|floatformat:2 }}</td>
+                        <td>GHS {{ row.net|floatformat:2 }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Include Chart.js from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+function toggleFilterFields() {
+  const viewType = document.getElementById('view_type').value;
+  const dateRangeFields = document.querySelectorAll('.date-range-field');
+  const monthYearFields = document.querySelectorAll('.month-year-field');
+  const weekFields = document.querySelectorAll('.week-field');
+
+  dateRangeFields.forEach(el => el.style.display = 'none');
+  monthYearFields.forEach(el => el.style.display = 'none');
+  weekFields.forEach(el => el.style.display = 'none');
+
+  if (viewType === 'date_range') {
+    dateRangeFields.forEach(el => el.style.display = 'block');
+  } else if (viewType === 'month_year') {
+    monthYearFields.forEach(el => el.style.display = 'block');
+  } else if (viewType === 'week') {
+    weekFields.forEach(el => el.style.display = 'block');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Toggle filter fields if needed
+  toggleFilterFields();
+  document.getElementById('view_type').addEventListener('change', toggleFilterFields);
+
+  // Now parse the JSON chart data from context
+  const chartLabels = JSON.parse('{{ chart_labels_json|safe }}');
+  const chartRevenues = JSON.parse('{{ chart_revenues_json|safe }}');
+  const chartExpenses = JSON.parse('{{ chart_expenses_json|safe }}');
+  const chartCommissions = JSON.parse('{{ chart_commissions_json|safe }}');
+  const chartArrears = JSON.parse('{{ chart_arrears_json|safe }}');
+  const chartNets = JSON.parse('{{ chart_nets_json|safe }}');
+
+  const ctx = document.getElementById('financeChart').getContext('2d');
+  const financeChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: chartLabels,
+      datasets: [
+        {
+          label: 'Revenue',
+          data: chartRevenues,
+          borderColor: 'green',
+          backgroundColor: 'rgba(0, 128, 0, 0.05)',
+          fill: true,
+          tension: 0.1
+        },
+        {
+          label: 'Expenses',
+          data: chartExpenses,
+          borderColor: 'red',
+          backgroundColor: 'rgba(255, 0, 0, 0.05)',
+          fill: true,
+          tension: 0.1
+        },
+        {
+          label: 'Commissions',
+          data: chartCommissions,
+          borderColor: 'blue',
+          backgroundColor: 'rgba(0, 0, 255, 0.05)',
+          fill: true,
+          tension: 0.1
+        },
+        {
+          label: 'Arrears',
+          data: chartArrears,
+          borderColor: 'orange',
+          backgroundColor: 'rgba(255, 165, 0, 0.05)',
+          fill: true,
+          tension: 0.1
+        },
+        {
+          label: 'Net (Revenue - Expense)',
+          data: chartNets,
+          borderColor: 'purple',
+          backgroundColor: 'rgba(128, 0, 128, 0.05)',
+          fill: true,
+          tension: 0.1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+        },
+        title: {
+          display: true,
+          text: 'Daily Financial Overview'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Amount (GHS)'
+          }
+        },
+        x: {
+          title: {
+            display: true,
+            text: 'Date'
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+{% endblock scripts %}

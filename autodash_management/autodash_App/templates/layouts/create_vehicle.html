@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold py-3 mb-4">Create Vehicle</h4>
+
+          <div class="card">
+            <div class="card-body">
+              <form method="POST">
+                {% csrf_token %}
+                {{ form.non_field_errors }}
+
+                {# If you used a dropdown approach: #}
+                <div class="mb-3">
+                  <label for="id_customer" class="form-label">Select Customer</label>
+                  {{ form.customer }}
+                  {% if form.customer.errors %}
+                    <div class="text-danger">{{ form.customer.errors }}</div>
+                  {% endif %}
+                </div>
+
+                {# If you used ID approach: #}
+{#                <div class="mb-3">#}
+{#                  <label for="id_customer_id" class="form-label">Customer ID</label>#}
+{#                  {{ form.customer_id }}#}
+{#                </div>#}
+{#                #}
+
+                <div class="mb-3">
+                  <label for="id_vehicle_group" class="form-label">Vehicle Group</label>
+                  {{ form.vehicle_group }}
+                  {% if form.vehicle_group.errors %}
+                    <div class="text-danger">{{ form.vehicle_group.errors }}</div>
+                  {% endif %}
+                </div>
+
+                <div class="row mb-3">
+                  <div class="col-md-6">
+                    <label for="id_car_make" class="form-label">Car Make</label>
+                    {{ form.car_make }}
+                    {% if form.car_make.errors %}
+                      <div class="text-danger">{{ form.car_make.errors }}</div>
+                    {% endif %}
+                  </div>
+                  <div class="col-md-6">
+                    <label for="id_car_plate" class="form-label">Car Plate</label>
+                    {{ form.car_plate }}
+                    {% if form.car_plate.errors %}
+                      <div class="text-danger">{{ form.car_plate.errors }}</div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="mb-3">
+                  <label for="id_car_color" class="form-label">Car Color</label>
+                  {{ form.car_color }}
+                  {% if form.car_color.errors %}
+                    <div class="text-danger">{{ form.car_color.errors }}</div>
+                  {% endif %}
+                </div>
+
+                <button type="submit" class="btn btn-primary">Create Vehicle</button>
+              </form>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock %}

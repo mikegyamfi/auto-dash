@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold py-3 mb-4">Product Sale Receipt</h4>
+
+          <div class="card mx-auto w-75">
+            <div class="card-body">
+              <h5 class="card-title text-primary">Transaction: {{ batch_id }}</h5>
+              <table class="table table-bordered">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Quantity</th>
+                    <th>Price (GHS)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for line in sale_lines %}
+                    <tr>
+                      <td>{{ line.product.name }}</td>
+                      <td>{{ line.quantity }}</td>
+                      <td>{{ line.total_price|floatformat:2 }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th colspan="2" class="text-end">Total</th>
+                    <th>{{ total_price|floatformat:2 }}</th>
+                  </tr>
+                    <tr>
+                    <th colspan="2" class="text-end">Worker</th>
+                    <th>{{ worker }}</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock %}

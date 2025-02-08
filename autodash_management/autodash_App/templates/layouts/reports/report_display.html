@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h3>{{ report_type|title }} Report</h3>
+  <p>
+    Period: {{ final_start }} to {{ final_end }}
+    {% if branch_filter %}
+      | Branch: {{ branch_filter.name }}
+    {% endif %}
+    {% if worker_filter %}
+      | Worker: {{ worker_filter.user.get_full_name }}
+    {% endif %}
+    {% if customer_filter %}
+      | Customer: {{ customer_filter.user.get_full_name }}
+    {% endif %}
+  </p>
+
+  <!-- BRANCH REPORT -->
+  {% if report_type == 'branch' %}
+    {% with branch_data=results.branch_data %}
+      <h4>Branch Performance</h4>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Revenue</th>
+            <th>Expense</th>
+            <th>Commission</th>
+            <th>Profit</th>
+            <th>#Workers</th>
+            <th>#Customers</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in branch_data %}
+          <tr>
+            <td>{{ row.branch.name }}</td>
+            <td>{{ row.revenue|floatformat:2 }}</td>
+            <td>{{ row.expense|floatformat:2 }}</td>
+            <td>{{ row.commission|floatformat:2 }}</td>
+            <td>{{ row.profit|floatformat:2 }}</td>
+            <td>{{ row.workers }}</td>
+            <td>{{ row.customers }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7">No branch data found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endwith %}
+  {% endif %}
+
+  <!-- WORKER REPORT -->
+  {% if report_type == 'worker' %}
+    {% with worker_data=results.worker_data %}
+      <h4>Worker Performance</h4>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Worker</th>
+            <th>Total Services (Completed)</th>
+            <th>Total Commission</th>
+            <th>Average Rating</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for w in worker_data %}
+          <tr>
+            <td>{{ w.worker.user.get_full_name }}</td>
+            <td>{{ w.total_services }}</td>
+            <td>{{ w.total_commission|floatformat:2 }}</td>
+            <td>{{ w.avg_rating }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4">No worker data.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endwith %}
+  {% endif %}
+
+  <!-- CUSTOMER REPORT -->
+  {% if report_type == 'customer' %}
+    {% with customer_data=results.customer_data %}
+      <h4>Customer Report</h4>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Orders</th>
+            <th>Total Spend</th>
+            <th>On-Credit Orders</th>
+            <th>Arrears Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in customer_data %}
+          <tr>
+            <td>{{ c.customer.user.get_full_name }}</td>
+            <td>{{ c.orders }}</td>
+            <td>{{ c.total_spend|floatformat:2 }}</td>
+            <td>{{ c.on_credit_count }}</td>
+            <td>{{ c.arrears_amount|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5">No customer data.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endwith %}
+  {% endif %}
+
+  <!-- SERVICES REPORT -->
+  {% if report_type == 'services' %}
+    {% with service_stats=results.service_stats %}
+      <h4>Services Frequency</h4>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Service Type</th>
+            <th>Times Rendered</th>
+            <th>Total Revenue (Approx)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in service_stats %}
+          <tr>
+            <td>{{ s.service__service_type }}</td>
+            <td>{{ s.times_rendered }}</td>
+            <td>{{ s.total_revenue|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">No services data.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endwith %}
+  {% endif %}
+
+  <!-- PRODUCTS REPORT -->
+  {% if report_type == 'products' %}
+    {% with product_stats=results.product_stats %}
+      <h4>Products Sales</h4>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Total Quantity</th>
+            <th>Total Sales (GHS)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in product_stats %}
+          <tr>
+            <td>{{ p.product__name }}</td>
+            <td>{{ p.total_quantity }}</td>
+            <td>{{ p.total_sales|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">No product data.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endwith %}
+  {% endif %}
+
+  <!-- FINANCIAL REPORT -->
+  {% if report_type == 'financial' %}
+    {% with fin=results.financial %}
+      <h4>Financial Summary</h4>
+      <p><strong>Total Revenue:</strong> GHS {{ fin.total_revenue|floatformat:2 }}</p>
+      <p><strong>Total Expenses:</strong> GHS {{ fin.total_expenses|floatformat:2 }}</p>
+      <p><strong>Total Commission:</strong> GHS {{ fin.total_commission|floatformat:2 }}</p>
+      <p><strong>Total Arrears:</strong> GHS {{ fin.total_arrears|floatformat:2 }}</p>
+      <p><strong>Net Profit:</strong> GHS {{ fin.net_profit|floatformat:2 }}</p>
+
+      <!-- Optionally show line-by-line details -->
+      <hr/>
+      <h5>Revenue Details</h5>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Amount</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rv in fin.revenue_list %}
+          <tr>
+            <td>{{ rv.date|date:"Y-m-d" }}</td>
+            <td>{{ rv.final_amount|floatformat:2 }}</td>
+            <td>
+              {% if rv.service_rendered %}
+                Order #{{ rv.service_rendered.service_order_number }}
+              {% else %}
+                ---
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">No revenue lines.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <h5>Expense Details</h5>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr><th>Date</th><th>Amount</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          {% for ex in fin.expense_list %}
+          <tr>
+            <td>{{ ex.date|date:"Y-m-d" }}</td>
+            <td>{{ ex.amount|floatformat:2 }}</td>
+            <td>{{ ex.description }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">No expense lines.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <h5>Commission Lines</h5>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr><th>Date</th><th>Worker</th><th>Amount</th></tr>
+        </thead>
+        <tbody>
+          {% for cm in fin.commission_list %}
+          <tr>
+            <td>{{ cm.date|date:"Y-m-d" }}</td>
+            <td>{{ cm.worker.user.get_full_name }}</td>
+            <td>{{ cm.amount|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">No commission lines.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <h5>Arrears</h5>
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Date Created</th>
+            <th>Order #</th>
+            <th>Amount Owed</th>
+            <th>Paid Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ar in fin.arrears_list %}
+          <tr>
+            <td>{{ ar.date_created|date:"Y-m-d" }}</td>
+            <td>#{{ ar.service_order.service_order_number }}</td>
+            <td>{{ ar.amount_owed|floatformat:2 }}</td>
+            <td>
+              {% if ar.is_paid %}Paid on {{ ar.date_paid|date:"Y-m-d" }}
+              {% else %}Unpaid{% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4">No arrears recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endwith %}
+  {% endif %}
+</div>
+{% endblock %}

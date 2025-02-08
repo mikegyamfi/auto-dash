@@ -1,359 +1,459 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<!-- Layout wrapper -->
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Menu -->
+    <!-- Side Nav -->
     {% include 'inc/side_nav.html' %}
-    <!-- / Menu -->
+    <!-- / Side Nav -->
 
-    <!-- Layout page -->
     <div class="layout-page">
       <!-- Navbar -->
       {% include 'inc/header.html' %}
       <!-- / Navbar -->
 
-      <!-- Content wrapper -->
       <div class="content-wrapper">
-        <!-- Content -->
         <div class="container-xxl flex-grow-1 container-p-y">
 
-          <div class="row">
-            <div class="col-lg-12">
-              <div class="card">
-                <div class="card-body">
-                  <h5 class="card-title text-primary">Log a New Service</h5>
+          <!-- Header Section -->
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="fw-bold mb-0">
+              <span class="text-muted fw-light">Services /</span> New Service Entry
+            </h4>
+            <div class="badge bg-label-primary rounded-pill">
+              <i class="fas fa-clock me-2"></i> Real-time Logging
+            </div>
+          </div>
 
-                  <!-- Main Form -->
+          <!-- Main Card -->
+          <div class="card">
+            <div class="card-body">
+              <div class="row g-4">
+
+                <!-- Left Form Column -->
+                <div class="col-md-8">
+                  <!-- The main form -->
                   <form id="log-service-form" method="POST">
                     {% csrf_token %}
 
-                    <!-- Customer Dropdown + Add New Customer -->
-                    <div class="row mb-3">
-                      <div class="col-md-8">
-                        {{ form.customer.label_tag }}
-                        {{ form.customer }}
+                    <!-- STEP 1: Customer Section -->
+                    <div class="stepper-step completed mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <div class="step-icon bg-primary text-white rounded-circle me-3">1</div>
+                        <h6 class="mb-0">Select Customer</h6>
                       </div>
-                      <div class="col-md-4 d-flex align-items-end">
-                        <button
-                          type="button"
-                          id="new-customer-btn"
-                          class="btn btn-outline-primary"
-                          data-bs-toggle="modal"
-                          data-bs-target="#new-customer-modal"
-                        >
-                          + Add New Customer
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- Vehicle Dropdown + Add New Vehicle -->
-                    <div class="row mb-3">
-                      <div class="col-md-8">
-                        {{ form.vehicle.label_tag }}
-                        {{ form.vehicle }}
-                      </div>
-                      <div class="col-md-4 d-flex align-items-end">
-                        <button
-                          type="button"
-                          id="new-vehicle-btn"
-                          class="btn btn-outline-primary"
-                          data-bs-toggle="modal"
-                          data-bs-target="#new-vehicle-modal"
-                        >
-                          + Add New Vehicle
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- Service Dropdown -->
-                    <div class="row mb-3">
-                      <div class="col-md-12">
-                        {{ form.service.label_tag }}
-                        {{ form.service }}
-                      </div>
-                    </div>
-
-                    <!-- Workers Selection (if applicable) -->
-                    <div class="mb-4">
-                      {{ form.workers.label_tag }}
-                      {{ form.workers }}
-                    </div>
-
-                    <!-- Products List -->
-                    <div class="row mb-3">
-                      <div class="col-md-12">
-                        <h5>Products</h5>
-                        <div id="products-container">
-                          {% for product in products %}
-                            <div class="form-group row">
-                              <div class="col-md-6">
-                                <label>
-                                  <input
-                                    type="checkbox"
-                                    name="products"
-                                    value="{{ product.id }}"
-                                    class="product-checkbox"
-                                    data-price="{{ product.price }}"
-                                  >
-                                  {{ product.name }} (GHS{{ product.price }}) - Stock: {{ product.stock }}
-                                </label>
-                              </div>
-                              <div class="col-md-6">
-                                <input
-                                  type="number"
-                                  name="product_quantity_{{ product.id }}"
-                                  min="1"
-                                  max="{{ product.stock }}"
-                                  value="1"
-                                  class="form-control product-quantity"
-                                  placeholder="Quantity"
-                                  disabled
-                                >
-                              </div>
+                      <div class="step-content">
+                        <div class="row g-3">
+                          <div class="col-md-8">
+                            <div class="input-group">
+                              <span class="input-group-text">
+                                <i class="fas fa-user-circle"></i>
+                              </span>
+                              <!-- Form Customer Field -->
+                              {{ form.customer }}
                             </div>
-                          {% endfor %}
+                          </div>
+                          <div class="col-md-4 w-auto">
+                            <button
+                              type="button"
+                              id="new-customer-btn"
+                              class="btn btn-outline-primary w-100 h-100 d-flex flex-column justify-content-center"
+                              data-bs-toggle="modal"
+                              data-bs-target="#new-customer-modal"
+                            >
+                              <i class="fas fa-user-plus mb-1"></i>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <!-- Submit Button -->
-                    <button type="submit" class="btn btn-primary">Submit</button>
+                    <!-- STEP 2: Vehicle Section -->
+                    <div class="stepper-step mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <div class="step-icon bg-secondary text-white rounded-circle me-3">2</div>
+                        <h6 class="mb-0">Select Vehicle</h6>
+                      </div>
+                      <div class="step-content">
+                        <div class="row g-3">
+                          <div class="col-md-8">
+                            <div class="input-group">
+                              <span class="input-group-text">
+                                <i class="fas fa-car"></i>
+                              </span>
+                              <!-- Form Vehicle Field -->
+                              {{ form.vehicle }}
+                            </div>
+                          </div>
+                          <div class="col-md-4 w-auto">
+                            <button
+                              type="button"
+                              id="new-vehicle-btn"
+                              class="btn btn-outline-secondary w-100 h-100 d-flex flex-column justify-content-center"
+                              data-bs-toggle="modal"
+                              data-bs-target="#new-vehicle-modal"
+                            >
+                              <i class="fas fa-car mb-1"><span class="small"> Add Vehicle</span></i>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 3: Service Selection -->
+                    <div class="stepper-step mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <div class="step-icon bg-info text-white rounded-circle me-3">3</div>
+                        <h6 class="mb-0">Select Service</h6>
+                      </div>
+                      <div class="step-content">
+                        <div class="input-group">
+                          <span class="input-group-text">
+                            <i class="fas fa-tools"></i>
+                          </span>
+                          <!-- Form Service Field -->
+                          {{ form.service }}
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 4: Workers Selection -->
+                    <div class="stepper-step mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <div class="step-icon bg-warning text-dark rounded-circle me-3">4</div>
+                        <h6 class="mb-0">Assign Workers</h6>
+                      </div>
+                      <div class="step-content">
+                        <div class="input-group">
+                          <span class="input-group-text">
+                            <i class="fas fa-users-cog"></i>
+                          </span>
+                          <!-- Form Workers Field -->
+                          {{ form.workers }}
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Submit Section -->
+                    <div class="d-flex justify-content-end mt-5">
+                      <button type="submit" class="btn btn-primary btn-lg px-5">
+                        <i class="fas fa-check-circle me-2"></i>
+                        Log Service
+                      </button>
+                    </div>
                   </form>
-                  <!-- End Main Form -->
-
-                  <!-- Modal: Add New Customer -->
-                  <div
-                    id="new-customer-modal"
-                    class="modal fade"
-                    tabindex="-1"
-                    aria-labelledby="newCustomerModalLabel"
-                    aria-hidden="true"
-                  >
-                    <div class="modal-dialog modal-dialog-centered">
-                      <div class="modal-content">
-                        <div class="modal-header">
-                          <h5 class="modal-title" id="newCustomerModalLabel">Add New Customer</h5>
-                          <button
-                            type="button"
-                            class="btn-close"
-                            data-bs-dismiss="modal"
-                            aria-label="Close"
-                          ></button>
-                        </div>
-                        <div class="modal-body">
-                          <form id="new-customer-form">
-                            {% csrf_token %}
-                            <div class="mb-3">
-                              <label for="first_name" class="form-label">First Name</label>
-                              <input type="text" name="first_name" class="form-control" required>
-                            </div>
-                            <div class="mb-3">
-                              <label for="last_name" class="form-label">Last Name</label>
-                              <input type="text" name="last_name" class="form-control" required>
-                            </div>
-                            <div class="mb-3">
-                              <label for="phone_number" class="form-label">Phone Number</label>
-                              <input type="text" name="phone_number" class="form-control" required>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Save Customer</button>
-                          </form>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- End Modal: Add New Customer -->
-
-                  <!-- Modal: Add New Vehicle -->
-                  <div
-                    id="new-vehicle-modal"
-                    class="modal fade"
-                    tabindex="-1"
-                    aria-labelledby="newVehicleModalLabel"
-                    aria-hidden="true"
-                  >
-                    <div class="modal-dialog modal-dialog-centered">
-                      <div class="modal-content">
-                        <div class="modal-header">
-                          <h5 class="modal-title" id="newVehicleModalLabel">Add New Vehicle</h5>
-                          <button
-                            type="button"
-                            class="btn-close"
-                            data-bs-dismiss="modal"
-                            aria-label="Close"
-                          ></button>
-                        </div>
-                        <div class="modal-body">
-                          <form id="new-vehicle-form">
-                            {% csrf_token %}
-                            <input type="hidden" name="customer_id" id="new-vehicle-customer-id">
-                            <div class="mb-3">
-                              <label for="vehicle_group" class="form-label">Vehicle Group</label>
-                              <select name="vehicle_group" class="form-control" required>
-                                <option value="">Select Vehicle Group</option>
-                                {% for group in vehicle_groups %}
-                                  <option value="{{ group.id }}">{{ group.group_name }}</option>
-                                {% endfor %}
-                              </select>
-                            </div>
-                            <div class="mb-3">
-                              <label for="car_make" class="form-label">Car Make</label>
-                              <input type="text" name="car_make" class="form-control" required>
-                            </div>
-                            <div class="mb-3">
-                              <label for="car_plate" class="form-label">Car Plate</label>
-                              <input type="text" name="car_plate" class="form-control" required>
-                            </div>
-                            <div class="mb-3">
-                              <label for="car_color" class="form-label">Car Color</label>
-                              <input type="text" name="car_color" class="form-control" required>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Save Vehicle</button>
-                          </form>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- End Modal: Add New Vehicle -->
-
                 </div>
+
+                <!-- Right Guidance Column -->
+                <div class="col-md-4 border-start">
+                  <div class="guidance-card p-4">
+                    <h6 class="text-muted mb-3">
+                      <i class="fas fa-info-circle me-2"></i>Quick Tips
+                    </h6>
+                    <ul class="list-unstyled small">
+                      <li class="mb-3">
+                        <i class="fas fa-angle-right text-primary me-2"></i>
+                        Start by selecting or creating a customer
+                      </li>
+                      <li class="mb-3">
+                        <i class="fas fa-angle-right text-primary me-2"></i>
+                        Add vehicle if not in the system
+                      </li>
+                      <li class="mb-3">
+                        <i class="fas fa-angle-right text-primary me-2"></i>
+                        Services depend on vehicle type
+                      </li>
+                      <li>
+                        <i class="fas fa-angle-right text-primary me-2"></i>
+                        Multiple workers can be assigned
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
 
-        </div>
-        <!-- / Content -->
+          <!-- Modal: Add New Customer -->
+          <div
+            id="new-customer-modal"
+            class="modal fade"
+            tabindex="-1"
+            aria-labelledby="newCustomerModalLabel"
+            aria-hidden="true"
+          >
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="newCustomerModalLabel">Add New Customer</h5>
+                  <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                  ></button>
+                </div>
+                <div class="modal-body">
+                  <form id="new-customer-form">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                      <label for="first_name" class="form-label">First Name</label>
+                      <input type="text" name="first_name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                      <label for="last_name" class="form-label">Last Name</label>
+                      <input type="text" name="last_name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                      <label for="phone_number" class="form-label">Phone Number</label>
+                      <input type="text" name="phone_number" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                      <label for="email" class="form-label">Email</label>
+                      <input type="email" name="email" class="form-control">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                      <i class="fas fa-save"></i> Save Customer
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- End Modal: Add New Customer -->
 
-        <!-- Footer -->
-        {% include 'inc/footer.html' %}
-        <!-- / Footer -->
+          <!-- Modal: Add New Vehicle -->
+          <div
+            id="new-vehicle-modal"
+            class="modal fade"
+            tabindex="-1"
+            aria-labelledby="newVehicleModalLabel"
+            aria-hidden="true"
+          >
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="newVehicleModalLabel">Add New Vehicle</h5>
+                  <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                  ></button>
+                </div>
+                <div class="modal-body">
+                  <form id="new-vehicle-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="customer_id" id="new-vehicle-customer-id">
+                    <div class="mb-3">
+                      <label for="vehicle_group" class="form-label">Vehicle Group</label>
+                      <select name="vehicle_group" class="form-control" required>
+                        <option value="">Select Vehicle Group</option>
+                        {% for group in vehicle_groups %}
+                          <option value="{{ group.id }}">{{ group.group_name }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="mb-3">
+                      <label for="car_make" class="form-label">Car Make</label>
+                      <input type="text" name="car_make" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                      <label for="car_plate" class="form-label">Car Plate</label>
+                      <input type="text" name="car_plate" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                      <label for="car_color" class="form-label">Car Color</label>
+                      <input type="text" name="car_color" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100">
+                      <i class="fas fa-plus-circle"></i> Save Vehicle
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- End Modal: Add New Vehicle -->
 
-        <div class="content-backdrop fade"></div>
-      </div>
-      <!-- Content wrapper -->
-    </div>
-    <!-- / Layout page -->
-  </div>
+          <!-- A small spinner for loading feedback (if you want a global spinner) -->
+          <div id="loadingSpinner"
+               class="position-fixed top-50 start-50 translate-middle"
+               style="display:none; z-index:2000;">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+          </div>
 
-  <!-- Overlay -->
-  <div class="layout-overlay layout-menu-toggle"></div>
+        </div> <!-- /container-xxl -->
+      </div> <!-- /content-wrapper -->
+    </div> <!-- /layout-page -->
+  </div> <!-- /layout-container -->
 </div>
-<!-- / Layout wrapper -->
+
+<style>
+.stepper-step {
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  background: rgba(255,255,255,0.8);
+  transition: all 0.3s ease;
+  border: 1px solid #eee;
+}
+.stepper-step:hover {
+  background: #f8f9fa;
+  transform: translateY(-3px);
+}
+.step-header .step-icon {
+  width: 32px; height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  border-radius: 50%;
+}
+.guidance-card {
+  background: #f8fafc;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  position: sticky;
+  top: 1rem;
+}
+</style>
 {% endblock %}
 
 {% block scripts %}
-<!-- Include Bootstrap JS -->
+<!-- Font Awesome for icons -->
+<link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+/>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+
+  // Show/hide a global spinner
+  function showSpinner() {
+    document.getElementById('loadingSpinner').style.display = 'block';
+  }
+  function hideSpinner() {
+    document.getElementById('loadingSpinner').style.display = 'none';
+  }
+
   /*
-   * --- 1. CREATE NEW CUSTOMER (AJAX) ---
+   * 1. CREATE NEW CUSTOMER (AJAX)
    */
-  document.getElementById('new-customer-form').addEventListener('submit', function(event) {
+  const newCustomerForm = document.getElementById('new-customer-form');
+  newCustomerForm.addEventListener('submit', function(event) {
     event.preventDefault();
     const formData = new FormData(this);
 
+    showSpinner();
     fetch('{% url "create_customer" %}', {
       method: 'POST',
       body: formData,
-      headers: {
-        'X-CSRFToken': '{{ csrf_token }}',
-      },
+      headers: { 'X-CSRFToken': '{{ csrf_token }}' },
     })
     .then(response => response.json())
     .then(data => {
+      hideSpinner();
       if (data.success) {
         // Close the modal
-        const modalElement = document.getElementById('new-customer-modal');
-        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+        const modalEl = document.getElementById('new-customer-modal');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
         modalInstance.hide();
 
         // Update the customer <select>
         const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
-        const option = document.createElement('option');
-        option.value = data.customer.id;
-        option.textContent = data.customer.name;
-        customerSelect.appendChild(option);
+        const opt = document.createElement('option');
+        opt.value = data.customer.id;
+        opt.textContent = data.customer.name;
+        customerSelect.appendChild(opt);
 
-        // Set the current value to the new customer
+        // Set the new customer
         customerSelect.value = data.customer.id;
 
-        // Force a change event to refresh vehicles
-        const changeEvent = new Event('change');
-        customerSelect.dispatchEvent(changeEvent);
+        // Trigger change event to refresh possible vehicles
+        customerSelect.dispatchEvent(new Event('change'));
+
+        newCustomerForm.reset();
       } else {
         alert('Error creating customer: ' + data.error);
       }
     })
-    .catch(error => console.error('Error:', error));
+    .catch(error => {
+      hideSpinner();
+      console.error('Error:', error);
+    });
   });
 
   /*
-   * --- 2. CREATE NEW VEHICLE (AJAX) ---
+   * 2. CREATE NEW VEHICLE (AJAX)
    */
-  document.getElementById('new-vehicle-form').addEventListener('submit', function(event) {
+  const newVehicleForm = document.getElementById('new-vehicle-form');
+  newVehicleForm.addEventListener('submit', function(event) {
     event.preventDefault();
     const formData = new FormData(this);
 
+    showSpinner();
     fetch('{% url "create_vehicle" %}', {
       method: 'POST',
       body: formData,
-      headers: {
-        'X-CSRFToken': '{{ csrf_token }}',
-      },
+      headers: { 'X-CSRFToken': '{{ csrf_token }}' },
     })
     .then(response => response.json())
     .then(data => {
+      hideSpinner();
       if (data.success) {
         // Close the modal
-        const modalElement = document.getElementById('new-vehicle-modal');
-        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+        const modalEl = document.getElementById('new-vehicle-modal');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
         modalInstance.hide();
 
-        // Update the vehicle <select>
+        // Update vehicle <select>
         const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
-        const option = document.createElement('option');
-        option.value = data.vehicle.id;
-        option.textContent = data.vehicle.display;
-        vehicleSelect.appendChild(option);
-
-        // Set the current value to the new vehicle
+        const opt = document.createElement('option');
+        opt.value = data.vehicle.id;
+        opt.textContent = data.vehicle.display;
+        vehicleSelect.appendChild(opt);
         vehicleSelect.value = data.vehicle.id;
 
-        // Trigger a change event if you want to auto-fetch services, etc.
-        const changeEvent = new Event('change');
-        vehicleSelect.dispatchEvent(changeEvent);
+        vehicleSelect.dispatchEvent(new Event('change'));
+        newVehicleForm.reset();
       } else {
         alert('Error creating vehicle: ' + data.error);
       }
     })
-    .catch(error => console.error('Error:', error));
+    .catch(error => {
+      hideSpinner();
+      console.error('Error:', error);
+    });
   });
 
   /*
-   * --- 3. ENSURE A CUSTOMER IS SELECTED BEFORE ADDING A VEHICLE ---
+   * 3. Ensure a customer is selected before adding a vehicle
    */
-  document.getElementById('new-vehicle-btn').addEventListener('click', function() {
+  const newVehicleBtn = document.getElementById('new-vehicle-btn');
+  newVehicleBtn.addEventListener('click', function() {
     const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
     const customerId = customerSelect.value;
     if (!customerId) {
       alert('Please select a customer first.');
-      // Hide the modal immediately
-      const modalElement = document.getElementById('new-vehicle-modal');
-      const modalInstance = bootstrap.Modal.getInstance(modalElement);
+      const modalEl = document.getElementById('new-vehicle-modal');
+      const modalInstance = bootstrap.Modal.getInstance(modalEl);
       if (modalInstance) {
         modalInstance.hide();
       }
       return;
     }
-    // Assign the customer_id in the new-vehicle form
     document.getElementById('new-vehicle-customer-id').value = customerId;
   });
 
   /*
-   * --- 4. AUTO-POPULATE VEHICLES WHEN A CUSTOMER IS SELECTED ---
+   * 4. Auto-populate vehicles when the customer changes
    */
   const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
   const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
@@ -361,78 +461,70 @@ document.addEventListener('DOMContentLoaded', function() {
 
   customerSelect.addEventListener('change', function() {
     const customerId = this.value;
-
-    // Clear existing vehicle options
     vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
-    // Clear service options as well
     serviceSelect.innerHTML = '<option value="">Select Service</option>';
 
     if (customerId) {
+      showSpinner();
       fetch(`/get_customer_vehicles/${customerId}/`)
-        .then(response => response.json())
-        .then(data => {
-          if (data.vehicles) {
-            data.vehicles.forEach(vehicle => {
-              const option = document.createElement('option');
-              option.value = vehicle.id;
-              option.textContent = vehicle.display;
-              vehicleSelect.appendChild(option);
-            });
-          }
-        })
-        .catch(error => console.error('Error fetching vehicles:', error));
+      .then(res => res.json())
+      .then(data => {
+        hideSpinner();
+        if (data.vehicles) {
+          data.vehicles.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.id;
+            opt.textContent = v.display;
+            vehicleSelect.appendChild(opt);
+          });
+        }
+      })
+      .catch(err => {
+        hideSpinner();
+        console.error('Error fetching vehicles:', err);
+      });
     }
   });
 
   /*
-   * --- 5. AUTO-POPULATE SERVICES WHEN A VEHICLE IS SELECTED ---
+   * 5. Auto-populate services when vehicle changes
    */
   vehicleSelect.addEventListener('change', function() {
     const vehicleId = this.value;
-
-    // Clear existing service options
     serviceSelect.innerHTML = '<option value="">Select Service</option>';
 
     if (vehicleId) {
+      showSpinner();
       fetch(`/get_vehicle_services/${vehicleId}/`)
-        .then(response => response.json())
-        .then(data => {
-          if (data.services) {
-            if (data.services.length === 0) {
-              // No services found
-              const option = document.createElement('option');
-              option.value = '';
-              option.textContent = 'No services available for this vehicle';
-              serviceSelect.appendChild(option);
-            } else {
-              data.services.forEach(service => {
-                const option = document.createElement('option');
-                option.value = service.id;
-                option.textContent = service.name;
-                serviceSelect.appendChild(option);
-              });
-            }
+      .then(res => res.json())
+      .then(data => {
+        hideSpinner();
+        if (data.services) {
+          if (data.services.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'No services available for this vehicle';
+            serviceSelect.appendChild(opt);
+          } else {
+            data.services.forEach(svc => {
+              const opt = document.createElement('option');
+              opt.value = svc.id;
+              opt.textContent = svc.name;
+              serviceSelect.appendChild(opt);
+            });
           }
-        })
-        .catch(error => console.error('Error fetching services:', error));
+        }
+      })
+      .catch(err => {
+        hideSpinner();
+        console.error('Error fetching services:', err);
+      });
     }
   });
 
-  /*
-   * --- 6. ENABLE/DISABLE PRODUCT QUANTITY ---
-   */
-  const productCheckboxes = document.querySelectorAll('.product-checkbox');
-  productCheckboxes.forEach(function(checkbox) {
-    checkbox.addEventListener('change', function() {
-      const productId = this.value;
-      const quantityInput = document.querySelector(`input[name="product_quantity_${productId}"]`);
-      quantityInput.disabled = !this.checked;
-      if (!this.checked) {
-        quantityInput.value = '1';
-      }
-    });
-  });
+  // If you had product selection re-enabled, you could also replicate
+  // the spinner logic for that.
 
 });
 </script>
-{% endblock %}
+{% endblock scripts %}

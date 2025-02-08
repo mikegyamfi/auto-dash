@@ -1,16 +1,14 @@
-<!-- templates/layouts/workers/service_history.html -->
-
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<!-- Layout wrapper -->
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Menu -->
+    <!-- Sidebar -->
     {% include 'inc/side_nav.html' %}
-    <!-- / Menu -->
+    <!-- / Sidebar -->
 
-    <!-- Layout container -->
+    <!-- Layout page -->
     <div class="layout-page">
       <!-- Navbar -->
       {% include 'inc/header.html' %}
@@ -20,28 +18,104 @@
       <div class="content-wrapper">
         <!-- Content -->
         <div class="container-xxl flex-grow-1 container-p-y">
-          <h2>Service History</h2>
+
+          <h2 class="fw-bold py-3">Service History</h2>
 
           <!-- Filter Form -->
-          <form method="get" class="form-inline mb-3">
-            <label for="status">Filter by Status:</label>
-            <select name="status" id="status" class="form-control mx-2">
-              <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option>
-              {% for key, value in statuses %}
-              <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>{{ value }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit" class="btn btn-primary">Filter</button>
+          <form method="get" class="row row-cols-lg-auto g-3 align-items-end mb-3">
+
+            <!-- Status Filter -->
+            <div class="col-12">
+              <label for="status" class="form-label">Status</label>
+              <select name="status" id="status" class="form-select">
+                <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option>
+                {% for key, val in statuses %}
+                  <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>
+                    {{ val }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Payment Method Filter -->
+            <div class="col-12">
+              <label for="payment_method" class="form-label">Payment Method</label>
+              <select name="payment_method" id="payment_method" class="form-select">
+                <option value="all" {% if payment_filter == 'all' %}selected{% endif %}>All</option>
+                {% for pm in payment_methods %}
+                  {% if pm != 'all' %}
+                    <option value="{{ pm }}" {% if payment_filter == pm %}selected{% endif %}>
+                      {{ pm|title }}
+                    </option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- From Date -->
+            <div class="col-12">
+              <label for="start_date" class="form-label">From Date</label>
+              <input
+                type="date"
+                name="start_date"
+                id="start_date"
+                class="form-control"
+                value="{{ start_date_str }}"
+              >
+            </div>
+
+            <!-- To Date -->
+            <div class="col-12">
+              <label for="end_date" class="form-label">To Date</label>
+              <input
+                type="date"
+                name="end_date"
+                id="end_date"
+                class="form-control"
+                value="{{ end_date_str }}"
+              >
+            </div>
+
+            <!-- Branch Filter (Only for Admin/Staff) -->
+            {% if branches %}
+              <div class="col-12">
+                <label for="branch" class="form-label">Branch</label>
+                <select name="branch" id="branch" class="form-select">
+                  <option value="">All Branches</option>
+                  {% for b in branches %}
+                    <option
+                      value="{{ b.id }}"
+                      {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}
+                    >
+                      {{ b.name }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            {% endif %}
+
+            <div class="col-12">
+              <button type="submit" class="btn btn-primary w-100">
+                Filter
+              </button>
+            </div>
           </form>
+          <!-- / Filter Form -->
 
           <!-- Bulk Status Update Form -->
           <form method="post" id="bulk-status-form">
             {% csrf_token %}
             <div class="table-responsive">
-              <table id="service-table" class="table table-bordered">
-                <thead>
+              <table id="service-table" class="table table-bordered align-middle">
+                <thead class="table-light">
                   <tr>
-                    <th><input type="checkbox" id="select-all"></th>
+                    <th>
+                      <input
+                        type="checkbox"
+                        id="select-all"
+                        title="Select All"
+                      >
+                    </th>
                     <th>Service Number</th>
                     <th>Customer</th>
                     <th>Workers</th>
@@ -49,80 +123,118 @@
                     <th>Date</th>
                     <th>Status</th>
                     <th>Payment Method</th>
-                    <th>Total Amount (GHS)</th>
-                    <th>Final Amount (GHS)</th>
+                    <th>Total (GHS)</th>
+                    <th>Final (GHS)</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for service in services_rendered %}
-                  <tr>
-                    <td><input type="checkbox" name="selected_orders" value="{{ service.id }}" class="order-checkbox"></td>
-                    <td>{{ service.service_order_number }}</td>
-                    <td>{{ service.customer.user.first_name }} {{ service.customer.user.last_name }}</td>
-                    <td>
-                      {% for worker in service.workers.all %}
-                        {{ worker.user.first_name }} {{ worker.user.last_name }}{% if not forloop.last %}, {% endif %}
-                      {% endfor %}
-                    </td>
-                    <td>{{ service.branch.name }}</td>
-                    <td>{{ service.date|date:"Y-m-d H:i" }}</td>
-                    <td>{{ service.get_status_display }}</td>
-                    <td>{{ service.payment_method }}</td>
-                    <td>{{ service.total_amount|floatformat:2 }}</td>
-                    <td>{{ service.final_amount|floatformat:2 }}</td>
-                    <td><a href="{% url 'service_order_details' pk=service.id %}">Details</a></td>
-                  </tr>
-                  {% empty %}
-                  <tr>
-                    <td colspan="11" class="text-center">No services found.</td>
-                  </tr>
-                  {% endfor %}
+                  {% if services_rendered %}
+                    {% for service in services_rendered %}
+                      <tr>
+                        <td>
+                          <input
+                            type="checkbox"
+                            name="selected_orders"
+                            value="{{ service.id }}"
+                            class="order-checkbox"
+                          >
+                        </td>
+                        <td>
+                          <a href="{% url 'confirm_service_rendered' pk=service.pk %}">
+                            {{ service.service_order_number }}
+                          </a>
+                        </td>
+                        <td>
+                          {{ service.customer.user.first_name }}
+                          {{ service.customer.user.last_name }}
+                        </td>
+                        <td>
+                          {% for w in service.workers.all %}
+                            {{ w.user.first_name }} {{ w.user.last_name }}
+                            {% if not forloop.last %}, {% endif %}
+                          {% endfor %}
+                        </td>
+                        <td>{{ service.branch.name }}</td>
+                        <td>{{ service.date|date:"Y-m-d H:i" }}</td>
+                        <td>{{ service.get_status_display }}</td>
+                        <td>{{ service.payment_method|default_if_none:"-" }}</td>
+                        <td>{{ service.total_amount|floatformat:2 }}</td>
+                        <td>{{ service.final_amount|floatformat:2 }}</td>
+                        <td>
+                          <a href="{% url 'service_order_details' pk=service.id %}"
+                             class="btn btn-sm btn-info"
+                          >
+                            Details
+                          </a>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  {% else %}
+                    <tr>
+                      <td colspan="11" class="text-center">No services found.</td>
+                    </tr>
+                  {% endif %}
                 </tbody>
               </table>
             </div>
 
-            <!-- Bulk Status Update Controls -->
-            <div class="form-group mt-3">
-              <label for="new_status">Change Status of Selected Orders To:</label>
-              <select name="new_status" id="new_status" class="form-control mx-2" required>
-                {% for key, value in statuses %}
-                <option value="{{ key }}">{{ value }}</option>
-                {% endfor %}
-              </select>
-              <button type="submit" class="btn btn-success">Update Status</button>
+            <div class="row g-3 align-items-center mt-3">
+              <div class="col-auto">
+                <label for="new_status" class="form-label mb-0">
+                  Change Status of Selected:
+                </label>
+              </div>
+              <div class="col-auto">
+                <select name="new_status" id="new_status" class="form-select" required>
+                  {% for key, val in statuses %}
+                    <option value="{{ key }}">{{ val }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-auto">
+                <button type="submit" class="btn btn-success">
+                  Update Status
+                </button>
+              </div>
             </div>
           </form>
-
         </div>
         <!-- / Content -->
 
-        <!-- Footer -->
         {% include 'inc/footer.html' %}
-        <!-- / Footer -->
-
         <div class="content-backdrop fade"></div>
       </div>
-      <!-- Content wrapper -->
+      <!-- / content-wrapper -->
     </div>
-    <!-- / Layout page -->
+    <!-- / layout-page -->
   </div>
-
-  <!-- Overlay -->
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
-<!-- / Layout wrapper -->
-
-{% endblock content %}
+{% endblock %}
 
 {% block scripts %}
+        <script src="{% static 'assets/vendor/libs/jquery/jquery.js' %}"></script>
+    <script src="{% static 'assets/vendor/libs/popper/popper.js' %}"></script>
+    <script src="{% static 'assets/vendor/js/bootstrap.js' %}"></script>
+    <script src="{% static 'assets/vendor/libs/perfect-scrollbar/perfect-scrollbar.js' %}"></script>
+    <script src="https://cdn.datatables.net/2.1.8/js/dataTables.js"></script>
+
 <script>
-  // JavaScript to handle "Select All" checkbox functionality
-  document.getElementById('select-all').addEventListener('change', function() {
-    const checkboxes = document.querySelectorAll('.order-checkbox');
-    checkboxes.forEach(checkbox => {
-      checkbox.checked = this.checked;
-    });
+document.addEventListener('DOMContentLoaded', function() {
+  // "Select All" checkbox
+  const selectAllCheckbox = document.getElementById('select-all');
+  const orderCheckboxes = document.querySelectorAll('.order-checkbox');
+
+  selectAllCheckbox.addEventListener('change', function() {
+    orderCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
   });
+});
 </script>
-{% endblock scripts %}
+
+        <script>
+        $(document).ready( function () {
+    $('#service-table').DataTable();
+} );
+    </script>
+{% endblock %}

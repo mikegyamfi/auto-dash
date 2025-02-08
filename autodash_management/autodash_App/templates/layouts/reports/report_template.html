@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="report-container">
+  <h2>Report: {{ report_type|title }}</h2>
+  <p>Date Range: {{ final_start }} to {{ final_end }}</p>
+
+  {% if report_type == 'financial' %}
+    <h3>Financial Summary</h3>
+    <p>Total Revenue: {{ total_revenue }}</p>
+    <p>Total Expenses: {{ total_expenses }}</p>
+    <p>Total Commission: {{ total_commission }}</p>
+    <p>Total Arrears: {{ total_arrears }}</p>
+    <hr>
+    <h4>Revenue Details</h4>
+    <table>
+      <tr><th>Date</th><th>Amount</th></tr>
+      {% for r in revenue_list %}
+      <tr>
+        <td>{{ r.date|date:"Y-m-d" }}</td>
+        <td>{{ r.final_amount }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <!-- similarly for expense_list, commission_list, arrears_list -->
+
+  {% elif report_type == 'worker' %}
+    <h3>Worker Report</h3>
+    <p>Total Services: {{ total_services }}</p>
+    <p>Total Amount: {{ total_amount }}</p>
+    <p>Total Commission: {{ total_comm }}</p>
+    <hr>
+    <h4>Services Completed</h4>
+    <table>
+      <tr><th>Date</th><th>Order #</th><th>Final Amount</th></tr>
+      {% for o in orders_qs %}
+      <tr>
+        <td>{{ o.date|date:"Y-m-d" }}</td>
+        <td>{{ o.service_order_number }}</td>
+        <td>{{ o.final_amount }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+
+  {% elif report_type == 'branch' %}
+    <h3>Branch Report</h3>
+    <!-- Summaries for the branch or multiple branches -->
+
+  {% elif report_type == 'customer' %}
+    <h3>Customer Report</h3>
+    <p>Unique customers in period: {{ unique_customers_count }}</p>
+    <p>Top customers (by # of orders):</p>
+    <ul>
+      {% for c in top_custs %}
+        <li>Customer ID {{ c.customer }} => {{ c.total_orders }} orders</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>
+{% endblock %}

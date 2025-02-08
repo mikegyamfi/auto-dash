@@ -4,8 +4,9 @@ from .models import (
     CustomUser, Branch, Worker, VehicleGroup, AdminAccount, Subscription,
     CustomerSubscription, Customer, CustomerVehicle, LoyaltyTransaction,
     Service, ServiceRenderedOrder, ServiceRendered, Commission, Expense,
-    DailyExpenseBudget, Revenue, Product, ProductPurchased
+    DailyExpenseBudget, Revenue, Product, ProductPurchased, ProductSale
 )
+
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
@@ -18,7 +19,7 @@ class CustomUserAdmin(UserAdmin):
     )
 
     # Fields to show in the user list view
-    list_display = ('username', 'role', 'phone_number', 'approved', 'is_staff', 'is_active')
+    list_display = ('username', 'first_name', 'last_name', 'role', 'phone_number', 'approved', 'is_staff', 'is_active')
     list_filter = ('role', 'approved', 'is_staff', 'is_superuser', 'is_active', 'groups')
     search_fields = ('username', 'first_name', 'last_name', 'email', 'phone_number')
 
@@ -29,6 +30,7 @@ class CustomUserAdmin(UserAdmin):
         """Approve selected users by setting their 'approved' field to True."""
         updated = queryset.update(approved=True)
         self.message_user(request, f"{updated} user(s) have been approved.")
+
     approve_selected_users.short_description = "Approve selected users"
 
 
@@ -93,7 +95,8 @@ class LoyaltyTransactionAdmin(admin.ModelAdmin):
 
 @admin.register(Service)
 class ServiceAdmin(admin.ModelAdmin):
-    list_display = ('service_type', 'price', 'active', 'loyalty_points_earned', 'loyalty_points_required', 'commission_rate')
+    list_display = (
+        'service_type', 'price', 'active', 'loyalty_points_earned', 'loyalty_points_required', 'commission_rate')
     search_fields = ('service_type', 'description')
     list_filter = ('active', 'branches')
 
@@ -159,3 +162,6 @@ class ProductPurchasedAdmin(admin.ModelAdmin):
 # - Select the workers you want to approve.
 # - Use the "Approve selected users" action from the dropdown.
 # This will update their 'approved' field to True.
+@admin.register(ProductSale)
+class ProductSaleAdmin(admin.ModelAdmin):
+    ...

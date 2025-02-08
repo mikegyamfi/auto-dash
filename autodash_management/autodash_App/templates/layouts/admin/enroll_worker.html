@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold py-3">Enroll New Worker</h4>
+
+          <!-- Important: enctype for file upload -->
+          <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label for="id_first_name" class="form-label">First Name</label>
+                {{ form.first_name }}
+                {% if form.first_name.errors %}
+                  <div class="text-danger">{{ form.first_name.errors }}</div>
+                {% endif %}
+              </div>
+              <div class="col-md-6">
+                <label for="id_last_name" class="form-label">Last Name</label>
+                {{ form.last_name }}
+                {% if form.last_name.errors %}
+                  <div class="text-danger">{{ form.last_name.errors }}</div>
+                {% endif %}
+              </div>
+
+              <div class="col-md-6">
+                <label for="id_email" class="form-label">Email</label>
+                {{ form.email }}
+                {% if form.email.errors %}
+                  <div class="text-danger">{{ form.email.errors }}</div>
+                {% endif %}
+              </div>
+              <div class="col-md-6">
+                <label for="id_phone_number" class="form-label">Phone Number</label>
+                {{ form.phone_number }}
+                {% if form.phone_number.errors %}
+                  <div class="text-danger">{{ form.phone_number.errors }}</div>
+                {% endif %}
+              </div>
+
+              <div class="col-md-6">
+                <label for="id_branch" class="form-label">Branch</label>
+                {{ form.branch }}
+                {% if form.branch.errors %}
+                  <div class="text-danger">{{ form.branch.errors }}</div>
+                {% endif %}
+              </div>
+
+              <div class="col-md-6">
+                <label for="id_position" class="form-label">Position</label>
+                {{ form.position }}
+                {% if form.position.errors %}
+                  <div class="text-danger">{{ form.position.errors }}</div>
+                {% endif %}
+              </div>
+
+              <div class="col-md-6">
+                <label for="id_salary" class="form-label">Salary</label>
+                {{ form.salary }}
+                {% if form.salary.errors %}
+                  <div class="text-danger">{{ form.salary.errors }}</div>
+                {% endif %}
+              </div>
+
+              <!-- GH Card fields -->
+              <div class="col-md-6">
+                <label for="id_gh_card_number" class="form-label">GH Card Number</label>
+                {{ form.gh_card_number }}
+                {% if form.gh_card_number.errors %}
+                  <div class="text-danger">{{ form.gh_card_number.errors }}</div>
+                {% endif %}
+              </div>
+              <div class="col-md-6">
+                <label for="id_year_of_admission" class="form-label">Year of Admission</label>
+                {{ form.year_of_admission }}
+                {% if form.year_of_admission.errors %}
+                  <div class="text-danger">{{ form.year_of_admission.errors }}</div>
+                {% endif %}
+              </div>
+              <div class="col-md-12 form-check mt-4">
+                <label class="form-check-label" for="id_is_branch_head">
+                  {{ form.is_branch_head }} Is Branch Head?
+                </label>
+                {% if form.is_branch_head.errors %}
+                  <div class="text-danger">{{ form.is_branch_head.errors }}</div>
+                {% endif %}
+              </div>
+
+            </div>
+
+            <div class="mt-3">
+              <button type="submit" class="btn btn-primary">Enroll Worker</button>
+            </div>
+          </form>
+
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

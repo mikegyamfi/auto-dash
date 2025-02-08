@@ -2,19 +2,136 @@
 
 {% block style %}
 <style>
-  .star-rating .bx {
-    font-size: 24px;
+  .profile-card {
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    transition: transform 0.3s ease;
   }
-  .star-rating .bxs-star,
-  .star-rating .bxs-star-half {
-    color: gold;
+
+  .profile-card:hover {
+    transform: translateY(-5px);
   }
-  .profile-info {
-    margin-bottom: 20px;
+
+  .profile-header {
+    background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    padding: 2rem;
+    border-radius: 20px 20px 0 0;
+    position: relative;
+    overflow: hidden;
   }
-  .profile-info p {
-    font-size: 16px;
-    margin-bottom: 5px;
+
+  .profile-header::after {
+    content: '';
+    position: absolute;
+    bottom: -20px;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: inherit;
+    transform: skewY(-2deg);
+  }
+
+  .profile-icon {
+    width: 80px;
+    height: 80px;
+    background: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    padding: 1.5rem;
+  }
+
+  .info-item {
+    background: #f8fafc;
+    padding: 1.5rem;
+    border-radius: 12px;
+    border-left: 4px solid #6366f1;
+    transition: transform 0.3s ease;
+  }
+
+  .info-item:hover {
+    transform: translateX(5px);
+  }
+
+  .rating-card {
+    background: linear-gradient(135deg, #f0fdfa 0%, #ecfdf5 100%);
+    border-radius: 12px;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .star-rating {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  .star {
+    color: #e2e8f0;
+    font-size: 1.5rem;
+    transition: color 0.3s ease;
+  }
+
+  .star.filled {
+    color: #f59e0b;
+  }
+
+  .status-badge {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .form-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  }
+
+  .form-control {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    border: 2px solid #e2e8f0;
+    transition: border-color 0.3s ease;
+  }
+
+  .form-control:focus {
+    border-color: #818cf8;
+    box-shadow: none;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .stat-item {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  }
+
+  .stat-value {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: #6366f1;
   }
 </style>
 {% endblock %}
@@ -22,102 +139,167 @@
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Menu -->
     {% include 'inc/side_nav.html' %}
-    <!-- / Menu -->
 
-    <!-- Layout container -->
     <div class="layout-page">
-      <!-- Navbar -->
       {% include 'inc/header.html' %}
-      <!-- / Navbar -->
 
-      <!-- Content wrapper -->
       <div class="content-wrapper">
-        <!-- Content -->
         <div class="container-xxl flex-grow-1 container-p-y">
-          <h4 class="fw-bold py-3 mb-4">Worker Profile</h4>
+          <h4 class="fw-bold py-3 mb-4"><span class="text-muted fw-light">Workers /</span> {{ worker.user.get_full_name }}</h4>
 
-          <div class="row">
-            <!-- Profile Information -->
-            <div class="col-md-6">
-              <div class="card mb-4">
-                <h5 class="card-header">Profile Information</h5>
-                <div class="card-body">
-                  <div class="profile-info">
-                    <p><strong>Full Name:</strong> {{ worker.user.first_name }} {{ worker.user.last_name }}</p>
-                    <p>
-                      <strong>Email:</strong> {{ worker.user.email }}
-                    </p>
-                    <p>
-                      <strong>Phone Number:</strong>
-                      {% if worker.is_phone_number_approved %}
-                        {{ worker.user.phone_number }}
-                      {% else %}
-                        {{ worker.pending_phone_number }} <span class="badge bg-warning">Pending Approval</span>
-                      {% endif %}
-                    </p>
-                    <p><strong>Branch:</strong> {{ worker.branch.name }}</p>
+          <div class="row g-4">
+            <!-- Left Column -->
+            <div class="col-lg-8">
+              <div class="profile-card">
+                <div class="profile-header">
+                  <div class="d-flex align-items-center gap-4">
+                    <div class="profile-icon">
+                      <i class="bx bx-user text-3xl text-purple-600"></i>
+                    </div>
+                    <div>
+                      <h2 class="text-white mb-1">{{ worker.user.get_full_name }}</h2>
+                      <p class="text-white/80 mb-0">{{ worker.position }}</p>
+                    </div>
                   </div>
+                </div>
 
-                  <!-- Average Rating -->
-                  <div class="mb-4">
-                    <h6>Average Rating:</h6>
-                    <div class="star-rating">
-                      {% for _ in full_stars %}
-                        <i class="bx bxs-star"></i>
-                      {% endfor %}
-                      {% if has_half_star %}
-                        <i class="bx bxs-star-half"></i>
-                      {% endif %}
-                      {% for _ in empty_stars %}
-                        <i class="bx bx-star"></i>
-                      {% endfor %}
-                      <span>({{ average_rating }} / 5)</span>
-                      <p>{{ services_count }} services rated</p>
+                <div class="info-grid">
+                  <!-- Personal Info -->
+                  <div class="info-item">
+                    <div class="d-flex align-items-center gap-3">
+                      <i class="bx bx-envelope text-xl text-purple-600"></i>
+                      <div>
+                        <p class="mb-1 text-sm text-gray-500">Email</p>
+                        <p class="mb-0 font-semibold">{{ worker.user.email }}</p>
+                      </div>
                     </div>
                   </div>
 
-                  <!-- GH Card Details Form -->
-                  <form method="POST" enctype="multipart/form-data">
-                    {% csrf_token %}
-                    <h5 class="mt-4">Update Profile</h5>
-                    {{ form.as_p }}
-                    {% if not worker.is_gh_card_approved or not worker.is_phone_number_approved %}
-                      <button type="submit" class="btn btn-primary">Update Profile</button>
-                    {% endif %}
-                  </form>
+                  <div class="info-item">
+                    <div class="d-flex align-items-center gap-3">
+                      <i class="bx bx-phone text-xl text-purple-600"></i>
+                      <div>
+                        <p class="mb-1 text-sm text-gray-500">Phone</p>
+                        <div class="d-flex align-items-center gap-2">
+                          <span class="font-semibold">
+                            {% if worker.is_phone_number_approved %}
+                              {{ worker.user.phone_number }}
+                            {% else %}
+                              {{ worker.pending_phone_number }}
+                            {% endif %}
+                          </span>
+                          {% if not worker.is_phone_number_approved %}
+                            <span class="badge bg-amber-100 text-amber-800">Pending</span>
+                          {% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
-                  <!-- Approval Status Messages -->
-                  {% if worker.is_gh_card_approved %}
-                    <p class="text-success mt-2">Your GH Card details have been approved.</p>
-                  {% elif worker.gh_card_number %}
-                    <p class="text-warning mt-2">Your GH Card details are pending approval.</p>
-                  {% endif %}
+                  <div class="info-item">
+                    <div class="d-flex align-items-center gap-3">
+                      <i class="bx bx-buildings text-xl text-purple-600"></i>
+                      <div>
+                        <p class="mb-1 text-sm text-gray-500">Branch</p>
+                        <p class="mb-0 font-semibold">{{ worker.branch.name }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                  {% if not worker.is_phone_number_approved %}
-                    <p class="text-warning mt-2">Your phone number change is pending approval.</p>
-                  {% endif %}
+                <!-- Performance Rating -->
+                <div class="px-4 pb-4">
+                  <div class="rating-card">
+                    <h5 class="mb-3">Performance Overview</h5>
+                    <div class="d-flex align-items-center gap-4">
+                      <div class="star-rating">
+                        {% for _ in full_stars %}
+                          <i class="bx bxs-star filled"></i>
+                        {% endfor %}
+                        {% if has_half_star %}
+                          <i class="bx bxs-star-half filled"></i>
+                        {% endif %}
+                        {% for _ in empty_stars %}
+                          <i class="bx bx-star"></i>
+                        {% endfor %}
+                      </div>
+                      <div>
+                        <div class="text-2xl font-bold text-gray-800">
+                          {{ average_rating|floatformat:1 }}<span class="text-gray-400">/5</span>
+                        </div>
+                        <p class="text-sm text-gray-500 mb-0">{{ services_count }} completed services</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            <!-- /Profile Information -->
+
+            <!-- Right Column -->
+            <div class="col-lg-4">
+              <div class="form-card p-4 mb-4">
+                <h5 class="mb-4">Verification Status</h5>
+                <div class="stats-grid">
+                  <div class="stat-item">
+                    <div class="stat-value">{{ worker.services.count }}</div>
+                    <div class="text-sm text-gray-500">Services Completed</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-value">{% if worker.is_gh_card_approved %}✓{% else %}!{% endif %}</div>
+                    <div class="text-sm text-gray-500">ID Verification</div>
+                  </div>
+                </div>
+
+                <div class="mt-4 space-y-3">
+                  {% if worker.is_gh_card_approved %}
+                    <div class="status-badge bg-green-100 text-green-800">
+                      <i class="bx bx-check-circle"></i> ID Verified
+                    </div>
+                  {% elif worker.gh_card_number %}
+                    <div class="status-badge bg-amber-100 text-amber-800">
+                      <i class="bx bx-time"></i> ID Verification Pending
+                    </div>
+                  {% endif %}
+
+                  {% if not worker.is_phone_number_approved %}
+                    <div class="status-badge bg-amber-100 text-amber-800">
+                      <i class="bx bx-time"></i> Phone Verification Pending
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <!-- Update Form -->
+              <div class="form-card p-4">
+                <h5 class="mb-4">Update Profile</h5>
+                <form method="POST" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <div class="row g-3">
+                    {% for field in form %}
+                      <div class="col-12">
+                        <label class="form-label text-sm font-medium">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.errors %}
+                          <div class="text-red-500 text-xs mt-1">{{ field.errors }}</div>
+                        {% endif %}
+                      </div>
+                    {% endfor %}
+                    <div class="col-12">
+                      <button type="submit" class="btn btn-primary w-full">
+                        <i class="bx bx-save me-2"></i>Update Profile
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
         </div>
-        <!-- / Content -->
 
-        <!-- Footer -->
         {% include 'inc/footer.html' %}
-        <!-- / Footer -->
-
-        <div class="content-backdrop fade"></div>
       </div>
-      <!-- Content wrapper -->
     </div>
-    <!-- / Layout page -->
   </div>
-
-  <!-- Overlay -->
-  <div class="layout-overlay layout-menu-toggle"></div>
 </div>
 {% endblock %}

@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Include your sidebar -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Sidebar -->
+
+    <!-- Layout page -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold py-3 mb-4">Generate Report</h4>
+
+          <div class="card">
+            <div class="card-body">
+              <form method="POST">
+                {% csrf_token %}
+                {{ form.non_field_errors }}
+
+                <div class="row g-3 mb-3">
+                  <!-- Report Type -->
+                  <div class="col-md-3">
+                    <label class="form-label" for="id_report_type">Report Type</label>
+                    {{ form.report_type }}
+                  </div>
+
+                  <!-- View Type -->
+                  <div class="col-md-3">
+                    <label class="form-label" for="id_view_type">View Type</label>
+                    {{ form.view_type }}
+                  </div>
+
+                  <!-- Date Range (Start) -->
+                  <div class="col-md-3">
+                    <label class="form-label" for="id_start_date">Start Date</label>
+                    {{ form.start_date }}
+                  </div>
+
+                  <!-- Date Range (End) -->
+                  <div class="col-md-3">
+                    <label class="form-label" for="id_end_date">End Date</label>
+                    {{ form.end_date }}
+                  </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                  <!-- Month/Year -->
+                  <div class="col-md-2">
+                    <label class="form-label" for="id_month">Month</label>
+                    {{ form.month }}
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="id_year">Year</label>
+                    {{ form.year }}
+                  </div>
+
+                  <!-- Branch -->
+                  <div class="col-md-3">
+                    <label class="form-label" for="id_branch">Branch (optional)</label>
+                    {{ form.branch }}
+                  </div>
+
+                  <!-- Worker -->
+                  <div class="col-md-3">
+                    <label class="form-label" for="id_worker">Worker (optional)</label>
+                    {{ form.worker }}
+                  </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary">
+                  Generate PDF
+                </button>
+              </form>
+            </div>
+          </div>
+
+        </div>
+        <!-- / Content -->
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+        <!-- / Footer -->
+
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- / Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock %}

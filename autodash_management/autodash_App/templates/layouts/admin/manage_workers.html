@@ -27,7 +27,13 @@
                 <select name="branch" class="form-control">
                   <option value="">All Branches</option>
                   {% for branch in branches %}
-                  <option value="{{ branch.id }}" {% if branch.id|stringformat:"s" == selected_branch %}selected{% endif %}>{{ branch.name }}</option>
+                    <option value="{{ branch.id }}"
+                      {% if branch.id|stringformat:"s" == selected_branch %}
+                        selected
+                      {% endif %}
+                    >
+                      {{ branch.name }}
+                    </option>
                   {% endfor %}
                 </select>
               </div>
@@ -40,37 +46,62 @@
           <!-- Workers Table -->
           <div class="card">
             <div class="table-responsive">
-              <table class="table table-hover">
+              <table class="table table-hover mb-0">
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Email</th>
                     <th>Branch</th>
-                    <th>Approved</th>
+                    <th>Account Approved</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for worker in workers %}
-                  <tr>
-                    <td>{{ worker.user.first_name }} {{ worker.user.last_name }}</td>
-                    <td>{{ worker.user.email }}</td>
-                    <td>{{ worker.branch.name }}</td>
-                    <td>
-                      {% if worker.is_gh_card_approved %}
-                      <span class="badge bg-success">Yes</span>
-                      {% else %}
-                      <span class="badge bg-warning">No</span>
-                      {% endif %}
-                    </td>
-                    <td>
-                      <a href="{% url 'worker_detail' worker.id %}" class="btn btn-sm btn-primary">View Details</a>
-                    </td>
-                  </tr>
+                    <tr>
+                      <td>{{ worker.user.first_name }} {{ worker.user.last_name }}</td>
+                      <td>{{ worker.user.email }}</td>
+                      <td>{{ worker.branch.name }}</td>
+
+                      <!-- GH Card Approved? -->
+                      <td>
+                        {% if worker.user.approved %}
+                          <span class="badge bg-success">Yes</span>
+                        {% else %}
+                          <span class="badge bg-warning">No</span>
+                        {% endif %}
+                      </td>
+
+                      <td>
+                        <!-- 1) Approve GH if not approved -->
+                        {% if not worker.user.approved %}
+                          <a href="{% url 'approve_worker' worker_id=worker.id %}"
+                             class="btn btn-sm btn-outline-success"
+                             onclick="return confirm('Approve Worker account for {{ worker.user.get_full_name }}?')">
+                            Approve
+                          </a>
+                        {% endif %}
+
+                        <!-- 2) Approve Phone if not approved -->
+                        {% if not worker.is_phone_number_approved %}
+                          <a href="{% url 'approve_worker' worker.id 'phone' %}"
+                             class="btn btn-sm btn-outline-secondary"
+                             onclick="return confirm('Approve phone number for {{ worker.user.get_full_name }}?')">
+                            Approve Phone
+                          </a>
+                        {% endif %}
+
+                        <!-- 3) View Details -->
+                        <a href="{% url 'worker_detail' worker.id %}"
+                           class="btn btn-sm btn-primary">
+                          View Details
+                        </a>
+                      </td>
+                    </tr>
                   {% empty %}
-                  <tr>
-                    <td colspan="5">No workers found.</td>
-                  </tr>
+                    <tr>
+                      <td colspan="6">No workers found.</td>
+                    </tr>
                   {% endfor %}
                 </tbody>
               </table>

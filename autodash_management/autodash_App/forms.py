@@ -3,7 +3,8 @@ from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
 from autodash_App import models
-from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product, Expense
+from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product, Expense, \
+    VehicleGroup
 
 
 class CustomUserForm(UserCreationForm):
@@ -51,6 +52,7 @@ class LogServiceForm(forms.Form):
 
     workers = forms.ModelMultipleChoiceField(
         queryset=None,
+        label="Select Workers",
         widget=forms.SelectMultiple(attrs={
             'class': 'form-control',
             'placeholder': 'Select Workers',
@@ -181,7 +183,7 @@ class ExpenseForm(forms.ModelForm):
         fields = ['description', 'amount', 'branch']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
-            'amount': forms.NumberInput(attrs={'step': 0.01,  'class': 'form-control'}),
+            'amount': forms.NumberInput(attrs={'step': 0.01, 'class': 'form-control'}),
             'branch': forms.Select(attrs={'class': 'form-control'}),
         }
 
@@ -200,4 +202,198 @@ class ExpenseForm(forms.ModelForm):
                 self.fields['branch'].queryset = Branch.objects.all()
         else:
             self.fields['branch'].queryset = Branch.objects.none()
+
+
+class EnrollWorkerForm(forms.Form):
+    # CustomUser fields
+    first_name = forms.CharField(
+        max_length=100,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+    last_name = forms.CharField(
+        max_length=100,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+    email = forms.EmailField(
+        required=False,
+        widget=forms.EmailInput(attrs={'class': 'form-control'})
+    )
+    phone_number = forms.CharField(
+        max_length=15,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+
+    # Worker fields
+    branch = forms.ModelChoiceField(
+        queryset=Branch.objects.all(),
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    position = forms.CharField(
+        max_length=100,
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+    salary = forms.FloatField(
+        required=False,
+        min_value=0,
+        widget=forms.NumberInput(attrs={'class': 'form-control'})
+    )
+    gh_card_number = forms.CharField(
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+    year_of_admission = forms.IntegerField(
+        required=False,
+        widget=forms.NumberInput(attrs={'class': 'form-control'})
+    )
+    is_branch_head = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
+    )
+
+
+REPORT_TYPE_CHOICES = [
+    ('branch', 'Branch Report'),
+    ('worker', 'Worker Report'),
+    ('customer', 'Customer Report'),
+    ('services', 'Services Report'),
+    ('products', 'Products Report'),
+    ('financial', 'Financial Report'),
+]
+
+VIEW_TYPE_CHOICES = [
+    ('date_range', 'Date Range'),
+    ('month_year', 'Month & Year'),
+]
+
+
+class ReportForm(forms.Form):
+    report_type = forms.ChoiceField(
+        choices=REPORT_TYPE_CHOICES,
+        required=True,
+        label="Report Type"
+    )
+    view_type = forms.ChoiceField(
+        choices=VIEW_TYPE_CHOICES,
+        required=True,
+        label="View Type"
+    )
+
+    start_date = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'type': 'date'}),
+        label="Start Date"
+    )
+    end_date = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'type': 'date'}),
+        label="End Date"
+    )
+
+    month = forms.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=12,
+        label="Month"
+    )
+    year = forms.IntegerField(
+        required=False,
+        min_value=2000,
+        max_value=2100,
+        label="Year"
+    )
+
+    branch = forms.ModelChoiceField(
+        queryset=Branch.objects.all(),
+        required=False,
+        label="Branch"
+    )
+    worker = forms.ModelChoiceField(
+        queryset=Worker.objects.all(),
+        required=False,
+        label="Worker"
+    )
+    customer = forms.ModelChoiceField(
+        queryset=Customer.objects.all(),
+        required=False,
+        label="Customer"
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Apply Bootstrap form-control class to each field
+        for field_name, field in self.fields.items():
+            existing_classes = field.widget.attrs.get('class', '')
+            field.widget.attrs['class'] = f'{existing_classes} form-control'.strip()
+
+
+
+class CreateCustomerForm(forms.Form):
+    first_name = forms.CharField(
+        max_length=100,
+        label="First Name",
+        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+    )
+    last_name = forms.CharField(
+        max_length=100,
+        label="Last Name",
+        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+    )
+    phone_number = forms.CharField(
+        max_length=15,
+        label="Phone Number",
+        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+    )
+    email = forms.EmailField(
+        required=False,
+        label="Email (Optional)",
+        widget=forms.EmailInput(attrs={'class': 'form-control'})  # Bootstrap input
+    )
+    branch = forms.ModelChoiceField(
+        queryset=Branch.objects.all(),
+        label="Select Branch",
+        widget=forms.Select(attrs={'class': 'form-select'})  # Bootstrap select
+    )
+
+
+class CreateVehicleForm(forms.Form):
+    customer = forms.ModelChoiceField(
+        queryset=Customer.objects.all(),
+        label="Select Customer",
+        widget=forms.Select(attrs={'class': 'form-select'})  # Bootstrap select
+    )
+    vehicle_group = forms.ModelChoiceField(
+        queryset=VehicleGroup.objects.all(),
+        label="Select Vehicle Group",
+        widget=forms.Select(attrs={'class': 'form-select'})  # Bootstrap select
+    )
+    car_make = forms.CharField(
+        max_length=100,
+        label="Car Make",
+        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+    )
+    car_plate = forms.CharField(
+        max_length=100,
+        label="Car Plate",
+        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+    )
+    car_color = forms.CharField(
+        max_length=50,
+        required=False,
+        label="Car Color (Optional)",
+        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+    )
+
+
+
+
+
+
+
+
+
+
+
+
 

@@ -1,5 +1,3 @@
-<!-- templates/layouts/workers/confirm_service_order.html -->
-
 {% extends 'base.html' %}
 
 {% block style %}
@@ -23,7 +21,7 @@
     {% include 'inc/side_nav.html' %}
     <!-- / Sidebar -->
 
-    <!-- Layout container -->
+    <!-- Layout page -->
     <div class="layout-page">
       <!-- Navbar -->
       {% include 'inc/header.html' %}
@@ -40,32 +38,25 @@
                 <div class="card-body">
                   <h4 class="card-title text-primary">Confirm Logged Service</h4>
 
+                  <!-- Main Form -->
                   <form id="log-service-form" method="POST">
                     {% csrf_token %}
 
-                    <!-- Customer Information -->
+                    <!-- Customer & Subscription Info -->
                     <div class="row mb-4">
                       <div class="col-md-8">
                         <h6>Customer: {{ service_order.customer.user.get_full_name }}</h6>
                         <p>Phone: {{ service_order.customer.user.phone_number }}</p>
                         <p>Loyalty Points: <span id="customer-loyalty-points">{{ loyalty_points }}</span></p>
 
-                        {% if active_subscription %}
-                          <p>Subscription: {{ subscription.subscription.name }}</p>
-                          <p>
-                            <strong>Services Covered:</strong>
-                            {% for service in subscription.subscription.services.all %}
-                              {{ service.service_type }}{% if not forloop.last %}, {% endif %}
-                            {% endfor %}
-                          </p>
-                          <p>
-                            <strong>Vehicle Groups Covered:</strong>
-                            {% for group in subscription.subscription.vehicle_group.all %}
-                              {{ group.group_name }}{% if not forloop.last %}, {% endif %}
-                            {% endfor %}
+                        <!-- Subscription Status -->
+                        {% if subscription_active %}
+                          <p class="text-success">
+                            Subscription: {{ cust_sub.subscription.name }} <br>
+                            Valid until: {{ cust_sub.end_date|date:'Y-m-d' }}
                           </p>
                         {% else %}
-                          <p class="text-danger">Subscription: Customer has no active subscription</p>
+                          <p class="text-danger">No Active Subscription for Customer</p>
                         {% endif %}
                       </div>
                       <div class="col-md-4">
@@ -77,170 +68,297 @@
                           <option value="canceled" {% if service_order.status == 'canceled' %}selected{% endif %}>Canceled</option>
                           <option value="onCredit" {% if service_order.status == 'onCredit' %}selected{% endif %}>On Credit</option>
                         </select>
+                        <small class="form-text text-muted" id="on-credit-note" style="display: none; color: #dc3545;">
+                          This order will be recorded as an expense (the business covers the cost).
+                        </small>
                       </div>
                     </div>
 
                     <!-- Services Table -->
                     <h5>Services Rendered</h5>
-                    <table class="table table-bordered table-striped table-responsive">
+                    <table class="table table-bordered table-striped table-responsive mb-2">
                       <thead>
                         <tr>
                           <th>Service</th>
                           <th>Price (GHS)</th>
+                          <th>Subscription Covered?</th>
                           <th>Redeem with Loyalty Points</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {% for service_rendered in services %}
-                        <tr>
-                          <td>
-                            {{ service_rendered.service.service_type }}
-                            {% if active_subscription and service_rendered.service in subscription.subscription.services.all and service_order.vehicle.vehicle_group in subscription.subscription.vehicle_group.all %}
-                              [<span class="text-success">Covered by Subscription</span>]
-                            {% endif %}
-                          </td>
-                          <td>{{ service_rendered.service.price|floatformat:2 }}</td>
-                          <td>
-                            {% if service_rendered.service.loyalty_points_required <= loyalty_points %}
-                              <input type="checkbox" class="redeem-checkbox" name="redeem_service_{{ service_rendered.id }}" value="{{ service_rendered.id }}"
-                                data-price="{{ service_rendered.service.price }}" data-points="{{ service_rendered.service.loyalty_points_required }}" data-service-name="{{ service_rendered.service.service_type }}">
-                              (Requires {{ service_rendered.service.loyalty_points_required }} points)
-                            {% else %}
-                              <input type="checkbox" disabled>
-                              <span class="text-muted">Not enough loyalty points</span>
-                            {% endif %}
-                          </td>
-                        </tr>
+                        {% for sr in services_rendered %}
+                          <tr>
+                            <td>{{ sr.service.service_type }}</td>
+                            <td>{{ sr.service.price|floatformat:2 }}</td>
+                            <td>
+                              {% if subscription_active and sr.id in covered_by_subscription %}
+                                <span class="text-success">Covered</span>
+                              {% else %}
+                                <span class="text-muted">Not Covered</span>
+                              {% endif %}
+                            </td>
+                            <td>
+                              {% if subscription_active and sr.id in covered_by_subscription %}
+                                <!-- If subscription covers it, skip loyalty redemption -->
+                                ---
+                              {% else %}
+                                {% if sr.service.loyalty_points_required <= loyalty_points %}
+                                  <label>
+                                    <input
+                                      type="checkbox"
+                                      class="redeem-checkbox"
+                                      name="redeem_service_{{ sr.id }}"
+                                      value="{{ sr.id }}"
+                                      data-price="{{ sr.service.price }}"
+                                      data-points="{{ sr.service.loyalty_points_required }}"
+                                      data-service-name="{{ sr.service.service_type }}"
+                                    >
+                                    (Requires {{ sr.service.loyalty_points_required }} points)
+                                  </label>
+                                {% else %}
+                                  <span class="text-muted">Not enough points</span>
+                                {% endif %}
+                              {% endif %}
+                            </td>
+                          </tr>
                         {% endfor %}
                       </tbody>
                     </table>
 
                     <!-- Products Purchased -->
-                    <h5>Products Purchased</h5>
-                    {% if service_order.products_purchased.all %}
-                      <table class="table table-bordered table-striped table-responsive">
-                        <thead>
-                          <tr>
-                            <th>Product</th>
-                            <th>Quantity</th>
-                            <th>Price (GHS)</th>
-                            <th>Total (GHS)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {% for product_purchased in service_order.products_purchased.all %}
-                          <tr>
-                            <td>{{ product_purchased.product.name }}</td>
-                            <td>{{ product_purchased.quantity }}</td>
-                            <td>{{ product_purchased.product.price|floatformat:2 }}</td>
-                            <td>{{ product_purchased.total_price|floatformat:2 }}</td>
-                          </tr>
-                          {% endfor %}
-                        </tbody>
-                      </table>
-                    {% else %}
-                      <p>No products selected. <a href="#" id="add-products-link">Click here to add products.</a></p>
-                    {% endif %}
+{#                    <h5 class="mt-2">Products Purchased</h5>#}
+{#                    {% if service_order.products_purchased.all %}#}
+{#                      <table class="table table-bordered table-striped table-responsive">#}
+{#                        <thead>#}
+{#                          <tr>#}
+{#                            <th>Product</th>#}
+{#                            <th>Quantity</th>#}
+{#                            <th>Price (GHS)</th>#}
+{#                            <th>Total (GHS)</th>#}
+{#                          </tr>#}
+{#                        </thead>#}
+{#                        <tbody>#}
+{#                          {% for product_purchased in service_order.products_purchased.all %}#}
+{#                            <tr>#}
+{#                              <td>{{ product_purchased.product.name }}</td>#}
+{#                              <td>{{ product_purchased.quantity }}</td>#}
+{#                              <td>{{ product_purchased.product.price|floatformat:2 }}</td>#}
+{#                              <td>{{ product_purchased.total_price|floatformat:2 }}</td>#}
+{#                            </tr>#}
+{#                          {% endfor %}#}
+{#                        </tbody>#}
+{#                      </table>#}
+{#                    {% else %}#}
+{#                      <p>No products selected. #}
+{#                        <a href="#" id="add-products-link">Click here to add products.</a>#}
+{#                      </p>#}
+{#                    {% endif %}#}
+{##}
+{#                    <!-- Add Products Section -->#}
+{#                    <div id="add-products-section" style="display: none;">#}
+{#                      <h6>Add More Products</h6>#}
+{#                      <table class="table table-bordered table-striped table-responsive">#}
+{#                        <thead>#}
+{#                          <tr>#}
+{#                            <th>Product</th>#}
+{#                            <th>Available Stock</th>#}
+{#                            <th>Quantity to Add</th>#}
+{#                          </tr>#}
+{#                        </thead>#}
+{#                        <tbody>#}
+{#                          {% for product in available_products %}#}
+{#                            <tr>#}
+{#                              <td>{{ product.name }}</td>#}
+{#                              <td>{{ product.stock }}</td>#}
+{#                              <td>#}
+{#                                <input#}
+{#                                  type="number"#}
+{#                                  name="product_{{ product.id }}"#}
+{#                                  min="0"#}
+{#                                  max="{{ product.stock }}"#}
+{#                                  class="form-control product-quantity-input"#}
+{#                                  value="0"#}
+{#                                  data-price="{{ product.price }}"#}
+{#                                >#}
+{#                              </td>#}
+{#                            </tr>#}
+{#                          {% endfor %}#}
+{#                        </tbody>#}
+{#                      </table>#}
+{#                    </div>#}
 
-                    <!-- Add Products Section -->
-                    <div id="add-products-section" style="display: none;">
-                      <h6>Add Products</h6>
-                      <table class="table table-bordered table-striped table-responsive">
-                        <thead>
-                          <tr>
-                            <th>Product</th>
-                            <th>Available Quantity</th>
-                            <th>Quantity to Add</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {% for product in available_products %}
-                          <tr>
-                            <td>{{ product.name }}</td>
-                            <td>{{ product.stock }}</td>
-                            <td>
-                              <input type="number" name="product_{{ product.id }}" min="0" max="{{ product.stock }}" class="form-control product-quantity-input" value="0" data-price="{{ product.price }}">
-                            </td>
-                          </tr>
-                          {% endfor %}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <!-- Payment and Discount Section -->
+                    <!-- Payment + Discount Section -->
                     <div class="row my-4">
                       <div class="col-md-4">
                         <label for="payment_method">Payment Method</label>
                         <select class="form-control" name="payment_method" id="payment_method">
-                          <option value="Cash">Cash</option>
-                          <option value="Mobile Money">Mobile Money</option>
-                          <option value="Subscription">Subscription</option>
-                          <option value="Subscription & Cash">Subscription & Cash</option>
-                          <option value="Subscription & Momo">Subscription & Momo</option>
-                          <option value="Loyalty Points">Loyalty Points</option>
+                          <option value="cash">Cash</option>
+                          <option value="momo">Mobile Money</option>
+                          <option value="subscription">Subscription</option>
+                          <option value="subscription-cash">Subscription &amp; Cash</option>
+                          <option value="subscription-momo">Subscription &amp; Momo</option>
+                          <option value="loyalty">Loyalty Points</option>
                         </select>
                       </div>
+
                       <div class="col-md-4">
                         <label for="discount_type">Discount Type</label>
                         <select class="form-control" name="discount_type" id="discount_type">
                           <option value="percentage">Percentage (%)</option>
-                          <option value="amount">Amount (GHS)</option>
+                          <option value="amount" selected>Amount (GHS)</option>
                         </select>
                       </div>
                       <div class="col-md-4">
                         <label for="discount_value">Discount Value</label>
-                        <input type="number" class="form-control" name="discount_value" id="discount_value" min="0" step="0.01" placeholder="Enter discount">
+                        <input
+                          type="number"
+                          class="form-control"
+                          name="discount_value"
+                          id="discount_value"
+                          min="0"
+                          step="0.01"
+                          placeholder="Enter discount"
+                        >
                       </div>
                     </div>
 
                     <!-- Amount Summary -->
                     <div class="row">
                       <div class="col-md-6">
-                        <h6>Total Amount: GHS <span id="total-amount" class="amount">{{ service_order.total_amount|floatformat:2 }}</span></h6>
-                        <h6>Final Amount: GHS <span id="final-amount" class="amount">{{ service_order.final_amount|floatformat:2 }}</span></h6>
+                        <h6>
+                          Total Amount: GHS 
+                          <span id="total-amount" class="amount">
+                            {{ service_order.total_amount|floatformat:2 }}
+                          </span>
+                        </h6>
+                        <h6>
+                          Final Amount: GHS 
+                          <span id="final-amount" class="amount">
+                            {{ service_order.final_amount|floatformat:2 }}
+                          </span>
+                        </h6>
                       </div>
                       <div class="col-md-6">
-                        <p>Total Loyalty Points Required: <span id="total-loyalty-points">0</span></p>
-                        <p id="loyalty-points-warning" style="display: none; color: red;">Warning: Customer does not have enough loyalty points for selected services.</p>
+                        <p>
+                          Total Loyalty Points Required: 
+                          <span id="total-loyalty-points">0</span>
+                        </p>
+                        <p 
+                          id="loyalty-points-warning"
+                          style="display: none; color: red;"
+                        >
+                          Warning: Customer doesn't have enough loyalty points 
+                          for the selected services.
+                        </p>
                       </div>
                     </div>
 
                     <!-- Hidden Inputs -->
-                    <input type="hidden" id="initial-final-amount" value="{{ service_order.final_amount }}">
-                    <input type="hidden" id="customer-loyalty-points-value" value="{{ loyalty_points }}">
+                    <input 
+                      type="hidden" 
+                      id="initial-final-amount" 
+                      value="{{ service_order.final_amount }}"
+                    >
+                    <input 
+                      type="hidden" 
+                      id="customer-loyalty-points-value" 
+                      value="{{ loyalty_points }}"
+                    >
 
                     <!-- Action Buttons -->
                     <div class="text-right mt-4">
-                      <button type="button" class="btn btn-primary" id="confirm-button" data-bs-toggle="modal" data-bs-target="#confirmationModal">Confirm</button>
-                      <a href="{% url 'discard_order' pk=service_order.id %}" class="btn btn-danger">Discard</a>
+                      <button 
+                        type="button"
+                        class="btn btn-primary"
+                        id="confirm-button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#confirmationModal"
+                      >
+                        Confirm
+                      </button>
+                      <a 
+                        href="{% url 'discard_order' pk=service_order.id %}"
+                        class="btn btn-danger"
+                      >
+                        Discard
+                      </a>
                     </div>
                   </form>
+                  <!-- End Main Form -->
 
                   <!-- Confirmation Modal -->
-                  <div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+                  <div 
+                    class="modal fade" 
+                    id="confirmationModal" 
+                    tabindex="-1" 
+                    aria-labelledby="confirmationModalLabel" 
+                    aria-hidden="true"
+                  >
                     <div class="modal-dialog">
                       <form method="POST" id="confirmation-form">
                         {% csrf_token %}
                         <div class="modal-content">
                           <div class="modal-header">
-                            <h5 class="modal-title" id="confirmationModalLabel">Confirm Transaction</h5>
-                            <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">&times;</button>
+                            <h5 class="modal-title" id="confirmationModalLabel">
+                              Confirm Transaction
+                            </h5>
+                            <button 
+                              type="button" 
+                              class="close" 
+                              data-bs-dismiss="modal" 
+                              aria-label="Close"
+                            >
+                              &times;
+                            </button>
                           </div>
                           <div class="modal-body">
-                            <p><strong>Customer:</strong> {{ service_order.customer.user.get_full_name }}</p>
-                            <p><strong>Services Redeemed with Loyalty Points:</strong></p>
+                            <p>
+                              <strong>Customer:</strong> 
+                              {{ service_order.customer.user.get_full_name }}
+                            </p>
+                            <p>
+                              <strong>Services Redeemed with Loyalty Points:</strong>
+                            </p>
                             <ul id="redeemed-services-list"></ul>
-                            <p><strong>Discount Applied:</strong> <span id="modal-discount-value"></span></p>
-                            <p><strong>Total Loyalty Points to be Used:</strong> <span id="modal-total-loyalty-points"></span></p>
-                            <p><strong>Final Amount to be Paid:</strong> GHS <span id="modal-final-amount"></span></p>
-                            <p><strong>Payment Method:</strong> <span id="modal-payment-method"></span></p>
-                            <p><strong>Status:</strong> <span id="modal-status"></span></p>
-                            <p><strong>Additional Products:</strong></p>
+                            <p>
+                              <strong>Discount Applied:</strong> 
+                              <span id="modal-discount-value"></span>
+                            </p>
+                            <p>
+                              <strong>Total Loyalty Points to be Used:</strong> 
+                              <span id="modal-total-loyalty-points"></span>
+                            </p>
+                            <p>
+                              <strong>Final Amount to be Paid:</strong> GHS 
+                              <span id="modal-final-amount"></span>
+                            </p>
+                            <p>
+                              <strong>Payment Method:</strong> 
+                              <span id="modal-payment-method"></span>
+                            </p>
+                            <p>
+                              <strong>Status:</strong> 
+                              <span id="modal-status"></span>
+                            </p>
+                            <p>
+                              <strong>Additional Products:</strong>
+                            </p>
                             <ul id="modal-added-products-list"></ul>
                           </div>
                           <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Edit</button>
-                            <button type="submit" class="btn btn-primary">Confirm</button>
+                            <button 
+                              type="button" 
+                              class="btn btn-secondary"
+                              data-bs-dismiss="modal"
+                            >
+                              Edit
+                            </button>
+                            <button 
+                              type="submit" 
+                              class="btn btn-primary"
+                            >
+                              Confirm
+                            </button>
                           </div>
                         </div>
                       </form>
@@ -270,174 +388,206 @@
   <!-- Overlay -->
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
-<!-- / Layout wrapper -->
-{% endblock %}
+{% endblock content %}
 
 {% block scripts %}
 <script>
-  document.addEventListener('DOMContentLoaded', function() {
-    const initialFinalAmount = parseFloat(document.getElementById('initial-final-amount').value);
-    let adjustedFinalAmount = initialFinalAmount;
-    const customerLoyaltyPoints = parseInt(document.getElementById('customer-loyalty-points-value').value);
-    const totalLoyaltyPointsElement = document.getElementById('total-loyalty-points');
-    const redeemCheckboxes = document.querySelectorAll('.redeem-checkbox');
-    const finalAmountElement = document.getElementById('final-amount');
-    const discountTypeSelect = document.getElementById('discount_type');
-    const discountValueInput = document.getElementById('discount_value');
-    const addProductsLink = document.getElementById('add-products-link');
-    const addProductsSection = document.getElementById('add-products-section');
-    const productQuantityInputs = document.querySelectorAll('.product-quantity-input');
+document.addEventListener('DOMContentLoaded', function() {
+  const initialFinalAmount = parseFloat(
+    document.getElementById('initial-final-amount').value
+  ) || 0;
+  let adjustedFinalAmount = initialFinalAmount;
 
-    let discountAmount = 0;
+  const customerLoyaltyPoints = parseInt(
+    document.getElementById('customer-loyalty-points-value').value
+  ) || 0;
 
-    function updateFinalAmount() {
-      adjustedFinalAmount = initialFinalAmount;
-      let totalLoyaltyPointsRequired = 0;
-      let totalProductsPrice = 0;
+  const totalLoyaltyPointsElement = document.getElementById('total-loyalty-points');
+  const finalAmountElement = document.getElementById('final-amount');
+  const discountTypeSelect = document.getElementById('discount_type');
+  const discountValueInput = document.getElementById('discount_value');
+  const addProductsLink = document.getElementById('add-products-link');
+  const addProductsSection = document.getElementById('add-products-section');
+  const productQuantityInputs = document.querySelectorAll('.product-quantity-input');
+  const redeemCheckboxes = document.querySelectorAll('.redeem-checkbox');
+  const confirmButton = document.getElementById('confirm-button');
 
-      // Redeem services with loyalty points
-      redeemCheckboxes.forEach(function(checkbox) {
-        if (checkbox.checked) {
-          const price = parseFloat(checkbox.getAttribute('data-price'));
-          const pointsRequired = parseInt(checkbox.getAttribute('data-points'));
-          adjustedFinalAmount -= price;
-          totalLoyaltyPointsRequired += pointsRequired;
-        }
-      });
-
-      // Add products' prices
-      productQuantityInputs.forEach(function(input) {
-        const quantity = parseInt(input.value) || 0;
-        if (quantity > 0) {
-          const price = parseFloat(input.getAttribute('data-price'));
-          totalProductsPrice += price * quantity;
-        }
-      });
-
-      adjustedFinalAmount += totalProductsPrice;
-      adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
-
-      // Apply discount
-      let discountValue = parseFloat(discountValueInput.value) || 0;
-      discountValue = Math.max(discountValue, 0);
-
-      if (discountTypeSelect.value === 'percentage') {
-        discountValue = Math.min(discountValue, 100);
-        discountAmount = (adjustedFinalAmount * discountValue) / 100;
-      } else {
-        discountAmount = Math.min(discountValue, adjustedFinalAmount);
-      }
-
-      adjustedFinalAmount -= discountAmount;
-      adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
-
-      finalAmountElement.textContent = adjustedFinalAmount.toFixed(2);
-      totalLoyaltyPointsElement.textContent = totalLoyaltyPointsRequired;
-
-      // Update amount class
-      if (adjustedFinalAmount < initialFinalAmount) {
-        finalAmountElement.classList.remove('increased');
-        finalAmountElement.classList.add('decreased');
-      } else if (adjustedFinalAmount > initialFinalAmount) {
-        finalAmountElement.classList.remove('decreased');
-        finalAmountElement.classList.add('increased');
-      } else {
-        finalAmountElement.classList.remove('increased', 'decreased');
-      }
-
-      // Check loyalty points
-      if (totalLoyaltyPointsRequired > customerLoyaltyPoints) {
-        document.getElementById('confirm-button').disabled = true;
-        document.getElementById('loyalty-points-warning').style.display = 'block';
-      } else {
-        document.getElementById('confirm-button').disabled = false;
-        document.getElementById('loyalty-points-warning').style.display = 'none';
-      }
+  // On-Credit note
+  const statusSelect = document.getElementById('status');
+  const onCreditNote = document.getElementById('on-credit-note');
+  function toggleOnCreditNote() {
+    if (statusSelect.value === 'onCredit') {
+      onCreditNote.style.display = 'block';
+    } else {
+      onCreditNote.style.display = 'none';
     }
+  }
+  toggleOnCreditNote();
+  statusSelect.addEventListener('change', toggleOnCreditNote);
 
-    // Event listeners
+  let discountAmount = 0;
+
+  function updateFinalAmount() {
+    adjustedFinalAmount = initialFinalAmount;
+    let totalLoyaltyPointsRequired = 0;
+    let totalProductsPrice = 0;
+
+    // Redeem services with loyalty points
     redeemCheckboxes.forEach(function(checkbox) {
-      checkbox.addEventListener('change', updateFinalAmount);
+      if (checkbox.checked) {
+        const price = parseFloat(checkbox.getAttribute('data-price')) || 0;
+        const pointsRequired = parseInt(checkbox.getAttribute('data-points')) || 0;
+        adjustedFinalAmount -= price;
+        totalLoyaltyPointsRequired += pointsRequired;
+      }
     });
-    discountTypeSelect.addEventListener('change', updateFinalAmount);
-    discountValueInput.addEventListener('input', updateFinalAmount);
+
+    // Add newly added products
     productQuantityInputs.forEach(function(input) {
-      input.addEventListener('input', updateFinalAmount);
+      const quantity = parseInt(input.value) || 0;
+      if (quantity > 0) {
+        const price = parseFloat(input.getAttribute('data-price')) || 0;
+        totalProductsPrice += (price * quantity);
+      }
     });
 
-    updateFinalAmount();
+    adjustedFinalAmount += totalProductsPrice;
+    adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
 
-    // Add Products Section Toggle
-    if (addProductsLink) {
-      addProductsLink.addEventListener('click', function(e) {
-        e.preventDefault();
-        addProductsSection.style.display = 'block';
-        addProductsLink.style.display = 'none';
-      });
+    // Apply discount
+    let discountValue = parseFloat(discountValueInput.value) || 0;
+    discountValue = Math.max(discountValue, 0);
+
+    if (discountTypeSelect.value === 'percentage') {
+      discountValue = Math.min(discountValue, 100);
+      discountAmount = (adjustedFinalAmount * discountValue) / 100.0;
+    } else {
+      discountAmount = Math.min(discountValue, adjustedFinalAmount);
     }
 
-    // Confirmation Modal Preparation
-    document.getElementById('confirm-button').addEventListener('click', function() {
-      const redeemedServicesList = document.getElementById('redeemed-services-list');
-      redeemedServicesList.innerHTML = '';
+    adjustedFinalAmount -= discountAmount;
+    adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
 
-      redeemCheckboxes.forEach(function(checkbox) {
-        if (checkbox.checked) {
-          const serviceName = checkbox.getAttribute('data-service-name');
-          const listItem = document.createElement('li');
-          listItem.textContent = serviceName;
-          redeemedServicesList.appendChild(listItem);
-        }
-      });
+    // Display final amounts
+    finalAmountElement.textContent = adjustedFinalAmount.toFixed(2);
+    totalLoyaltyPointsElement.textContent = totalLoyaltyPointsRequired;
 
-      document.getElementById('modal-total-loyalty-points').textContent = totalLoyaltyPointsElement.textContent;
-      document.getElementById('modal-final-amount').textContent = adjustedFinalAmount.toFixed(2);
+    // Color changes
+    if (adjustedFinalAmount < initialFinalAmount) {
+      finalAmountElement.classList.remove('increased');
+      finalAmountElement.classList.add('decreased');
+    } else if (adjustedFinalAmount > initialFinalAmount) {
+      finalAmountElement.classList.remove('decreased');
+      finalAmountElement.classList.add('increased');
+    } else {
+      finalAmountElement.classList.remove('increased', 'decreased');
+    }
 
-      let discountValueDisplay = '';
-      if (discountTypeSelect.value === 'percentage') {
-        discountValueDisplay = discountValueInput.value + '% (GHS ' + discountAmount.toFixed(2) + ')';
-      } else {
-        discountValueDisplay = 'GHS ' + discountAmount.toFixed(2);
+    // Check if loyalty is enough for selected services
+    if (totalLoyaltyPointsRequired > customerLoyaltyPoints) {
+      confirmButton.disabled = true;
+      document.getElementById('loyalty-points-warning').style.display = 'block';
+    } else {
+      confirmButton.disabled = false;
+      document.getElementById('loyalty-points-warning').style.display = 'none';
+    }
+  }
+
+  // Event listeners
+  redeemCheckboxes.forEach(function(checkbox) {
+    checkbox.addEventListener('change', updateFinalAmount);
+  });
+  discountTypeSelect.addEventListener('change', updateFinalAmount);
+  discountValueInput.addEventListener('input', updateFinalAmount);
+  productQuantityInputs.forEach(function(input) {
+    input.addEventListener('input', updateFinalAmount);
+  });
+
+  // Initial update
+  updateFinalAmount();
+
+  // Toggle add product section
+  if (addProductsLink) {
+    addProductsLink.addEventListener('click', function(e) {
+      e.preventDefault();
+      addProductsSection.style.display = 'block';
+      addProductsLink.style.display = 'none';
+    });
+  }
+
+  // Confirmation Modal
+  document.getElementById('confirm-button').addEventListener('click', function() {
+    const redeemedServicesList = document.getElementById('redeemed-services-list');
+    redeemedServicesList.innerHTML = '';
+
+    // List redeemed services
+    redeemCheckboxes.forEach(function(checkbox) {
+      if (checkbox.checked) {
+        const serviceName = checkbox.getAttribute('data-service-name');
+        const li = document.createElement('li');
+        li.textContent = serviceName;
+        redeemedServicesList.appendChild(li);
       }
-      document.getElementById('modal-discount-value').textContent = discountValueDisplay;
+    });
 
-      const paymentMethod = document.getElementById('payment_method').value;
-      document.getElementById('modal-payment-method').textContent = paymentMethod;
+    // Fill final summary
+    document.getElementById('modal-total-loyalty-points').textContent =
+      document.getElementById('total-loyalty-points').textContent;
+    document.getElementById('modal-final-amount').textContent =
+      finalAmountElement.textContent;
 
-      const status = document.getElementById('status').options[document.getElementById('status').selectedIndex].text;
-      document.getElementById('modal-status').textContent = status;
+    // Discount
+    const discountType = discountTypeSelect.value;
+    const discountVal = parseFloat(discountValueInput.value) || 0;
+    let discountDisplay = '';
+    if (discountType === 'percentage') {
+      discountDisplay = discountVal + '% (GHS ' + discountAmount.toFixed(2) + ')';
+    } else {
+      discountDisplay = 'GHS ' + discountAmount.toFixed(2);
+    }
+    document.getElementById('modal-discount-value').textContent = discountDisplay;
 
-      // List added products in the modal
-      const addedProductsList = document.getElementById('modal-added-products-list');
-      addedProductsList.innerHTML = '';
-      productQuantityInputs.forEach(function(input) {
-        const quantity = parseInt(input.value) || 0;
-        if (quantity > 0) {
-          const productName = input.closest('tr').querySelector('td:first-child').textContent;
-          const listItem = document.createElement('li');
-          listItem.textContent = productName + ' x ' + quantity;
-          addedProductsList.appendChild(listItem);
-        }
-      });
+    // Payment Method
+    const payMethod = document.getElementById('payment_method').value;
+    document.getElementById('modal-payment-method').textContent = payMethod;
 
-      // Prepare confirmation form data
-      const confirmationForm = document.getElementById('confirmation-form');
-      const originalForm = document.getElementById('log-service-form');
+    // Status
+    const statusText = statusSelect.options[statusSelect.selectedIndex].text;
+    document.getElementById('modal-status').textContent = statusText;
 
-      // Remove previous inputs
-      const confirmationFormInputs = confirmationForm.querySelectorAll('input:not([name=csrfmiddlewaretoken]), select');
-      confirmationFormInputs.forEach(input => input.remove());
+    // Additional products
+    const addedProductsList = document.getElementById('modal-added-products-list');
+    addedProductsList.innerHTML = '';
+    productQuantityInputs.forEach(function(input) {
+      const q = parseInt(input.value) || 0;
+      if (q > 0) {
+        const productName = input.closest('tr').querySelector('td:first-child').textContent;
+        const item = document.createElement('li');
+        item.textContent = productName + ' x ' + q;
+        addedProductsList.appendChild(item);
+      }
+    });
 
-      // Append inputs from original form
-      const formData = new FormData(originalForm);
-      formData.forEach((value, key) => {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = key;
-        input.value = value;
-        confirmationForm.appendChild(input);
-      });
+    // Copy form data into the confirmation form
+    const confirmationForm = document.getElementById('confirmation-form');
+    const originalForm = document.getElementById('log-service-form');
+
+    // Remove old hidden inputs
+    const oldHidden = confirmationForm.querySelectorAll(
+      'input:not([name=csrfmiddlewaretoken])'
+    );
+    oldHidden.forEach(node => node.remove());
+
+    // Copy everything from original
+    const formData = new FormData(originalForm);
+    formData.forEach((val, key) => {
+      const hiddenInput = document.createElement('input');
+      hiddenInput.type = 'hidden';
+      hiddenInput.name = key;
+      hiddenInput.value = val;
+      confirmationForm.appendChild(hiddenInput);
     });
   });
+});
 </script>
 {% endblock scripts %}

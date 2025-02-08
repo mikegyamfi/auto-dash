@@ -1,0 +1,205 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Sidebar -->
+    {% include 'inc/side_nav.html' %}
+    <!-- / Sidebar -->
+
+    <!-- Layout page -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Commissions by Date</h4>
+
+          <!-- Filter Form -->
+          <form method="GET" class="row mb-4 align-items-end">
+            <div class="col-md-3">
+              <label for="date" class="form-label">Select Date</label>
+              <input 
+                type="date" 
+                name="date" 
+                id="date" 
+                class="form-control"
+                value="{{ selected_date|date:'Y-m-d' }}"
+              >
+            </div>
+            <div class="col-md-3">
+              <label for="branch" class="form-label">Branch (optional)</label>
+              <select name="branch" id="branch" class="form-control">
+                <option value="">All Branches</option>
+                {% for b in branches %}
+                  <option 
+                    value="{{ b.id }}"
+                    {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}
+                  >
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Worker Filter -->
+            <div class="col-md-3">
+              <label for="worker" class="form-label">Worker (optional)</label>
+              <select name="worker" id="worker" class="form-control">
+                <option value="">All Workers</option>
+                {% for w in workers %}
+                  <option 
+                    value="{{ w.id }}"
+                    {% if w.id|stringformat:'s' == selected_worker_id %}selected{% endif %}
+                  >
+                    {{ w.user.get_full_name }} ({{ w.branch.name }})
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+              <button type="submit" class="btn btn-primary">
+                Filter
+              </button>
+            </div>
+          </form>
+          <!-- / Filter Form -->
+
+          <!-- Results Table -->
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">
+                Commissions for {{ selected_date|date:'Y-m-d' }}
+              </h5>
+              <div class="table-responsive">
+                <table class="table table-bordered">
+                  <thead>
+                    <tr>
+                      <th>Worker</th>
+                      <th>Position</th>
+                      <th>Branch</th>
+                      <th>Total Commission (GHS)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% if commissions %}
+                      {% for row in commissions %}
+                        <tr>
+                          <td>{{ row.worker.user.get_full_name }}</td>
+                          <td>{{ row.worker.position|default_if_none:"-" }}</td>
+                          <td>{{ row.worker.branch.name }}</td>
+                          <td>
+                            <!-- Clickable link for breakdown -->
+                            <a 
+                              href="#"
+                              class="commission-breakdown-link"
+                              data-worker-id="{{ row.worker.id }}"
+                              data-date="{{ selected_date|date:'Y-m-d' }}"
+                            >
+                              {{ row.total_commission|floatformat:2 }}
+                            </a>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr>
+                        <td colspan="4">No commission data found for this date.</td>
+                      </tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <!-- / Results Table -->
+        </div>
+
+        <!-- Footer -->
+        {% include 'inc/footer.html' %}
+      </div>
+      <div class="content-backdrop fade"></div>
+    </div>
+  </div>
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+
+<!-- Modal for Commission Breakdown -->
+<div 
+  class="modal fade" 
+  id="commissionBreakdownModal" 
+  tabindex="-1"
+  aria-labelledby="commissionBreakdownModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="commissionBreakdownModalLabel">Commission Breakdown</h5>
+        <button 
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Worker Services on this date:</strong></p>
+        <ul id="commission-breakdown-list"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /Modal -->
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Hook up the breakdown links
+  const breakdownLinks = document.querySelectorAll('.commission-breakdown-link');
+  const modalElement = document.getElementById('commissionBreakdownModal');
+  const breakdownList = document.getElementById('commission-breakdown-list');
+  const bootstrapModal = new bootstrap.Modal(modalElement);
+
+  breakdownLinks.forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      const workerId = this.getAttribute('data-worker-id');
+      const dateValue = this.getAttribute('data-date');
+
+      // AJAX call
+      fetch(`/elevated/commission_breakdown?worker_id=${workerId}&date=${dateValue}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // Clear old list
+            breakdownList.innerHTML = '';
+            if (data.commissions.length === 0) {
+              const li = document.createElement('li');
+              li.textContent = 'No breakdown found.';
+              breakdownList.appendChild(li);
+            } else {
+              data.commissions.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = `${item.service} => GHS ${item.amount.toFixed(2)}`;
+                breakdownList.appendChild(li);
+              });
+            }
+            bootstrapModal.show();
+          } else {
+            alert('Unable to fetch commission breakdown.');
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error fetching commission breakdown.');
+        });
+    });
+  });
+});
+</script>
+{% endblock %}

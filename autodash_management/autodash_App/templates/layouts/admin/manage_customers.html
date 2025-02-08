@@ -1,35 +1,49 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<!-- Layout wrapper -->
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Menu -->
     {% include 'inc/side_nav.html' %}
-    <!-- / Menu -->
-
-    <!-- Layout container -->
     <div class="layout-page">
-      <!-- Navbar -->
       {% include 'inc/header.html' %}
-      <!-- / Navbar -->
-
-      <!-- Content wrapper -->
       <div class="content-wrapper">
-        <!-- Content -->
         <div class="container-xxl flex-grow-1 container-p-y">
+
           <h4 class="fw-bold py-3 mb-4">Manage Customers</h4>
+
+          <!-- Branch Filter Form -->
+          <form method="get" class="row mb-3">
+            <div class="col-auto">
+              <label for="branch" class="form-label">Filter by Branch:</label>
+            </div>
+            <div class="col-auto">
+              <select name="branch" id="branch" class="form-select">
+                <option value="">All Branches</option>
+                {% for b in branches %}
+                  <option value="{{ b.id }}"
+                    {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}
+                  >
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-primary">Filter</button>
+            </div>
+          </form>
 
           <!-- Customers Table -->
           <div class="card">
             <div class="table-responsive">
-              <table class="table table-hover">
+              <table class="table table-hover mb-0">
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Email</th>
                     <th>Phone Number</th>
                     <th>Loyalty Points</th>
+                    <th>Branch</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -40,35 +54,71 @@
                     <td>{{ customer.user.email }}</td>
                     <td>{{ customer.user.phone_number }}</td>
                     <td>{{ customer.loyalty_points }}</td>
+                    <td>{% if customer.branch %}{{ customer.branch.name }}{% else %}----{% endif %}</td>
                     <td>
-                      <a href="{% url 'customer_detail_admin' customer.id %}" class="btn btn-sm btn-primary">View Details</a>
+                      <!-- View Details button -->
+                      <a href="{% url 'customer_detail_admin' customer.id %}"
+                         class="btn btn-sm btn-info"
+                      >
+                        View
+                      </a>
+
+                      <!-- Action 1: Change Branch (inline form) -->
+                      <form method="POST" style="display:inline-block;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action_type" value="change_branch">
+                        <input type="hidden" name="customer_id" value="{{ customer.id }}">
+                        <select name="new_branch_id" class="form-select form-select-sm d-inline-block w-auto">
+                          <option value="">--Change Branch--</option>
+                          {% for b in branches %}
+                            <option value="{{ b.id }}">{{ b.name }}</option>
+                          {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-warning">
+                          Update
+                        </button>
+                      </form>
+
+                      <!-- Action 2: Send SMS (inline form) -->
+                      <button type="button" class="btn btn-sm btn-secondary"
+                              data-bs-toggle="collapse"
+                              data-bs-target="#smsForm_{{ customer.id }}"
+                              aria-expanded="false"
+                      >
+                        SMS
+                      </button>
+                      <div class="collapse mt-1" id="smsForm_{{ customer.id }}">
+                        <form method="POST" class="d-flex">
+                          {% csrf_token %}
+                          <input type="hidden" name="action_type" value="send_sms">
+                          <input type="hidden" name="customer_id" value="{{ customer.id }}">
+                          <input type="text" name="sms_message"
+                                 class="form-control form-control-sm"
+                                 placeholder="Type message..."
+                                 style="max-width: 200px;"
+                                 required>
+                          <button type="submit" class="btn btn-sm btn-success ms-1">
+                            Send
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                   {% empty %}
                   <tr>
-                    <td colspan="5">No customers found.</td>
+                    <td colspan="6">No customers found.</td>
                   </tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
           </div>
+
         </div>
-        <!-- / Content -->
-
-        <!-- Footer -->
         {% include 'inc/footer.html' %}
-        <!-- / Footer -->
-        <div class="content-backdrop fade"></div>
       </div>
-      <!-- / Content wrapper -->
     </div>
-    <!-- / Layout page -->
   </div>
-  <!-- / Layout container -->
-
-  <!-- Overlay -->
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
-<!-- / Layout wrapper -->
 {% endblock %}

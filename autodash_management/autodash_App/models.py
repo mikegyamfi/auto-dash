@@ -1,33 +1,30 @@
+import uuid
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser
-from django.db.models.signals import post_save
-from django.dispatch import receiver
+from django.db.models import Sum
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
-from autodash_App import helper
+# -------------Your existing imports and models (CustomUser, Branch, etc.)-------------
+# Keep them as they are, just showing partial for brevity
 
-
-# Custom User Model for both Workers and Customers
 class CustomUser(AbstractUser):
-    first_name = models.CharField(max_length=250, blank=True, null=True)
-    last_name = models.CharField(max_length=250, blank=True, null=True)
     ROLE_CHOICES = (
         ('worker', 'Worker'),
         ('customer', 'Customer'),
     )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='customer')
-    phone_number = models.CharField(max_length=15, null=False, blank=False, unique=True)
+    phone_number = models.CharField(max_length=15, unique=True)
     email = models.EmailField(null=True, blank=True)
     address = models.CharField(max_length=255, null=True, blank=True)
     approved = models.BooleanField(default=False)
-    username = models.CharField(max_length=250, null=True, blank=True, unique=True)
+    username = models.CharField(max_length=250, unique=True, null=True, blank=True)
 
     def __str__(self):
         return f"{self.username} - {self.role}"
 
 
-# Branch Model
 class Branch(models.Model):
     name = models.CharField(max_length=100)
     location = models.CharField(max_length=255)
@@ -40,7 +37,6 @@ class Branch(models.Model):
         return f"{self.name} - {self.location}"
 
 
-# Worker Model
 class Worker(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='worker_profile')
     gh_card_number = models.CharField(max_length=20, null=True, blank=True)
@@ -72,6 +68,11 @@ class Worker(models.Model):
         self.save()
 
     def add_commission(self, amount):
+        """
+        Increments the worker's daily commission by `amount`.
+        You might track daily_commission or create a new Commission row,
+        depending on your approach.
+        """
         self.daily_commission += amount
         self.save()
 
@@ -90,49 +91,64 @@ class AdminAccount(models.Model):
     daily_expense_amount = models.FloatField(default=0)
 
 
-# @receiver(post_save, sender=CustomUser)
-# def create_admin_account(sender, instance, created, **kwargs):
-#     if created and (instance.is_staff or instance.is_superuser):
-#         AdminAccount.objects.create(user=instance)
-#
-#
-# @receiver(post_save, sender=CustomUser)
-# def save_admin_account(sender, instance, **kwargs):
-#     if instance.is_staff or instance.is_superuser:
-#         instance.admin_profile.save()
-
-
-# Subscription Model
-class Subscription(models.Model):
-    name = models.CharField(max_length=100)
+class Service(models.Model):
+    service_type = models.CharField(max_length=100)
+    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='services', null=True, blank=True)
     description = models.TextField(null=True, blank=True)
-    amount = models.FloatField()
-    duration_in_days = models.IntegerField()
-    services = models.ManyToManyField('Service', related_name='subscriptions')
-    vehicle_group = models.ManyToManyField(VehicleGroup, null=True, blank=True)
+    price = models.FloatField()
+    branches = models.ManyToManyField(Branch, related_name='services')
+    active = models.BooleanField(default=True)
+    loyalty_points_earned = models.IntegerField(default=0)
+    loyalty_points_required = models.IntegerField(default=0)
+    commission_rate = models.FloatField(default=0.0)  # e.g. 10 => 10%
 
     def __str__(self):
-        return f"{self.name}"
+        group_name = self.vehicle_group.group_name if self.vehicle_group else "No group"
+        return f"{self.service_type} - {group_name}"
 
 
-# Customer Subscription Model
-class CustomerSubscription(models.Model):
-    customer = models.ForeignKey('Customer', on_delete=models.CASCADE, related_name='subscriptions')
-    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE)
-    start_date = models.DateField(default=timezone.now)
-    end_date = models.DateField()
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='subscriptions', null=True, blank=True)
+class Product(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True)
+    price = models.FloatField()
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='products')
+    stock = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.name} - GHS{self.price} - Stock: {self.stock}"
+
+
+# ---------------------- New Model: Standalone Product Sales ----------------------
+class ProductSale(models.Model):
+    """
+    A separate model to track product sales that are NOT tied to a service order,
+    for purely standalone sales at each branch.
+    """
+    user = models.ForeignKey('CustomUser', on_delete=models.SET_NULL, null=True, blank=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='standalone_sales')
+    batch_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='product_sales')
+    quantity = models.PositiveIntegerField(default=1)
+    total_price = models.FloatField()
+    date_sold = models.DateTimeField(default=timezone.now)
+    customer = models.ForeignKey('Customer', null=True, blank=True, on_delete=models.SET_NULL)
 
     def save(self, *args, **kwargs):
-        if not self.end_date:
-            self.end_date = self.start_date + timezone.timedelta(days=self.subscription.duration_in_days)
+        # Auto-set total price if not specified
+        if not self.total_price:
+            self.total_price = self.product.price * self.quantity
+
+        # Decrement stock
+        if self.pk is None:  # only reduce stock on initial creation
+            if self.product.stock < self.quantity:
+                raise ValueError("Not enough stock to complete this sale.")
+            self.product.stock -= self.quantity
+            self.product.save()
+
         super().save(*args, **kwargs)
 
-    def is_active(self):
-        return self.end_date >= timezone.now().date()
 
-
-# Customer Model
+# -------------- Customer and Subscription Models --------------
 class Customer(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='customer_profile')
     date_joined_app = models.DateField(default=timezone.now)
@@ -172,9 +188,8 @@ class Customer(models.Model):
 
 
 class CustomerVehicle(models.Model):
-    customer = models.ForeignKey('Customer', on_delete=models.CASCADE, related_name='vehicles', null=True, blank=True)
-    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='vehicles', null=True,
-                                      blank=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='vehicles', null=True, blank=True)
+    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='vehicles', null=True, blank=True)
     car_plate = models.CharField(max_length=100, null=True, blank=True)
     car_make = models.CharField(max_length=100, null=True, blank=True)
     car_color = models.CharField(max_length=100, null=True, blank=True)
@@ -184,7 +199,34 @@ class CustomerVehicle(models.Model):
         return f"{self.customer.user.first_name} - {self.car_make}({self.car_color}) - {self.car_plate}"
 
 
-# Loyalty Transaction Model
+class Subscription(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True)
+    amount = models.FloatField()
+    duration_in_days = models.IntegerField()
+    services = models.ManyToManyField(Service, related_name='subscriptions')
+    vehicle_group = models.ManyToManyField(VehicleGroup, blank=True)
+
+    def __str__(self):
+        return f"{self.name}"
+
+
+class CustomerSubscription(models.Model):
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='subscriptions')
+    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE)
+    start_date = models.DateField(default=timezone.now)
+    end_date = models.DateField()
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='subscriptions', null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.end_date:
+            self.end_date = self.start_date + timezone.timedelta(days=self.subscription.duration_in_days)
+        super().save(*args, **kwargs)
+
+    def is_active(self):
+        return self.end_date >= timezone.now().date()
+
+
 class LoyaltyTransaction(models.Model):
     TRANSACTION_CHOICES = (
         ('gain', 'Points Gained'),
@@ -194,72 +236,54 @@ class LoyaltyTransaction(models.Model):
     points = models.IntegerField()
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES)
     description = models.TextField()
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='loyalty_transactions', null=True,
-                               blank=True)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='loyalty_transactions', null=True, blank=True)
     date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.customer.user.username} - {self.transaction_type} ({self.points}) on {self.date}"
 
 
-# Service Model with Loyalty Points and Commission Rate
-class Service(models.Model):
-    service_type = models.CharField(max_length=100)
-    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='services', null=True,
-                                      blank=True)
-    description = models.TextField(null=True, blank=True)
-    price = models.FloatField()
-    branches = models.ManyToManyField(Branch, related_name='services')
-    active = models.BooleanField(default=True)
-    loyalty_points_earned = models.IntegerField(default=0)
-    loyalty_points_required = models.IntegerField(default=0)
-    commission_rate = models.FloatField(default=0.0)
-
-    def __str__(self):
-        return f"{self.service_type} - {self.vehicle_group.group_name}"
-
-
+# -------------- Core "Service Rendered" Models --------------
 def generate_unique_order_number():
-    prefix = "SRV"  # You can customize this prefix as needed
-    order_number = helper.generate_service_order_number(prefix)
-
-    # Check if the generated service order number already exists
-    while ServiceRenderedOrder.objects.filter(service_order_number=order_number).exists():
-        order_number = helper.generate_service_order_number(prefix)  # Regenerate if it exists
-
-    return order_number
+    import random, string
+    prefix = "SRV"
+    random_digits = ''.join(random.choices(string.digits, k=6))
+    return f"{prefix}-{random_digits}"
 
 
-# Service Rendered Order Model with updated discount handling
 class ServiceRenderedOrder(models.Model):
-    service_order_number = models.CharField(max_length=100, null=True, blank=True)
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
-    workers = models.ManyToManyField(Worker, blank=True)
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     STATUS_CHOICES = [
         ('completed', 'Completed'),
         ('pending', 'Pending'),
         ('canceled', 'Canceled'),
         ('onCredit', 'On Credit'),
     ]
-    status = models.CharField(max_length=50,
-                              choices=STATUS_CHOICES,
-                              default='pending')
+
+    service_order_number = models.CharField(max_length=100, null=True, blank=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    workers = models.ManyToManyField(Worker, blank=True)
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)  # who logged it
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='pending')
     total_amount = models.FloatField()
     amount_paid = models.FloatField(null=True, blank=True)
     final_amount = models.FloatField(null=True, blank=True)
-    discount_type = models.CharField(max_length=10,
-                                     choices=[('percentage', 'Percentage'), ('amount', 'Amount')],
-                                     default='amount')
+    discount_type = models.CharField(
+        max_length=10,
+        choices=[('percentage', 'Percentage'), ('amount', 'Amount')],
+        default='amount'
+    )
     discount_value = models.FloatField(default=0.0)
     customer_feedback = models.TextField(null=True, blank=True)
-    customer_rating = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)], null=True,
-                                          blank=True)
-    payment_method = models.CharField(max_length=50,
-                                      choices=[('loyalty', 'Loyalty Points'), ('subscription', 'Subscription'),
-                                               ('cash', 'Cash')], null=True, blank=True)
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='services_rendered', null=True,
-                               blank=True)
+    customer_rating = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        null=True, blank=True
+    )
+    payment_method = models.CharField(
+        max_length=50,
+        choices=[('loyalty', 'Loyalty Points'), ('subscription', 'Subscription'), ('cash', 'Cash')],
+        null=True, blank=True
+    )
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='services_rendered', null=True, blank=True)
     date = models.DateTimeField(auto_now_add=True)
     time_in = models.DateTimeField(default=timezone.now)
     time_out = models.DateTimeField(null=True, blank=True)
@@ -272,7 +296,7 @@ class ServiceRenderedOrder(models.Model):
         if not self.service_order_number:
             self.service_order_number = generate_unique_order_number()
 
-        # Calculate final_amount based on discount_type and discount_value
+        # Recalculate final_amount if discount is set
         if self.discount_type == 'amount':
             self.final_amount = self.total_amount - self.discount_value
         elif self.discount_type == 'percentage':
@@ -285,33 +309,56 @@ class ServiceRenderedOrder(models.Model):
         super(ServiceRenderedOrder, self).save(*args, **kwargs)
 
 
-# Service Rendered Model with Commission Calculation
 class ServiceRendered(models.Model):
-    order = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='rendered', null=True,
-                              blank=True)
+    order = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='rendered', null=True, blank=True)
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='services_rendered')
     workers = models.ManyToManyField(Worker, related_name='services_rendered', blank=True)
     date = models.DateTimeField(auto_now_add=True)
     commission_amount = models.FloatField(null=True, blank=True)
 
-    def save(self, *args, **kwargs):
-        # Calculate commission_amount based on service's commission_rate
+    def allocate_commission(self):
+        """
+        For demonstration, we do:
+        commission_amount = service_price * (commission_rate / 100)
+        Then split among assigned workers for this service line.
+        """
         if self.service.commission_rate:
             self.commission_amount = (self.service.price * self.service.commission_rate) / 100
         else:
             self.commission_amount = 0.0
+        self.save()
 
+        assigned_workers = self.workers.all()
+        if assigned_workers.exists():
+            commission_per_worker = self.commission_amount / assigned_workers.count()
+            for worker in assigned_workers:
+                Commission.objects.create(
+                    worker=worker,
+                    service_rendered=self,
+                    amount=commission_per_worker,
+                    date=timezone.now().date()
+                )
+
+                # Alternatively, you could also do:
+                # worker.add_commission(commission_per_worker)
+                # But then you'd have to skip creating Commission rows.
+
+    def remove_commission(self):
+        """
+        Remove previously allocated commission, e.g. if the order was
+        changed from 'completed' to 'pending' or 'canceled'.
+        """
+        Commission.objects.filter(service_rendered=self).delete()
+        self.commission_amount = 0.0
+        self.save()
+
+    def save(self, *args, **kwargs):
+        # If not set, compute the commission upon creation or re-save
+        if self.service.commission_rate and self.commission_amount is None:
+            self.commission_amount = (self.service.price * self.service.commission_rate) / 100
         super(ServiceRendered, self).save(*args, **kwargs)
 
-        # Distribute commission among workers
-        workers = self.workers.all()
-        if workers:
-            commission_per_worker = self.commission_amount / workers.count()
-            for worker in workers:
-                worker.add_commission(commission_per_worker)
 
-
-# Commission Model to track commissions per worker per service rendered
 class Commission(models.Model):
     worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='commissions')
     service_rendered = models.ForeignKey(ServiceRendered, on_delete=models.CASCADE, related_name='commissions')
@@ -322,8 +369,39 @@ class Commission(models.Model):
         return f"{self.worker.user.get_full_name()} Commission on {self.date}: {self.amount}"
 
 
-# Expense Model to track daily expenses
+class ProductPurchased(models.Model):
+    """
+    Product purchased specifically as part of a ServiceRenderedOrder.
+    """
+    service_order = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='products_purchased')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='purchases')
+    quantity = models.PositiveIntegerField(default=1)
+    total_price = models.FloatField()
+
+    def save(self, *args, **kwargs):
+        if not self.total_price:
+            self.total_price = self.product.price * self.quantity
+
+        # Decrement stock if it's a new purchase
+        if self.pk is None:
+            if self.product.stock < self.quantity:
+                raise ValueError("Not enough stock to purchase this product.")
+            self.product.stock -= self.quantity
+            self.product.save()
+
+        super(ProductPurchased, self).save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.quantity}x {self.product.name} for Order {self.service_order.service_order_number}"
+
+
 class Expense(models.Model):
+    """
+    Tracks daily expenses from the business perspective.
+    This also includes 'on-credit' coverage or loyalty coverage,
+    because from the business perspective, no cash came in but
+    workers still got commission or salaries.
+    """
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='expenses')
     description = models.TextField()
     amount = models.FloatField()
@@ -334,7 +412,6 @@ class Expense(models.Model):
         return f"{self.branch.name} Expense on {self.date}: {self.amount}"
 
 
-# Daily Expense Budget Model
 class DailyExpenseBudget(models.Model):
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='daily_budgets')
     date = models.DateField()
@@ -344,53 +421,59 @@ class DailyExpenseBudget(models.Model):
         return f"{self.branch.name} Budget on {self.date}: {self.budgeted_amount}"
 
 
-# Revenue Model with profit/loss calculation
 class Revenue(models.Model):
-    service_rendered = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='revenues',
-                                         null=True, blank=True)
+    """
+    Tracks actual revenue (money that came in).
+    If the service was onCredit or loyalty, the 'final_amount' might be 0 here
+    or might not exist at all (since no real payment).
+    """
+    service_rendered = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='revenues', null=True, blank=True)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='revenues')
     amount = models.FloatField()
     discount = models.FloatField(null=True, blank=True)
     final_amount = models.FloatField(null=True, blank=True)
     date = models.DateField(auto_now_add=True)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='revenues', null=True, blank=True)
-    profit = models.FloatField(null=True, blank=True)  # New field to track profit/loss
+    profit = models.FloatField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        # Calculate profit or loss
-        # Sum of expenses for the date
-        total_expenses = \
-            Expense.objects.filter(branch=self.branch, date=self.date).aggregate(total=models.Sum('amount'))[
-                'total'] or 0
-        self.profit = self.final_amount - total_expenses
+        # Calculate profit or loss as final_amount - daily expenses
+        # This is simplistic; you might refine how you define "profit"
+        total_expenses = Expense.objects.filter(branch=self.branch, date=self.date).aggregate(total=Sum('amount'))['total'] or 0
+        self.profit = (self.final_amount or 0) - total_expenses
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Revenue for {self.branch.name} on {self.date}: {self.amount}"
 
 
-class Product(models.Model):
-    name = models.CharField(max_length=100)
-    description = models.TextField(null=True, blank=True)
-    price = models.FloatField()
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='products')
-    stock = models.IntegerField(default=0)  # Available stock
+# ---------------- New Model to Track On-Credit Services (Arrears) ----------------
+class Arrears(models.Model):
+    """
+    Tracks on-credit services (where final_amount wasn't paid by the customer).
+    Once paid, record date_paid.
+    """
+    service_order = models.OneToOneField(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='arrears')
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='arrears')
+    amount_owed = models.FloatField()
+    date_created = models.DateTimeField(auto_now_add=True)
+    date_paid = models.DateTimeField(null=True, blank=True)
+    is_paid = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.name} - GHS{self.price} - Stock: {self.stock}"
+        return f"Arrears - {self.service_order.service_order_number} - Owed: {self.amount_owed}"
 
+    def mark_as_paid(self):
+        self.is_paid = True
+        self.date_paid = timezone.now()
+        self.save()
 
-# Product Purchased Model
-class ProductPurchased(models.Model):
-    service_order = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='products_purchased')
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='purchases')
-    quantity = models.PositiveIntegerField(default=1)
-    total_price = models.FloatField()
-
-    def save(self, *args, **kwargs):
-        if not self.total_price:
-            self.total_price = self.product.price * self.quantity
-        super(ProductPurchased, self).save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.quantity}x {self.product.name} for Order {self.service_order.service_order_number}"
+        # Potentially create revenue record if the customer finally pays
+        Revenue.objects.create(
+            service_rendered=self.service_order,
+            branch=self.branch,
+            amount=self.amount_owed,
+            final_amount=self.amount_owed,
+            user=self.service_order.user,
+            date=timezone.now().date()
+        )
