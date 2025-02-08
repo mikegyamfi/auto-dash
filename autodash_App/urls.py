@@ -1,5 +1,6 @@
 from django.urls import path
-
+from django.conf.urls.static import static
+from django.conf import settings
 from autodash_App import views
 from autodash_App.auth import auth_views
 from autodash_App.views import standalone_product_receipt, worker_commissions, enroll_worker, generate_report, \
@@ -86,4 +87,7 @@ urlpatterns = [
     path('elevated/create-customer/', create_customer_page, name='create_customer_page'),
     path('elevated/create-vehicle/', create_vehicle_page, name='create_vehicle_page'),
     path('approve-worker/<int:worker_id>/', views.approve_worker, name='approve_worker'),
-]
+] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
