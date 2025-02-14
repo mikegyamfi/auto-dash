@@ -125,7 +125,7 @@ class Service(models.Model):
     commission_rate = models.FloatField(default=0.0)  # e.g. 10 => 10%
 
     def __str__(self):
-        return f"{self.service_type} - {self.vehicle_group.group_name} - {self.category.name}"
+        return f"{self.service_type} - {self.vehicle_group.group_name}"
 
 
 class ProductCategory(models.Model):
