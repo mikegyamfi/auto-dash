@@ -891,6 +891,7 @@ def confirm_service(request, pk):
                 f"is now {new_status}. Kindly leave feedback here: {feedback_url}"
             )
             print(feedback_msg)
+            send_sms(customer.user.phone_number, feedback_msg)
 
     messages.success(request, f"Service updated to {new_status}.")
     if new_status in ['completed', 'onCredit']:
