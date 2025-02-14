@@ -53,11 +53,20 @@
               </div>
             </div>
             <!-- Canceled Orders -->
-            <div class="col-md-3 col-sm-6 mb-4">
+            <div class="col-md-2 col-sm-6 mb-4">
               <div class="card">
                 <div class="card-body">
                   <h6 class="card-title">Canceled Orders</h6>
                   <p class="display-6">{{ canceled_orders_count }}</p>
+                </div>
+              </div>
+            </div>
+
+              <div class="col-md-2 col-sm-6 mb-4">
+              <div class="card">
+                <div class="card-body">
+                  <h6 class="card-title">On Credit</h6>
+                  <p class="display-6">{{ on_credit_orders_count }}</p>
                 </div>
               </div>
             </div>
@@ -66,14 +75,6 @@
           <!-- Second row of service cards -->
           <div class="row mb-4">
             <!-- On Credit Orders -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">On Credit</h6>
-                  <p class="display-6">{{ on_credit_orders_count }}</p>
-                </div>
-              </div>
-            </div>
             <!-- Revenue Today -->
             <div class="col-md-2 col-sm-6 mb-4">
               <div class="card">
