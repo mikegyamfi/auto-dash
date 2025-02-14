@@ -69,7 +69,7 @@ class LogServiceForm(forms.Form):
 
     def __init__(self, branch, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['workers'].queryset = Worker.objects.filter(branch=branch, worker_category="Wash Specialist")
+        self.fields['workers'].queryset = Worker.objects.filter(branch=branch, worker_category__service_provider=True)
         self.fields['products'].queryset = Product.objects.filter(branch=branch, stock__gt=0)
 
         # Set vehicle queryset based on customer
