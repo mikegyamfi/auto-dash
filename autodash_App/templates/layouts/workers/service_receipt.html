@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container my-4">
+
+  <div class="receipt-container bg-light p-3 rounded">
+
+    <!-- Header / Branding -->
+    <div class="text-center mb-3">
+      <h5>Autodash Receipt</h5>
+      <small class="text-muted">{{ service_order.branch.name }} Branch</small><br>
+      <small>Date: {{ service_order.date|date:"M j, Y H:i" }}</small>
+    </div>
+
+    <!-- Order Info -->
+    <div class="mb-3">
+      <p>
+        <strong>Order #:</strong> {{ service_order.service_order_number }} <br>
+        <strong class="mt-0">Customer:</strong> {{ service_order.customer.user.get_full_name }} <br>
+        <strong>Workers:</strong> <ul class="mt-0">
+            {% for worker in workers %}
+                <li class="mt-0">{{ worker}}</li>
+            {% endfor %}
+        </ul> 
+      </p>
+    </div>
+
+    <!-- Services Table -->
+    <h6>Services</h6>
+    <table class="table table-borderless">
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th class="text-end">Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sr in services_rendered %}
+        <tr>
+          <td>{{ sr.service.service_type }}</td>
+          <td class="text-end">
+            GHS 
+            {% if sr.negotiated_price %}
+              {{ sr.negotiated_price|floatformat:2 }}
+            {% else %}
+              {{ sr.service.price|floatformat:2 }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Products Table (if any) -->
+    {% if products_purchased %}
+      <h6>Products</h6>
+      <table class="table table-borderless">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pp in products_purchased %}
+          <tr>
+            <td>{{ pp.product.name }}</td>
+            <td class="text-end">{{ pp.quantity }}</td>
+            <td class="text-end">GHS {{ pp.total_price|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <!-- Totals -->
+    <div class="mt-3 border-top pt-2">
+      <p>
+        <strong>Total Services Price:</strong> 
+        GHS {{ total_services_price|floatformat:2 }} <br>
+        <strong>Total Products Price:</strong> 
+        GHS {{ total_products_price|floatformat:2 }} <br>
+      </p>
+      <h5>
+        Final Amount: GHS {{ final_amount|floatformat:2 }}
+      </h5>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center mt-4">
+      <small class="text-muted">Thank you for choosing Autodash!</small>
+    </div>
+
+  </div>
+
+  <!-- Print Button -->
+  <div class="text-end mt-3">
+    <button class="btn btn-secondary" onclick="window.print()">
+      <i class="fa fa-print me-1"></i> Print Receipt
+    </button>
+  </div>
+</div>
+{% endblock %}

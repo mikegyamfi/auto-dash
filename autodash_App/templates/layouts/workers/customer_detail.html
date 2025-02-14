@@ -35,80 +35,157 @@
             <!-- /Customer Information -->
 
             <!-- Customer Vehicles -->
-<div class="col-md-6">
-  <div class="card mb-4">
-    <h5 class="card-header d-flex justify-content-between align-items-center">
-      Customer Vehicles
-      <!-- Add Vehicle Button -->
-      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addVehicleModal">Add Vehicle</button>
-    </h5>
-    <div class="card-body">
-      {% if vehicles %}
-      <ul class="list-group">
-        {% for vehicle in vehicles %}
-        <li class="list-group-item">
-          {{ vehicle.car_make }} - {{ vehicle.car_plate }} ({{ vehicle.car_color }})
-          <br>
-          <small>Vehicle Group: {{ vehicle.vehicle_group.group_name }}</small>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p>No vehicles found.</p>
-      {% endif %}
-    </div>
-  </div>
-</div>
+            <div class="col-md-6">
+              <div class="card mb-4">
+                <h5 class="card-header d-flex justify-content-between align-items-center">
+                  Customer Vehicles
+                  <!-- Add Vehicle Button -->
+                  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addVehicleModal">
+                    Add Vehicle
+                  </button>
+                </h5>
+                <div class="card-body">
+                  {% if vehicles %}
+                    <ul class="list-group" id="vehicle-list">
+                      {% for vehicle in vehicles %}
+                      <li class="list-group-item d-flex justify-content-between align-items-start">
+                        <div>
+                          <strong>{{ vehicle.car_make }}</strong>
+                          - {{ vehicle.car_plate }} ({{ vehicle.car_color }})
+                          <br>
+                          <small>Vehicle Group: {{ vehicle.vehicle_group.group_name }}</small>
+                        </div>
+                        <!-- Remove Vehicle Button -->
+                        <button
+                          class="btn btn-sm btn-danger remove-vehicle-btn"
+                          data-vehicle-id="{{ vehicle.id }}"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <p>No vehicles found.</p>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
             <!-- /Customer Vehicles -->
           </div>
 
-        <!-- Add Vehicle Modal -->
-<div class="modal fade" id="addVehicleModal" tabindex="-1" aria-labelledby="addVehicleModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <form id="add-vehicle-form" method="POST" action="{% url 'add_vehicle_to_customer' customer.id %}">
-      {% csrf_token %}
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="addVehicleModalLabel">Add New Vehicle</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <!-- Vehicle Group -->
-          <div class="mb-3">
-            <label for="vehicle_group" class="form-label">Vehicle Group</label>
-            <select name="vehicle_group" class="form-control" required>
-              <option value="">Select Vehicle Group</option>
-              {% for group in vehicle_groups %}
-                <option value="{{ group.id }}">{{ group.group_name }}</option>
-              {% endfor %}
-            </select>
+          <!-- Add Vehicle Modal -->
+          <div class="modal fade" id="addVehicleModal" tabindex="-1" aria-labelledby="addVehicleModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+              <form id="add-vehicle-form" method="POST" action="{% url 'add_vehicle_to_customer' customer.id %}">
+                {% csrf_token %}
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title" id="addVehicleModalLabel">Add New Vehicle</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                  </div>
+                  <div class="modal-body">
+                    <!-- Vehicle Group -->
+                    <div class="mb-3">
+                      <label for="vehicle_group" class="form-label">Vehicle Group</label>
+                      <select name="vehicle_group" class="form-control" required>
+                        <option value="">Select Vehicle Group</option>
+                        {% for group in vehicle_groups %}
+                          <option value="{{ group.id }}">{{ group.group_name }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <!-- Car Make -->
+                    <div class="mb-3">
+                      <label for="car_make" class="form-label">Car Make</label>
+                      <input type="text" name="car_make" class="form-control" required>
+                    </div>
+                    <!-- Car Plate -->
+                    <div class="mb-3">
+                      <label for="car_plate" class="form-label">Car Plate</label>
+                      <input type="text" name="car_plate" class="form-control" required>
+                    </div>
+                    <!-- Car Color -->
+                    <div class="mb-3">
+                      <label for="car_color" class="form-label">Car Color</label>
+                      <input type="text" name="car_color" class="form-control" required>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">Add Vehicle</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  </div>
+                </div>
+              </form>
+            </div>
           </div>
-          <!-- Car Make -->
-          <div class="mb-3">
-            <label for="car_make" class="form-label">Car Make</label>
-            <input type="text" name="car_make" class="form-control" required>
-          </div>
-          <!-- Car Plate -->
-          <div class="mb-3">
-            <label for="car_plate" class="form-label">Car Plate</label>
-            <input type="text" name="car_plate" class="form-control" required>
-          </div>
-          <!-- Car Color -->
-          <div class="mb-3">
-            <label for="car_color" class="form-label">Car Color</label>
-            <input type="text" name="car_color" class="form-control" required>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">Add Vehicle</button>
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        </div>
-      </div>
-    </form>
-  </div>
-</div>
-<!-- /Add Vehicle Modal -->
+          <!-- /Add Vehicle Modal -->
 
+          <!-- Customer Subscriptions -->
+          <div class="card mb-4">
+            <h5 class="card-header d-flex justify-content-between align-items-center">
+              Customer Subscriptions
+              <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addSubscriptionModal">
+                Add Subscription
+              </button>
+            </h5>
+            <div class="card-body">
+              {% if customer_subscriptions %}
+                <ul class="list-group" id="subscription-list">
+                  {% for cs in customer_subscriptions %}
+                  <li class="list-group-item">
+                    <strong>{{ cs.subscription.name }}</strong>
+                    <br>
+                    <small>
+            Start: {{ cs.start_date }}
+            - End: {{ cs.end_date }}
+            {% if not cs.is_active %}
+              <span class="text-danger">(Expired)</span>
+            {% endif %}
+          </small>
+                  </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p>No subscriptions found.</p>
+              {% endif %}
+            </div>
+          </div>
+          <!-- /Customer Subscriptions -->
+
+          <!-- Add Subscription Modal -->
+          <div class="modal fade" id="addSubscriptionModal" tabindex="-1" aria-labelledby="addSubscriptionModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+              <form id="add-subscription-form" method="POST" action="{% url 'add_subscription_to_customer' customer.id %}">
+                {% csrf_token %}
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title" id="addSubscriptionModalLabel">Add Subscription</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                  </div>
+                  <div class="modal-body">
+                    <div class="mb-3">
+                      <label for="subscription_id" class="form-label">Subscription Plan</label>
+                      <select name="subscription_id" class="form-control" required>
+                        <option value="">Select Subscription</option>
+                        {% for sub in subscriptions %}
+                          <option value="{{ sub.id }}">
+                            {{ sub.name }}
+                            (GHS {{ sub.amount|floatformat:2 }} / {{ sub.duration_in_days }} days)
+                          </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">Add Subscription</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+          <!-- /Add Subscription Modal -->
 
           <!-- Service History -->
           <div class="card mb-4">
@@ -122,7 +199,7 @@
                     <th>Total Amount</th>
                     <th>Final Amount</th>
                     <th>Status</th>
-                      <th>Action</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody class="table-border-bottom-0">
@@ -133,7 +210,9 @@
                     <td>{{ order.total_amount }}</td>
                     <td>{{ order.final_amount }}</td>
                     <td>{{ order.status }}</td>
-                  <td><a href="{% url 'service_order_details' pk=order.id %}">Details</a></td>
+                    <td>
+                      <a href="{% url 'service_order_details' pk=order.id %}">Details</a>
+                    </td>
                   </tr>
                   {% empty %}
                   <tr>
@@ -201,10 +280,11 @@
 <script>
   document.addEventListener('DOMContentLoaded', function() {
     const addVehicleForm = document.getElementById('add-vehicle-form');
+    const vehicleList = document.getElementById('vehicle-list');
 
+    // 1. ADD VEHICLE
     addVehicleForm.addEventListener('submit', function(event) {
       event.preventDefault();
-
       const formData = new FormData(this);
 
       fetch(this.action, {
@@ -225,21 +305,108 @@
           addVehicleForm.reset();
 
           // Update the vehicle list
-          const vehicleList = document.querySelector('.list-group');
-          const listItem = document.createElement('li');
-          listItem.classList.add('list-group-item');
-          listItem.innerHTML = `
-            ${data.vehicle.car_make} - ${data.vehicle.car_plate} (${data.vehicle.car_color})
-            <br>
-            <small>Vehicle Group: ${data.vehicle.vehicle_group}</small>
-          `;
-          vehicleList.appendChild(listItem);
-
+          if (vehicleList) {
+            // If there was previously "No vehicles found." just in a <p>, you might remove that
+            if (!vehicleList.classList.contains('list-group')) {
+              // You could do logic to transform it, but for simplicity assume it's a <ul>
+            }
+            const li = document.createElement('li');
+            li.classList.add('list-group-item', 'd-flex', 'justify-content-between', 'align-items-start');
+            li.innerHTML = `
+              <div>
+                <strong>${data.vehicle.car_make}</strong>
+                - ${data.vehicle.car_plate} (${data.vehicle.car_color})<br>
+                <small>Vehicle Group: ${data.vehicle.vehicle_group}</small>
+              </div>
+              <button
+                class="btn btn-sm btn-danger remove-vehicle-btn"
+                data-vehicle-id="${data.vehicle.id}"
+              >
+                Remove
+              </button>
+            `;
+            vehicleList.appendChild(li);
+          }
         } else {
           alert('Error adding vehicle. Please try again.');
         }
       })
       .catch(error => console.error('Error:', error));
+    });
+
+    // 2. REMOVE VEHICLE
+    document.querySelectorAll('.remove-vehicle-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const vehicleId = this.dataset.vehicleId;
+        if (!confirm('Are you sure you want to remove this vehicle?')) {
+          return;
+        }
+
+        fetch('{% url "remove_vehicle_from_customer" customer.id %}', {
+          method: 'POST',
+          body: JSON.stringify({ vehicle_id: vehicleId }),
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}',
+          },
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // Remove this <li> from the DOM
+            this.closest('li').remove();
+          } else {
+            alert(data.error || 'Error removing vehicle.');
+          }
+        })
+        .catch(err => {
+          console.error('Remove vehicle error:', err);
+        });
+      });
+    });
+
+    // 3. ADD SUBSCRIPTION
+    const addSubscriptionForm = document.getElementById('add-subscription-form');
+    const subscriptionList = document.getElementById('subscription-list');
+
+    addSubscriptionForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const formData = new FormData(this);
+
+      fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+        },
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Close modal
+          var addSubModal = new bootstrap.Modal(document.getElementById('addSubscriptionModal'));
+          addSubModal.hide();
+
+          // Reset form
+          addSubscriptionForm.reset();
+
+          // Update subscription list
+          if (subscriptionList) {
+            const li = document.createElement('li');
+            li.classList.add('list-group-item');
+            li.innerHTML = `
+              <strong>${data.subscription.name}</strong><br>
+              <small>Start: ${data.start_date} - End: ${data.end_date}</small>
+            `;
+            subscriptionList.appendChild(li);
+          }
+        } else {
+          alert(data.error || 'Error adding subscription.');
+        }
+      })
+      .catch(err => {
+        console.error('Add subscription error:', err);
+      });
     });
   });
 </script>

@@ -1,64 +1,45 @@
 import base64
 import json
 import uuid
-from datetime import datetime, timedelta, date
+from datetime import date
 
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
-from django.contrib.sites.shortcuts import get_current_site
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import (
-    Q, Sum, Count, Avg, functions, Min, Max
-)
 from django.db.models.functions import TruncDate
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.http import (
-    HttpResponse, JsonResponse
+    JsonResponse
 )
-from django.shortcuts import (
-    render, get_object_or_404, redirect
-)
+from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
-from . import models, helper, forms
+
+from . import models, forms
 from .forms import (
-    LogServiceForm, NewCustomerForm, BranchForm, ExpenseForm, EnrollWorkerForm, ReportForm, CreateCustomerForm,
+    LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
     CreateVehicleForm
 )
 from .helper import send_sms
 from .models import (
-    AdminAccount, Expense, Revenue, ServiceRenderedOrder, Worker,
-    ProductPurchased, Commission, Branch, DailyExpenseBudget,
-    ServiceRendered, Customer, CustomerSubscription, CustomUser,
-    Service, LoyaltyTransaction, CustomerVehicle, VehicleGroup, Product, ProductSale, Arrears
+    CustomerSubscription, CustomUser,
+    Service, LoyaltyTransaction, VehicleGroup, ProductSale, ProductCategory,
+    Subscription, WorkerCategory
 )
-
-from datetime import timedelta
-from django.utils import timezone
-from django.contrib import messages
-from django.db.models import Sum, Count, Q
-from django.shortcuts import render, redirect, get_object_or_404
-
 from .models import (
-    ServiceRenderedOrder, Commission, Expense, Revenue,
-    Worker, Branch, DailyExpenseBudget
+    DailyExpenseBudget
 )
 
 
 @login_required(login_url='login')
 def home(request):
     """
-    Main dashboard:
-    - Admin: must pick a branch, or see select_branch page if none chosen.
-    - Worker: sees their branch's stats, plus personal daily commission, etc.
+    Main dashboard
+    ...
     """
     user = request.user
     today = timezone.now().date()
@@ -67,18 +48,14 @@ def home(request):
     # ----------------------------- ADMIN FLOW -----------------------------
     if user.is_staff or user.is_superuser:
         branch_id = request.GET.get('branch_id')
-
-        # If admin hasn't selected a branch yet, show selection page
         if not branch_id:
+            # Force admin to select a branch
             branches = Branch.objects.all()
-            return render(request, 'layouts/admin/select_branch.html', {
-                'branches': branches
-            })
+            return render(request, 'layouts/admin/select_branch.html', {'branches': branches})
 
-        # Otherwise, get the selected branch
         branch = get_object_or_404(Branch, id=branch_id)
 
-        # Example: days param for worker stats
+        # Number of days param
         days_param = request.GET.get('days', '10')
         try:
             days = int(days_param)
@@ -88,7 +65,7 @@ def home(request):
             days = 10
         start_date = today - timedelta(days=days)
 
-        # For expense range
+        # Expense range
         start_days_ago = request.GET.get('start_days_ago', '20')
         end_days_ago = request.GET.get('end_days_ago', '10')
         try:
@@ -110,20 +87,19 @@ def home(request):
         # 1) Daily expenses & budget
         expenses_today = Expense.objects.filter(branch=branch, date=today) \
                              .aggregate(total=Sum('amount'))['total'] or 0
-
         daily_budget_obj = DailyExpenseBudget.objects.filter(branch=branch, date=today).first()
         daily_expense_budget = daily_budget_obj.budgeted_amount if daily_budget_obj else 0
         expenses_over_budget = expenses_today > daily_expense_budget
         budget_difference = abs(expenses_today - daily_expense_budget)
 
-        # 2) Daily revenue & profit
+        # 2) Daily revenue, profit
         revenue_today = Revenue.objects.filter(branch=branch, date=today) \
                             .aggregate(total=Sum('final_amount'))['total'] or 0
         revenue_yesterday = Revenue.objects.filter(branch=branch, date=yesterday) \
                                 .aggregate(total=Sum('final_amount'))['total'] or 0
         profit_today = revenue_today - expenses_today
 
-        # Percentage increase from yesterday
+        # % increase from yesterday's revenue
         if revenue_yesterday > 0:
             percentage_increase = ((revenue_today - revenue_yesterday) / revenue_yesterday) * 100
         else:
@@ -139,54 +115,85 @@ def home(request):
         ).count()
         if services_rendered_yesterday > 0:
             services_percentage_change = (
-                                                 (services_rendered_today - services_rendered_yesterday)
-                                                 / services_rendered_yesterday
-                                         ) * 100
+                (services_rendered_today - services_rendered_yesterday)
+                / services_rendered_yesterday
+            ) * 100
         else:
             services_percentage_change = 0
         services_percentage_change = round(services_percentage_change, 2)
 
-        # 4) Total commission (all workers) today
+        # 4) Commission today
         total_commission = Commission.objects.filter(worker__branch=branch, date=today) \
                                .aggregate(total=Sum('amount'))['total'] or 0
+        commission_today = total_commission  # alias
 
-        # 5) Products sold today
-        products_sold_today = ProductPurchased.objects.filter(
-            service_order__branch=branch,
-            service_order__date__date=today
-        ).aggregate(total_qty=Sum('quantity'))['total_qty'] or 0
+        # 5) Products sold summary (standalone product sales from `ProductSale`)
+        products_purchased_qs = ProductSale.objects.filter(
+            branch=branch,
+            date_sold__date=today
+        )
+        products_sold_today = products_purchased_qs.aggregate(total_qty=Sum('quantity'))['total_qty'] or 0
+        products_sold_amount_today = products_purchased_qs.aggregate(sum_amt=Sum('total_price'))['sum_amt'] or 0
 
-        # 6) Recent & pending services
-        recent_services = ServiceRenderedOrder.objects.filter(branch=branch) \
-                              .order_by('-date')[:5]
-        pending_services = ServiceRenderedOrder.objects.filter(
-            branch=branch, status='pending'
-        ).order_by('-date')
+        # 6) "Gross sales"
+        # If Revenue includes all service + product, then keep as is
+        # Otherwise: gross_sales = revenue_today + products_sold_amount_today
+        gross_sales = revenue_today
 
-        # 7) Order status counts
+        # 7) Net sales => define your logic
+        # Possibly profit_today - commission or something else
+        net_sales = profit_today - total_commission
+
+        # 8) Product categories sold (today) => breakdown
+        # We group by product.category in `ProductSale`
+        category_aggregate = products_purchased_qs.values('product__category').annotate(
+            cat_qty=Sum('quantity'),
+            cat_amt=Sum('total_price')
+        )
+
+        # Build a list of dicts with category ID, name, total_qty, total_amount
+        product_categories_today = []
+        for row in category_aggregate:
+            cat_id = row['product__category']
+            cat_qty = row['cat_qty'] or 0
+            cat_amt = row['cat_amt'] or 0
+
+            cat_name = "Uncategorized"
+            if cat_id:
+                try:
+                    cat_obj = ProductCategory.objects.get(id=cat_id)
+                    cat_name = cat_obj.name
+                except ProductCategory.DoesNotExist:
+                    pass
+
+            product_categories_today.append({
+                "category_id": cat_id,
+                "category_name": cat_name,
+                "total_qty": cat_qty,
+                "total_amount": cat_amt
+            })
+
+        # Summation across all categories => for the "Category Totals" card
+        product_category_total_qty = sum(item['total_qty'] for item in product_categories_today)
+        product_category_total_amt = sum(item['total_amount'] for item in product_categories_today)
+
+        # 9) Recent & pending services
+        recent_services = ServiceRenderedOrder.objects.filter(branch=branch).order_by('-date')[:5]
+        pending_services = ServiceRenderedOrder.objects.filter(branch=branch, status='pending').order_by('-date')
+
+        # 10) Order status counts
         total_orders = ServiceRenderedOrder.objects.filter(branch=branch).count()
-        completed_orders_count = ServiceRenderedOrder.objects.filter(
-            branch=branch, status='completed'
-        ).count()
-        pending_orders_count = ServiceRenderedOrder.objects.filter(
-            branch=branch, status='pending'
-        ).count()
-        canceled_orders_count = ServiceRenderedOrder.objects.filter(
-            branch=branch, status='canceled'
-        ).count()
-        on_credit_orders_count = ServiceRenderedOrder.objects.filter(
-            branch=branch, status='onCredit'
-        ).count()
+        completed_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='completed').count()
+        pending_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='pending').count()
+        canceled_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='canceled').count()
+        on_credit_orders_count = ServiceRenderedOrder.objects.filter(branch=branch, status='onCredit').count()
 
-        # 8) Worker stats in the past N days
+        # 11) Worker stats in the past N days
         workers_qs = Worker.objects.filter(branch=branch)
         services_by_worker = workers_qs.annotate(
             total_services=Count(
                 'servicerenderedorder',
-                filter=(
-                        Q(servicerenderedorder__date__gte=start_date) &
-                        Q(servicerenderedorder__status='completed')
-                )
+                filter=Q(servicerenderedorder__date__gte=start_date, servicerenderedorder__status='completed')
             )
         ).order_by('-total_services')
 
@@ -197,48 +204,61 @@ def home(request):
             )
         ).order_by('-total_commission')
 
-        # 9) Expenses in range
+        # 12) Expenses in range
         expenses_in_range = Expense.objects.filter(
             branch=branch,
             date__range=[expense_end_date, expense_start_date]
         ).order_by('-date')
         total_expenses_in_range = expenses_in_range.aggregate(total=Sum('amount'))['total'] or 0
 
-        # Days options for a select in the template
+        # Days options
         days_options = [5, 10, 15, 30, 60, 90]
 
-        daily_revenues = Revenue.objects.filter(branch=branch, date=datetime.now()).select_related('service_rendered',
-                                                                                                   'user')
-        daily_expenses = Expense.objects.filter(branch=branch, date=datetime.now()).select_related('user')
-        daily_commissions = Commission.objects.filter(worker__branch=branch, date=datetime.now()).select_related(
-            'worker',
-            'service_rendered')
-        workers_qs = Worker.objects.filter(branch=branch).annotate(
-            total_services=Count(
-                'servicerenderedorder',
-                filter=Q(servicerenderedorder__date__gte=start_date, servicerenderedorder__status='completed')
-            ),
-            total_commission=Sum(
-                'commissions__amount',
-                filter=Q(commissions__date__gte=start_date)
-            )
-        ).order_by('-total_services')
+        # daily logs
+        daily_revenues = Revenue.objects.filter(branch=branch, date=datetime.now()) \
+                                        .select_related('service_rendered', 'user')
+        daily_expenses = Expense.objects.filter(branch=branch, date=datetime.now()) \
+                                        .select_related('user')
+        daily_commissions = Commission.objects.filter(worker__branch=branch, date=datetime.now()) \
+                                              .select_related('worker', 'service_rendered')
 
         context = {
             'is_admin': True,
             'branch': branch,
-            'services_by_worker': workers_qs,
+
+            # Expenses
             'expenses_today': expenses_today,
             'daily_expense_budget': daily_expense_budget,
             'expenses_over_budget': expenses_over_budget,
             'budget_difference': budget_difference,
+
+            # Revenue, profit
             'revenue_today': revenue_today,
             'profit_today': profit_today,
             'percentage_increase': percentage_increase,
+
+            # Services
             'services_rendered_today': services_rendered_today,
             'services_percentage_change': services_percentage_change,
+
+            # Commission
             'total_commission': total_commission,
+            'commission_today': commission_today,
+
+            # Products
             'products_sold_today': products_sold_today,
+            'products_sold_amount_today': products_sold_amount_today,
+
+            # Cards layout
+            'gross_sales': gross_sales,
+            'net_sales': net_sales,
+            'product_category_total_qty': product_category_total_qty,
+            'product_category_total_amt': product_category_total_amt,
+
+            # Breakdown list for modal
+            'product_categories_today': product_categories_today,
+
+            # Service orders
             'recent_services': recent_services,
             'pending_services': pending_services,
             'total_orders': total_orders,
@@ -246,16 +266,22 @@ def home(request):
             'pending_orders_count': pending_orders_count,
             'canceled_orders_count': canceled_orders_count,
             'on_credit_orders_count': on_credit_orders_count,
+
+            # Worker stats
             'services_by_worker': services_by_worker,
             'commission_by_worker': commission_by_worker,
+            'days_options': days_options,
+            'days': days,
+
+            # Expense range
             'start_days_ago': start_days_ago,
             'end_days_ago': end_days_ago,
             'expense_start_date': expense_start_date,
             'expense_end_date': expense_end_date,
-            'days_options': days_options,
-            'days': days,
             'expenses_in_range': expenses_in_range,
             'total_expenses_in_range': total_expenses_in_range,
+
+            # daily logs
             'daily_revenues': daily_revenues,
             'daily_expenses': daily_expenses,
             'daily_commissions': daily_commissions,
@@ -430,8 +456,10 @@ def log_service(request):
             selected_products = form.cleaned_data.get('products', [])
             product_quantities = request.POST.getlist('product_quantity')
 
-            # 1) Sum up the services
-            total_services = sum(svc.price for svc in selected_services)
+            # 1) Sum up the services using standard (non-negotiated) price only
+            total_services = 0
+            for svc in selected_services:
+                total_services += svc.price
 
             # 2) Sum up any products selected
             total_products = 0
@@ -459,13 +487,13 @@ def log_service(request):
             )
             new_order.workers.set(selected_workers)
 
-            # 4) Create ServiceRendered entries
+            # 4) Create ServiceRendered entries (negotiated_price=None initially)
             for svc in selected_services:
                 sr = ServiceRendered.objects.create(
                     service=svc,
                     order=new_order,
+                    negotiated_price=None  # We'll handle at confirm time if negotiable
                 )
-                # Optionally set the same workers on each service line
                 sr.workers.set(selected_workers)
 
             # 5) Create ProductPurchased entries
@@ -476,21 +504,21 @@ def log_service(request):
                     quantity=qty,
                     total_price=total_price
                 )
-                # Optionally decrement product stock, if desired:
-                # product.stock -= qty
-                # product.save()
+                # Decrement stock
+                product.stock -= qty
+                product.save()
 
-            # 6) If status is 'pending' => optionally send an SMS
+            # 6) Optional SMS
             phone = customer.user.phone_number
             if phone:
                 msg = (
                     f"Hello {customer.user.first_name}, "
-                    f"your service #{new_order.service_order_number} is initiated and pending at {datetime.now()}. "
+                    f"your service #{new_order.service_order_number} is pending at {timezone.now():%Y-%m-%d %H:%M}. "
                     f"We will update you soon."
                 )
                 try:
-                    send_sms(phone, msg)
                     print("Sending SMS:", msg)
+                    # send_sms(phone, msg)
                 except Exception as e:
                     print("SMS error:", e)
 
@@ -501,16 +529,16 @@ def log_service(request):
     else:
         form = LogServiceForm(branch=worker.branch)
 
-    # Pass needed objects to template
     products = Product.objects.filter(branch=worker.branch)
     vehicle_groups = VehicleGroup.objects.all()
 
     context = {
         'form': form,
         'products': products,
-        'vehicle_groups': vehicle_groups,  # for "Add New Vehicle" modal
+        'vehicle_groups': vehicle_groups
     }
     return render(request, 'layouts/workers/log_service.html', context)
+
 
 
 @login_required(login_url='login')
@@ -518,22 +546,28 @@ def log_service(request):
 def confirm_service(request, pk):
     """
     Handles finalizing a service order:
-      - Allocates commission for the entire order if new status is [completed, onCredit].
-      - For loyalty or subscription-covered services => record an Expense for that commission
-        because the business is effectively paying it.
-      - If leftover was actually paid => record Revenue for that leftover portion.
+      - Allows the user to set negotiated_price for negotiable services on this page.
+      - Allocates/removes commission depending on the new status.
+      - For loyalty or subscription-covered services => record an Expense for that commission.
+      - If leftover is actually paid => record Revenue.
       - If onCredit => create Arrears, and record commission expense for the entire order.
       - Sends SMS with receipt details, plus a feedback link if completed/onCredit.
     """
+
+    # A helper to fetch the price: either the negotiated_price (if set) or the base service price
+    def get_sr_price(sr):
+        return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
+
     user = request.user
     worker = get_object_or_404(Worker, user=user)
     service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
 
+    # All services tied to this order
     services_rendered = service_order.rendered.all()
     customer = service_order.customer
     phone_number = customer.user.phone_number if customer else None
 
-    # Attempt to check subscription
+    # Attempt to see if the customer has a subscription
     try:
         cust_sub = CustomerSubscription.objects.filter(customer=customer).latest('end_date')
         subscription_active = cust_sub.is_active()
@@ -541,19 +575,21 @@ def confirm_service(request, pk):
         cust_sub = None
         subscription_active = False
 
-    # -------------------- GET Logic: Show summary -------------------------
     if request.method == 'GET':
         # Identify which services might be covered by the subscription
         covered_by_subscription = []
         if subscription_active and service_order.vehicle:
             for sr in services_rendered:
                 if (
-                        sr.service in cust_sub.subscription.services.all() and
-                        service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
+                    sr.service in cust_sub.subscription.services.all()
+                    and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
                 ):
                     covered_by_subscription.append(sr.id)
 
+        # If you have products to display or add
+        from .models import Product  # or wherever Product is defined
         available_products = Product.objects.filter(branch=worker.branch)
+
         context = {
             'service_order': service_order,
             'services_rendered': services_rendered,
@@ -565,17 +601,38 @@ def confirm_service(request, pk):
         }
         return render(request, 'layouts/workers/confirm_service_order.html', context)
 
-    # -------------------- POST Logic: Finalize order ----------------------
+    # ------------------ POST: Finalize the order ------------------
     old_status = service_order.status
     new_status = request.POST.get('status', 'completed')
     payment_method = request.POST.get('payment_method', 'cash')
 
-    # Update the order status and payment method
+    # 1) Parse negotiated prices for each negotiable service
+    for sr in services_rendered:
+        if sr.service.category and sr.service.category.negotiable:
+            field_name = f"negotiated_price_{sr.id}"
+            raw_value = request.POST.get(field_name, "")
+            try:
+                nego_price = float(raw_value)
+            except (ValueError, TypeError):
+                nego_price = 0.0
+
+            if nego_price <= 0:
+                messages.error(
+                    request,
+                    f"You must provide a valid negotiated price for {sr.service.service_type}"
+                )
+                return redirect('confirm_service_rendered', pk=service_order.pk)
+
+            # Update the negotiable service with the user-provided price
+            sr.negotiated_price = nego_price
+            sr.save()
+
+    # 2) Update the order status & payment method
     service_order.status = new_status
     service_order.payment_method = payment_method
     service_order.save()
 
-    # 1) Commission allocation/removal for the entire order
+    # 3) Commission allocation/removal for the entire order
     if new_status in ['completed', 'onCredit'] and old_status != new_status:
         # Allocate commission
         for sr in services_rendered:
@@ -585,27 +642,27 @@ def confirm_service(request, pk):
         for sr in services_rendered:
             sr.remove_commission()
 
-    # 2) Calculate base totals
-    total_services_price = sum(sr.service.price for sr in services_rendered)
+    # 4) Calculate base totals using negotiated or standard price
+    total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
     total_products_price = sum(p.total_price for p in service_order.products_purchased.all())
     recalculated_total = total_services_price + total_products_price
 
-    # 3) Check subscription coverage
+    # 5) Check subscription coverage
     subscription_covered_ids = []
     if subscription_active and service_order.vehicle:
         for sr in services_rendered:
             if (
-                    sr.service in cust_sub.subscription.services.all() and
-                    service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
+                sr.service in cust_sub.subscription.services.all()
+                and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
             ):
                 subscription_covered_ids.append(sr.id)
 
-    # Subtract subscription coverage from the recalculated total
+    # Subtract subscription-covered services
     for sr in services_rendered:
         if sr.id in subscription_covered_ids:
-            recalculated_total -= sr.service.price
+            recalculated_total -= get_sr_price(sr)
 
-    # 4) Identify loyalty redemption
+    # 6) Identify loyalty redemption
     redeem_service_ids = []
     for sr in services_rendered:
         if f'redeem_service_{sr.id}' in request.POST:
@@ -613,14 +670,15 @@ def confirm_service(request, pk):
 
     loyalty_points_needed = 0
     for sr in services_rendered:
+        # If user wants to redeem loyalty AND not subscription-covered
         if sr.id in redeem_service_ids and sr.id not in subscription_covered_ids:
-            recalculated_total -= sr.service.price
+            recalculated_total -= get_sr_price(sr)
             loyalty_points_needed += sr.service.loyalty_points_required
 
     if recalculated_total < 0:
         recalculated_total = 0
 
-    # 5) Apply discount
+    # 7) Apply discount
     discount_type = request.POST.get('discount_type', 'amount')
     discount_value_str = request.POST.get('discount_value', '0')
     try:
@@ -639,7 +697,7 @@ def confirm_service(request, pk):
     if recalculated_total < 0:
         recalculated_total = 0
 
-    # Save final amount
+    # 8) Save final amount
     service_order.final_amount = recalculated_total
     service_order.discount_type = discount_type
     service_order.discount_value = discount_value
@@ -647,7 +705,7 @@ def confirm_service(request, pk):
 
     leftover = recalculated_total  # portion actually paid in real money
 
-    # 6) Deduct loyalty for redeemed services
+    # 9) Deduct loyalty for redeemed services
     if loyalty_points_needed > 0:
         if customer.loyalty_points >= loyalty_points_needed:
             customer.loyalty_points -= loyalty_points_needed
@@ -671,12 +729,15 @@ def confirm_service(request, pk):
                 customer=customer,
                 points=-points_to_use,
                 transaction_type='redeem',
-                description=f"Final payment coverage for {service_order.service_order_number}",
+                description=(
+                    f"Final payment coverage for {service_order.service_order_number}"
+                ),
                 branch=service_order.branch,
             )
     customer.save()
 
-    # 7) If onCredit => leftover becomes Arrears + entire order's commissions => expense
+    # 10) If onCredit => leftover => Arrears, plus commission expense
+    from .models import Expense, Arrears  # or wherever these are
     if new_status == 'onCredit':
         if not hasattr(service_order, 'arrears'):
             Arrears.objects.create(
@@ -684,23 +745,28 @@ def confirm_service(request, pk):
                 branch=service_order.branch,
                 amount_owed=leftover
             )
-        # Commission expense (entire order)
+        # Commission expense for onCredit
         total_commission = Commission.objects.filter(
             service_rendered__order=service_order
         ).aggregate(sum=Sum('amount'))['sum'] or 0
-
         Expense.objects.create(
             branch=service_order.branch,
             description=f"Commission expense for onCredit {service_order.service_order_number}",
             amount=total_commission,
             user=user
         )
-        # No revenue because leftover isn't paid
+        # No revenue because leftover not paid
 
-    # 8) If completed => leftover might be real payment => create Revenue
+    # 11) If completed => leftover might be real payment => create Revenue
     elif new_status == 'completed':
-        # (A) leftover > 0 => create Revenue if method is real money
-        if payment_method in ['cash', 'momo', 'subscription-cash', 'subscription-momo', 'loyalty-cash']:
+        from .models import Revenue
+        if payment_method in [
+            'cash',
+            'momo',
+            'subscription-cash',
+            'subscription-momo',
+            'loyalty-cash'
+        ]:
             if leftover > 0:
                 has_revenue = Revenue.objects.filter(service_rendered=service_order).exists()
                 if not has_revenue:
@@ -711,34 +777,36 @@ def confirm_service(request, pk):
                         final_amount=leftover,
                         user=user
                     )
-
         elif payment_method == 'loyalty':
-            # leftover should be 0 => no revenue
-            # Create expense for entire order's commission
-            total_commission = Commission.objects.filter(
-                service_rendered__order=service_order
-            ).aggregate(sum=Sum('amount'))['sum'] or 0
-            Expense.objects.create(
-                branch=service_order.branch,
-                description=f"Loyalty coverage commission expense for {service_order.service_order_number}",
-                amount=total_commission,
-                user=user
-            )
-
-        elif payment_method == 'subscription':
-            # leftover should be 0 => no revenue
+            # leftover should be 0 => no direct revenue
             # entire order's commissions => expense
             total_commission = Commission.objects.filter(
                 service_rendered__order=service_order
             ).aggregate(sum=Sum('amount'))['sum'] or 0
             Expense.objects.create(
                 branch=service_order.branch,
-                description=f"Subscription coverage commission expense for {service_order.service_order_number}",
+                description=(
+                    f"Loyalty coverage commission expense for {service_order.service_order_number}"
+                ),
+                amount=total_commission,
+                user=user
+            )
+        elif payment_method == 'subscription':
+            # leftover should be 0 => no direct revenue
+            # entire order's commissions => expense
+            total_commission = Commission.objects.filter(
+                service_rendered__order=service_order
+            ).aggregate(sum=Sum('amount'))['sum'] or 0
+            Expense.objects.create(
+                branch=service_order.branch,
+                description=(
+                    f"Subscription coverage commission expense for {service_order.service_order_number}"
+                ),
                 amount=total_commission,
                 user=user
             )
 
-    # 9) Earn loyalty if newly completed
+    # 12) Earn loyalty if newly completed
     if new_status == 'completed':
         for sr in services_rendered:
             pts = sr.service.loyalty_points_earned
@@ -747,16 +815,15 @@ def confirm_service(request, pk):
                     customer=customer,
                     points=pts,
                     transaction_type='gain',
-                    description=f'Points earned for {sr.service.service_type}',
+                    description=f"Points earned for {sr.service.service_type}",
                     branch=service_order.branch,
                 )
                 customer.loyalty_points += pts
         customer.save()
 
-    # 10) Commission expense for loyalty/subscription services
+    # 13) Commission expense for loyalty/subscription services
     if new_status in ['completed', 'onCredit']:
         for sr in services_rendered:
-            # If sr is loyalty or subscription covered, record expense for that service's commission
             if sr.id in redeem_service_ids or sr.id in subscription_covered_ids:
                 sr_commission = sr.commissions.aggregate(sum=Sum('amount'))['sum'] or 0
                 if sr_commission > 0:
@@ -764,30 +831,36 @@ def confirm_service(request, pk):
                         branch=service_order.branch,
                         description=(
                             f"Commission expense for "
-                            f"{('loyalty' if sr.id in redeem_service_ids else 'subscription')} "
+                            f"{'loyalty' if sr.id in redeem_service_ids else 'subscription'} "
                             f"service on {service_order.service_order_number}"
                         ),
                         amount=sr_commission,
                         user=user
                     )
 
-    # 11) Send SMS
+    # 14) Optional: Send SMS
     if phone_number:
         if new_status == 'pending':
-            txt = f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} is now pending."
+            txt = (
+                f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
+                f"is now pending."
+            )
             print(txt)
-            send_sms(phone_number, txt)
 
         elif new_status == 'canceled':
-            txt = f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} has been canceled."
+            txt = (
+                f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
+                f"has been canceled."
+            )
             print(txt)
-            send_sms(phone_number, txt)
 
         elif new_status in ['completed', 'onCredit']:
-            # Build a textual receipt
+            # Build textual receipt
             service_lines = []
             for sr in services_rendered:
-                service_lines.append(f"{sr.service.service_type} - GHS {sr.service.price:.2f}")
+                actual_price = get_sr_price(sr)
+                service_lines.append(f"{sr.service.service_type} - GHS {actual_price:.2f}")
+
             product_lines = []
             for prod_item in service_order.products_purchased.all():
                 product_lines.append(
@@ -805,15 +878,11 @@ def confirm_service(request, pk):
                 lines.append("Products:")
                 lines.extend(product_lines)
             lines.append("Thank you for choosing us!")
-
             receipt_text = "\n".join(lines)
             print(receipt_text)
-            try:
-                send_sms(phone_number, receipt_text)
-            except Exception as e:
-                print("SMS error (receipt):", e)
 
-            # Send feedback link
+            # Feedback link
+            from django.urls import reverse
             feedback_url = request.build_absolute_uri(
                 reverse('service_feedback', args=[service_order.id])
             )
@@ -821,16 +890,43 @@ def confirm_service(request, pk):
                 f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
                 f"is now {new_status}. Kindly leave feedback here: {feedback_url}"
             )
-            try:
-                send_sms(phone_number, feedback_msg)
-            except Exception as e:
-                print("SMS error (feedback link):", e)
-
-    # 12) Send Email
-    # send_service_email(service_order)
+            print(feedback_msg)
 
     messages.success(request, f"Service updated to {new_status}.")
+    if new_status in ['completed', 'onCredit']:
+        return redirect('service_receipt', pk=service_order.pk)
     return redirect('index')
+
+
+@login_required(login_url='login')
+def service_receipt(request, pk):
+    # Fetch the order
+    service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
+    services_rendered = service_order.rendered.all()
+    products_purchased = service_order.products_purchased.all()
+
+    # If you need the negotiated price or normal price:
+    def get_sr_price(sr):
+        return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
+
+    # Summaries
+    total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
+    total_products_price = sum(p.total_price for p in products_purchased)
+    final_amount = service_order.final_amount or 0
+    workers = service_order.workers.all()
+
+    context = {
+        'service_order': service_order,
+        'services_rendered': services_rendered,
+        'products_purchased': products_purchased,
+        'total_services_price': total_services_price,
+        'total_products_price': total_products_price,
+        'final_amount': final_amount,
+        'workers': workers
+    }
+    return render(request, 'layouts/workers/service_receipt.html', context)
+
+
 
 
 @login_required(login_url='login')
@@ -866,7 +962,18 @@ def standalone_product_sale(request):
         return redirect('index')
 
     branch = worker.branch
-    products = Product.objects.filter(branch=branch)
+
+    # 1) Gather all categories for the dropdown
+    categories = ProductCategory.objects.all()
+
+    # 2) Check if a category was selected in GET (e.g., ?category=2)
+    selected_category_id = request.GET.get('category', '')
+
+    # 3) Filter product list by category if provided, otherwise show all
+    if selected_category_id:
+        products = Product.objects.filter(branch=branch, category_id=selected_category_id)
+    else:
+        products = Product.objects.filter(branch=branch)
 
     if request.method == 'POST':
         selected_products = request.POST.getlist('selected_products')
@@ -882,7 +989,7 @@ def standalone_product_sale(request):
 
         try:
             with transaction.atomic():
-                # 1) Create product sales (same batch & date)
+                # 1) Create ProductSale rows
                 for product_id in selected_products:
                     product = Product.objects.get(id=product_id, branch=branch)
                     quantity_str = request.POST.get(f'quantity_{product_id}', '1')
@@ -891,7 +998,6 @@ def standalone_product_sale(request):
                     if product.stock < quantity:
                         raise ValueError(f'Not enough stock for {product.name}')
 
-                    # Create one product sale row
                     sale = ProductSale.objects.create(
                         user=request.user,
                         batch_id=batch_id,
@@ -916,23 +1022,18 @@ def standalone_product_sale(request):
                     user=user
                 )
 
-                # 3) Craft the SMS message (optional)
+                # 3) (Optional) send SMS
                 if customer_phone:
-                    # Build lines for the items
                     message_lines = [f"Receipt from Autodash({branch.name}):"]
                     for s in sales_lines:
                         message_lines.append(f"{s.quantity}x {s.product.name} => GHS {s.total_price:.2f}")
-
                     message_lines.append(f"Total: GHS {total_price:.2f}")
                     message_lines.append("Thank you for your purchase!")
+
                     sms_message = "\n".join(message_lines)
 
-                    # If you need to modify the phone number, e.g. remove leading zero:
-                    # phone_to_send = customer_phone[1:]  # or some logic
-                    phone_to_send = customer_phone
-
                     try:
-                        send_sms(phone_to_send, sms_message)
+                        send_sms(customer_phone, sms_message)
                     except Exception as sms_err:
                         messages.warning(request, f"SMS not sent: {sms_err}")
 
@@ -943,7 +1044,7 @@ def standalone_product_sale(request):
             messages.error(request, str(e))
             return redirect('sell_product')
 
-    # If GET, display the product list and recent batches
+    # If GET, display the filtered product list and recent batches
     recent_batches = (
         ProductSale.objects.filter(branch=branch)
         .values('batch_id')
@@ -955,7 +1056,6 @@ def standalone_product_sale(request):
         .order_by('-date_sold')[:10]
     )
 
-    # Gather lines for each batch
     batches_with_sales = []
     for batch in recent_batches:
         sales = ProductSale.objects.filter(batch_id=batch['batch_id']).select_related('product')
@@ -969,7 +1069,8 @@ def standalone_product_sale(request):
     context = {
         'products': products,
         'recent_batches': batches_with_sales,
-        'worker': worker
+        'worker': worker,
+        'categories': categories,  # Pass categories to the template
     }
     return render(request, 'layouts/sell_product.html', context)
 
@@ -1456,9 +1557,7 @@ def branch_customers(request):
         return redirect('index')
 
     branch = worker.branch
-    service_orders = ServiceRenderedOrder.objects.filter(branch=branch)
-    customer_ids = service_orders.values_list('customer__id', flat=True).distinct()
-    customers = Customer.objects.filter(id__in=customer_ids)
+    customers = Customer.objects.filter(branch=branch)
 
     context = {
         'customers': customers,
@@ -1491,6 +1590,8 @@ def customer_detail(request, customer_id):
     vehicles = CustomerVehicle.objects.filter(customer=customer)
     loyalty_transactions = LoyaltyTransaction.objects.filter(customer=customer).order_by('-date')
     vehicle_groups = VehicleGroup.objects.all()
+    subscriptions = Subscription.objects.all()
+    customer_subscriptions = CustomerSubscription.objects.filter(customer=customer)
 
     context = {
         'customer': customer,
@@ -1498,6 +1599,8 @@ def customer_detail(request, customer_id):
         'vehicles': vehicles,
         'loyalty_transactions': loyalty_transactions,
         'vehicle_groups': vehicle_groups,
+        'subscriptions': subscriptions,
+        'customer_subscriptions': customer_subscriptions
     }
     return render(request, 'layouts/workers/customer_detail.html', context)
 
@@ -1857,20 +1960,30 @@ def get_vehicles_data(request):
 @staff_member_required
 def manage_workers(request):
     """
-    Allows an admin to view and manage all workers or filter by branch.
+    Allows an admin to view and manage all workers or filter by branch and category.
     """
     branch_id = request.GET.get('branch', '')
+    category_id = request.GET.get('category', '')
+
+    workers = Worker.objects.all()
+
+    # If branch filter is selected
     if branch_id:
-        workers = Worker.objects.filter(branch_id=branch_id)
-    else:
-        workers = Worker.objects.all()
+        workers = workers.filter(branch_id=branch_id)
+
+    # If category filter is selected
+    if category_id:
+        workers = workers.filter(worker_category_id=category_id)
 
     branches = Branch.objects.all()
+    categories = WorkerCategory.objects.all()
 
     context = {
         'workers': workers,
         'branches': branches,
-        'selected_branch': branch_id,
+        'categories': categories,           # pass categories to template
+        'selected_branch': branch_id,       # remember which branch is chosen
+        'selected_category': category_id,   # remember which category is chosen
     }
     return render(request, 'layouts/admin/manage_workers.html', context)
 
@@ -2840,40 +2953,165 @@ def financial_overview(request):
     return render(request, 'layouts/financial_overview.html', context)
 
 
+from django.shortcuts import render, get_object_or_404
+from django.contrib.admin.views.decorators import staff_member_required
+from django.utils import timezone
+from django.db.models import Sum, F
+from datetime import datetime, date
+from django.contrib import messages
+
+from .models import Branch, ProductSale, ProductCategory
+
 @staff_member_required
 def product_sales_report(request):
     """
-    Shows the standalone product sales for a single date,
-    optionally filtered by branch. This does NOT count
-    toward your main service revenue.
+    Shows a product sales report with filters for date/month/year,
+    plus branch & category filters. Displays profit and a category
+    breakdown chart.
     """
     branches = Branch.objects.all()
-    selected_branch_id = request.GET.get('branch', '')
-    selected_date_str = request.GET.get('date', '')
+    categories = ProductCategory.objects.all()
 
-    if selected_date_str:
-        try:
-            selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
-        except ValueError:
+    # 1) Capture filters from GET
+    branch_id = request.GET.get('branch', '')
+    category_id = request.GET.get('category', '')
+    date_str = request.GET.get('date', '')       # e.g. 2025-02-20
+    month_str = request.GET.get('month', '')     # e.g. "02"
+    year_str = request.GET.get('year', '')       # e.g. "2025"
+
+    # We'll build our queryset step by step
+    sales_qs = ProductSale.objects.all()
+
+    # 2) Apply Branch filter if any
+    if branch_id:
+        sales_qs = sales_qs.filter(branch_id=branch_id)
+
+    # 3) Apply Category filter if any
+    #    ProductSale has product__category
+    if category_id:
+        sales_qs = sales_qs.filter(product__category_id=category_id)
+
+    # 4) Date vs. Month-Year vs. Year
+    #    If "date" is given, we ignore month/year filters
+    selected_date = None
+    selected_month = None
+    selected_year = None
+
+    try:
+        # (a) Exact date takes precedence if provided
+        if date_str:
+            selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            sales_qs = sales_qs.filter(date_sold__date=selected_date)
+
+        # (b) Else if month & year are provided
+        elif month_str and year_str:
+            selected_month = int(month_str)
+            selected_year = int(year_str)
+            # Filter by year + month
+            sales_qs = sales_qs.filter(
+                date_sold__year=selected_year,
+                date_sold__month=selected_month
+            )
+
+        # (c) Else if only year is provided
+        elif year_str:
+            selected_year = int(year_str)
+            sales_qs = sales_qs.filter(date_sold__year=selected_year)
+
+        # (d) If none provided, default to "today" or entire range
+        else:
+            # For demonstration: default to "today"
             selected_date = timezone.now().date()
-            messages.error(request, "Invalid date format. Showing today's data.")
-    else:
+            sales_qs = sales_qs.filter(date_sold__date=selected_date)
+
+    except ValueError:
+        messages.error(request, "Invalid date/month/year format. Showing today's data.")
         selected_date = timezone.now().date()
+        sales_qs = sales_qs.filter(date_sold__date=selected_date)
 
-    sales_qs = ProductSale.objects.filter(date_sold__date=selected_date)
-    if selected_branch_id:
-        sales_qs = sales_qs.filter(branch_id=selected_branch_id)
+    # 5) Calculate aggregates
+    #    total_revenue = sum of total_price
+    #    total_cost = sum of (product.cost * quantity)
+    #    total_profit = sum of ( (product.price - product.cost) * quantity )
+    # We can do that with annotations or just sum manually:
+    sales_qs = sales_qs.annotate(
+        line_cost=F('product__cost') * F('quantity'),
+        line_profit=(F('product__price') - F('product__cost')) * F('quantity')
+    )
 
-    total_sales_amount = sales_qs.aggregate(total=Sum('total_price'))['total'] or 0
+    total_revenue = sales_qs.aggregate(sum_rev=Sum('total_price'))['sum_rev'] or 0
+    total_cost = sales_qs.aggregate(sum_cost=Sum('line_cost'))['sum_cost'] or 0
+    total_profit = sales_qs.aggregate(sum_profit=Sum('line_profit'))['sum_profit'] or 0
 
+    # 6) Category breakdown for Chart.js
+    #    sum by product__category
+    #    We'll store labels & data in arrays
+    cat_data_qs = sales_qs.values('product__category__name').annotate(
+        cat_revenue=Sum('total_price'),
+        cat_profit=Sum('line_profit')
+    )
+    # Build arrays for chart
+    chart_labels = []
+    chart_revenue_data = []
+    chart_profit_data = []
+
+    for row in cat_data_qs:
+        cat_name = row['product__category__name'] or "Uncategorized"
+        chart_labels.append(cat_name)
+        chart_revenue_data.append(float(row['cat_revenue'] or 0))
+        chart_profit_data.append(float(row['cat_profit'] or 0))
+
+    months = [f"{i:02d}" for i in range(1, 13)]
+
+    stock_summary_qs = Product.objects.values('category__name').annotate(
+        in_stock_qty=Sum('stock'),
+        total_cost_if_sold=Sum(F('stock') * F('cost')),
+        total_price_if_sold=Sum(F('stock') * F('price')),
+        total_profit_if_sold=Sum((F('price') - F('cost')) * F('stock'))
+    ).order_by('category__name')
+
+    # Convert to a list of dicts for easy looping in template
+    # You might store category_id as well if you want links.
+    stock_summary = []
+    for row in stock_summary_qs:
+        cat_name = row['category__name'] or "Uncategorized"
+        stock_summary.append({
+            'category_name': cat_name,
+            'in_stock_qty': row['in_stock_qty'] or 0,
+            'total_cost_if_sold': row['total_cost_if_sold'] or 0.0,
+            'total_price_if_sold': row['total_price_if_sold'] or 0.0,
+            'total_profit_if_sold': row['total_profit_if_sold'] or 0.0,
+        })
+
+    # 7) Prepare context
     context = {
         'branches': branches,
-        'selected_branch_id': selected_branch_id,
+        'categories': categories,
+        'months': months,
+
+        'selected_branch_id': branch_id,
+        'selected_category_id': category_id,
+
+        'date_str': date_str,
+        'month_str': month_str,
+        'year_str': year_str,
         'selected_date': selected_date,
-        'sales': sales_qs,
-        'total_sales_amount': total_sales_amount,
+        'selected_month': selected_month,
+        'selected_year': selected_year,
+
+        'sales': sales_qs,  # includes line_cost & line_profit annotations
+        'total_revenue': total_revenue,
+        'total_cost': total_cost,
+        'total_profit': total_profit,
+
+        # Chart data
+        'chart_labels': json.dumps(chart_labels),
+        'chart_revenue_data': chart_revenue_data,
+        'chart_profit_data': chart_profit_data,
+        'stock_summary': stock_summary,
     }
     return render(request, 'layouts/product_sales_report.html', context)
+
 
 
 @login_required(login_url='login')
@@ -2915,7 +3153,6 @@ def arrears_list(request):
             arrears_qs = arrears_qs.filter(is_paid=True)
         elif paid_filter == 'unpaid':
             arrears_qs = arrears_qs.filter(is_paid=False)
-
 
         total_owed = arrears_qs.aggregate(total=Sum('amount_owed'))['total'] or 0
 
@@ -2997,7 +3234,7 @@ def mark_arrears_as_paid(request, arrears_id):
 
     # Create a Revenue record for the day it's paid
     Revenue.objects.create(
-        service_rendered=arrears.service_order,   # Optionally link back to the ServiceRenderedOrder
+        service_rendered=arrears.service_order,  # Optionally link back to the ServiceRenderedOrder
         branch=arrears.branch,
         amount=arrears.amount_owed,
         final_amount=arrears.amount_owed,
@@ -3025,7 +3262,6 @@ def mark_arrears_as_paid(request, arrears_id):
 
     messages.success(request, "Arrears has been marked as paid, revenue recorded, and SMS notification sent.")
     return redirect('arrears_list')
-
 
 
 @login_required(login_url='login')
@@ -3430,47 +3666,66 @@ def generate_chart(fig):
 @transaction.atomic
 def create_customer_page(request):
     """
-    Standalone page to create a new Customer (and associated CustomUser).
-    After success, sends an SMS about the new registration.
+    Standalone page to create a new Customer (and associated CustomUser),
+    plus attach an initial Vehicle in the same form.
     """
     if request.method == 'POST':
         form = CreateCustomerForm(request.POST)
         if form.is_valid():
+            # 1. Extract customer fields
             first_name = form.cleaned_data['first_name']
             last_name = form.cleaned_data['last_name']
             phone_number = form.cleaned_data['phone_number']
             email = form.cleaned_data['email']
             branch = form.cleaned_data['branch']
+            customer_group = form.cleaned_data['customer_group']
 
-            # Check if phone already used
+            # 2. Extract vehicle fields
+            vehicle_group = form.cleaned_data['vehicle_group']
+            car_make = form.cleaned_data['car_make']
+            car_plate = form.cleaned_data['car_plate']
+            car_color = form.cleaned_data['car_color']
+
+            # Check for phone conflict
             if CustomUser.objects.filter(phone_number=phone_number).exists():
                 messages.error(request, "This phone number is already used by another user.")
                 return render(request, 'layouts/create_customer.html', {'form': form})
 
-            # Create the CustomUser
+            # 3. Create the CustomUser
             user = CustomUser.objects.create(
                 first_name=first_name,
                 last_name=last_name,
                 phone_number=phone_number,
-                username=phone_number,
+                username=phone_number,  # or a custom username logic
                 email=email,
                 role='customer'
             )
-            # Create the Customer
-            customer = Customer.objects.create(user=user, branch=branch)
 
-            # Send SMS
+            # 4. Create the Customer
+            customer = Customer.objects.create(user=user, branch=branch, customer_group=customer_group)
+
+            # 5. Create the initial Vehicle
+            CustomerVehicle.objects.create(
+                customer=customer,
+                vehicle_group=vehicle_group,
+                car_plate=car_plate,
+                car_make=car_make,
+                car_color=car_color,
+            )
+
+            # 6. Send SMS
             try:
                 sms_text = (
                     f"Hello {first_name}, you have been registered as a Customer at Autodash. "
                     f"Your phone: {phone_number}. Welcome aboard!"
                 )
-                send_sms(phone_number, sms_text)
-                messages.success(request, f"Customer created, and SMS sent to {phone_number}.")
+                # send_sms(phone_number, sms_text)
+                messages.success(request, f"Customer + Vehicle created, SMS sent to {phone_number}.")
             except Exception as e:
-                messages.warning(request, f"Customer created, but SMS not sent: {str(e)}")
+                messages.warning(request, f"Customer + Vehicle created, but SMS not sent: {str(e)}")
 
-            return redirect('create_customer_page')  # or to a 'manage_customers' page
+            # 7. Redirect or show success
+            return redirect('create_customer_page')  # or maybe to a "manage_customers" view
         else:
             messages.error(request, "Please correct the errors below.")
             return render(request, 'layouts/create_customer.html', {'form': form})
@@ -3528,11 +3783,10 @@ def create_vehicle_page(request):
     return render(request, 'layouts/create_vehicle.html', {'form': form})
 
 
-
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render, redirect
 from django.utils import timezone
-from django.db.models import Sum, Count, Avg, Q, F, Max
+from django.db.models import Sum, Count, Avg, Max, Q
 from datetime import datetime, timedelta
 from .forms import ReportForm
 from .models import (
@@ -3564,9 +3818,9 @@ def generate_report(request):
                 # Range covering that month
                 first_day = datetime(year, month, 1).date()
                 if month == 12:
-                    last_day = datetime(year+1, 1, 1).date() - timedelta(days=1)
+                    last_day = datetime(year + 1, 1, 1).date() - timedelta(days=1)
                 else:
-                    last_day = datetime(year, month+1, 1).date() - timedelta(days=1)
+                    last_day = datetime(year, month + 1, 1).date() - timedelta(days=1)
                 final_start = first_day
                 final_end = last_day
             else:
@@ -3670,7 +3924,8 @@ def generate_report(request):
                     # Ratings
                     # If your rating is stored in ServiceRenderedOrder.customer_rating
                     # for orders involving this worker
-                    ratings = completed_orders.exclude(customer_rating__isnull=True).values_list('customer_rating', flat=True)
+                    ratings = completed_orders.exclude(customer_rating__isnull=True).values_list('customer_rating',
+                                                                                                 flat=True)
                     if ratings:
                         avg_rating = sum(ratings) / len(ratings)
                     else:
@@ -3796,3 +4051,122 @@ def generate_report(request):
         form = ReportForm()
 
     return render(request, 'layouts/reports/select_report.html', {'form': form})
+
+
+######### Customer Page Views
+def customer_page_add_vehicle_to_customer(request, customer_id):
+    """
+    POST endpoint to add a new vehicle for a specific Customer.
+    Expects form data: vehicle_group, car_make, car_plate, car_color
+    Returns JSON: { success: true, vehicle: {...} } on success
+    """
+    if request.method == 'POST':
+        customer = get_object_or_404(Customer, pk=customer_id)
+
+        vehicle_group_id = request.POST.get('vehicle_group')
+        car_make = request.POST.get('car_make')
+        car_plate = request.POST.get('car_plate')
+        car_color = request.POST.get('car_color')
+
+        # Basic validation
+        if not all([vehicle_group_id, car_make, car_plate, car_color]):
+            return JsonResponse({'success': False, 'error': 'Missing fields'}, status=400)
+
+        try:
+            group = VehicleGroup.objects.get(pk=vehicle_group_id)
+        except VehicleGroup.DoesNotExist:
+            return JsonResponse({'success': False, 'error': 'Invalid vehicle group'}, status=400)
+
+        new_vehicle = CustomerVehicle.objects.create(
+            customer=customer,
+            vehicle_group=group,
+            car_make=car_make,
+            car_plate=car_plate,
+            car_color=car_color
+        )
+
+        return JsonResponse({
+            'success': True,
+            'vehicle': {
+                'id': new_vehicle.id,
+                'car_make': new_vehicle.car_make,
+                'car_plate': new_vehicle.car_plate,
+                'car_color': new_vehicle.car_color,
+                'vehicle_group': new_vehicle.vehicle_group.group_name
+            }
+        })
+    # If not POST, return method not allowed
+    return JsonResponse({'success': False, 'error': 'Invalid request method'}, status=405)
+
+
+def customer_page_remove_vehicle_from_customer(request, customer_id):
+    """
+    POST endpoint to remove a vehicle from a Customer.
+    Expects JSON body: { "vehicle_id": <int> }
+    Returns { success: true } on success
+    """
+    if request.method == 'POST':
+        customer = get_object_or_404(Customer, pk=customer_id)
+
+        import json
+        try:
+            data = json.loads(request.body)
+            vehicle_id = data.get('vehicle_id')
+        except (json.JSONDecodeError, AttributeError):
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+
+        if not vehicle_id:
+            return JsonResponse({'success': False, 'error': 'No vehicle_id provided'}, status=400)
+
+        try:
+            vehicle = CustomerVehicle.objects.get(pk=vehicle_id, customer=customer)
+        except CustomerVehicle.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'error': 'Vehicle not found for this customer'
+            }, status=404)
+
+        vehicle.delete()
+        return JsonResponse({'success': True})
+
+    return JsonResponse({'success': False, 'error': 'Invalid request method'}, status=405)
+
+
+def customer_page_add_subscription_to_customer(request, customer_id):
+    """
+    POST endpoint to add a Subscription to a Customer.
+    Expects form data: subscription_id
+    Returns JSON: { success: true, subscription: {...}, start_date, end_date } on success
+    """
+    if request.method == 'POST':
+        customer = get_object_or_404(Customer, pk=customer_id)
+        subscription_id = request.POST.get('subscription_id')
+
+        if not subscription_id:
+            return JsonResponse({'success': False, 'error': 'No subscription chosen'}, status=400)
+
+        try:
+            subscription_obj = Subscription.objects.get(pk=subscription_id)
+        except Subscription.DoesNotExist:
+            return JsonResponse({'success': False, 'error': 'Subscription not found'}, status=404)
+
+        start_date = timezone.now().date()
+        end_date = start_date + timezone.timedelta(days=subscription_obj.duration_in_days)
+
+        cs = CustomerSubscription.objects.create(
+            customer=customer,
+            subscription=subscription_obj,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        return JsonResponse({
+            'success': True,
+            'subscription': {
+                'id': cs.id,
+                'name': subscription_obj.name,
+            },
+            'start_date': cs.start_date.strftime('%Y-%m-%d'),
+            'end_date': cs.end_date.strftime('%Y-%m-%d'),
+        })
+    return JsonResponse({'success': False, 'error': 'Invalid request method'}, status=405)

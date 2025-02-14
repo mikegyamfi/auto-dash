@@ -50,7 +50,6 @@
                               <span class="input-group-text">
                                 <i class="fas fa-user-circle"></i>
                               </span>
-                              <!-- Form Customer Field -->
                               {{ form.customer }}
                             </div>
                           </div>
@@ -82,7 +81,6 @@
                               <span class="input-group-text">
                                 <i class="fas fa-car"></i>
                               </span>
-                              <!-- Form Vehicle Field -->
                               {{ form.vehicle }}
                             </div>
                           </div>
@@ -94,7 +92,8 @@
                               data-bs-toggle="modal"
                               data-bs-target="#new-vehicle-modal"
                             >
-                              <i class="fas fa-car mb-1"><span class="small"> Add Vehicle</span></i>
+                              <i class="fas fa-car mb-1"></i>
+                              <span class="small">Add Vehicle</span>
                             </button>
                           </div>
                         </div>
@@ -105,15 +104,21 @@
                     <div class="stepper-step mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
                         <div class="step-icon bg-info text-white rounded-circle me-3">3</div>
-                        <h6 class="mb-0">Select Service</h6>
+                        <h6 class="mb-0">Select Service(s)</h6>
                       </div>
                       <div class="step-content">
-                        <div class="input-group">
+                        <div class="input-group mb-2">
                           <span class="input-group-text">
                             <i class="fas fa-tools"></i>
                           </span>
-                          <!-- Form Service Field -->
+                          <!-- Multi-select for services -->
                           {{ form.service }}
+                        </div>
+
+                        <!-- Container for negotiable service price inputs -->
+                        <div id="negotiable-services-container" class="mb-3" style="display: none;">
+                          <h6>Negotiable Service Prices:</h6>
+                          <!-- We'll populate this via JavaScript -->
                         </div>
                       </div>
                     </div>
@@ -129,11 +134,33 @@
                           <span class="input-group-text">
                             <i class="fas fa-users-cog"></i>
                           </span>
-                          <!-- Form Workers Field -->
                           {{ form.workers }}
                         </div>
                       </div>
                     </div>
+
+                    <!-- Products (optional) -->
+                    <div class="stepper-step mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <div class="step-icon bg-success text-white rounded-circle me-3">5</div>
+                        <h6 class="mb-0">Add Products (Optional)</h6>
+                      </div>
+                      <div class="step-content">
+                        {{ form.products }}
+                        <!-- 
+                          If you're capturing product quantities, you might 
+                          have a UI for that, or you rely on checkboxes only. 
+                        -->
+                      </div>
+                    </div>
+
+                    <!-- Hidden input for negotiated prices JSON -->
+                    <input 
+                      type="hidden" 
+                      name="negotiated_prices" 
+                      id="negotiated-prices-hidden" 
+                      value=""
+                    >
 
                     <!-- Submit Section -->
                     <div class="d-flex justify-content-end mt-5">
@@ -158,7 +185,7 @@
                       </li>
                       <li class="mb-3">
                         <i class="fas fa-angle-right text-primary me-2"></i>
-                        Add vehicle if not in the system
+                        Add vehicle if not already present
                       </li>
                       <li class="mb-3">
                         <i class="fas fa-angle-right text-primary me-2"></i>
@@ -321,7 +348,7 @@
   top: 1rem;
 }
 </style>
-{% endblock %}
+{% endblock content %}
 
 {% block scripts %}
 <!-- Font Awesome for icons -->
@@ -334,7 +361,6 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-
   // Show/hide a global spinner
   function showSpinner() {
     document.getElementById('loadingSpinner').style.display = 'block';
@@ -375,8 +401,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Set the new customer
         customerSelect.value = data.customer.id;
-
-        // Trigger change event to refresh possible vehicles
         customerSelect.dispatchEvent(new Event('change'));
 
         newCustomerForm.reset();
@@ -462,7 +486,7 @@ document.addEventListener('DOMContentLoaded', function() {
   customerSelect.addEventListener('change', function() {
     const customerId = this.value;
     vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
-    serviceSelect.innerHTML = '<option value="">Select Service</option>';
+    serviceSelect.innerHTML = '';
 
     if (customerId) {
       showSpinner();
@@ -487,32 +511,36 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   /*
-   * 5. Auto-populate services when vehicle changes
+   * 5. Auto-populate services (with "negotiable") when vehicle changes
    */
   vehicleSelect.addEventListener('change', function() {
     const vehicleId = this.value;
-    serviceSelect.innerHTML = '<option value="">Select Service</option>';
+    serviceSelect.innerHTML = '';
 
     if (vehicleId) {
       showSpinner();
       fetch(`/get_vehicle_services/${vehicleId}/`)
       .then(res => res.json())
       .then(data => {
+          console.log("got here")
+          console.log(data)
+          console.log(data.services)
         hideSpinner();
-        if (data.services) {
-          if (data.services.length === 0) {
+        if (data.services && data.services.length > 0) {
+          data.services.forEach(svc => {
             const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = 'No services available for this vehicle';
+            opt.value = svc.id;
+            opt.textContent = svc.name;
+            // Store negotiable in a data attribute
+            opt.setAttribute('data-negotiable', svc.negotiable ? 'true' : 'false');
             serviceSelect.appendChild(opt);
-          } else {
-            data.services.forEach(svc => {
-              const opt = document.createElement('option');
-              opt.value = svc.id;
-              opt.textContent = svc.name;
-              serviceSelect.appendChild(opt);
-            });
-          }
+          });
+        } else {
+          // Optionally show a "No services available" placeholder
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No services available for this vehicle';
+          serviceSelect.appendChild(opt);
         }
       })
       .catch(err => {
@@ -522,9 +550,67 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // If you had product selection re-enabled, you could also replicate
-  // the spinner logic for that.
+  /*
+   * 6. Dynamic negotiable fields for the selected services
+   */
+  const negotiableContainer = document.getElementById('negotiable-services-container');
+  const negotiatedPricesHidden = document.getElementById('negotiated-prices-hidden');
 
+  let negotiatedPrices = {};  // { serviceId: price }
+
+  // Listen for changes to the multi-select
+  serviceSelect.addEventListener('change', function() {
+    negotiableContainer.innerHTML = '';
+    negotiablePrices = {};
+    
+    // Because it's a multiple select:
+    const selectedOptions = Array.from(serviceSelect.selectedOptions);
+
+    // If no options selected, hide the container
+    if (selectedOptions.length === 0) {
+      negotiableContainer.style.display = 'none';
+      return;
+    }
+
+    let anyNegotiable = false;
+
+    selectedOptions.forEach(opt => {
+      const svcId = opt.value;
+      const isNegotiable = (opt.getAttribute('data-negotiable') === 'true');
+      if (svcId && isNegotiable) {
+        anyNegotiable = true;
+        // Create an input for negotiated price
+        const div = document.createElement('div');
+        div.classList.add('mb-2');
+        div.innerHTML = `
+          <label class="form-label">Negotiated Price for "${opt.textContent}":</label>
+          <input 
+            type="number" step="0.01" min="0" 
+            class="form-control negotiated-price-input" 
+            data-service-id="${svcId}" 
+            placeholder="Enter final price in GHS"
+          >
+        `;
+        negotiableContainer.appendChild(div);
+      }
+    });
+
+    negotiableContainer.style.display = anyNegotiable ? 'block' : 'none';
+  });
+
+  // On form submit, gather negotiated price inputs into negotiatedPricesHidden
+  const logServiceForm = document.getElementById('log-service-form');
+  logServiceForm.addEventListener('submit', function(e) {
+    // Gather user inputs
+    const priceInputs = negotiableContainer.querySelectorAll('.negotiated-price-input');
+    priceInputs.forEach(input => {
+      const svcId = input.getAttribute('data-service-id');
+      const val = parseFloat(input.value) || 0;
+      negotiatedPrices[svcId] = val;
+    });
+
+    negotiatedPricesHidden.value = JSON.stringify(negotiatedPrices);
+  });
 });
 </script>
 {% endblock scripts %}

@@ -17,6 +17,24 @@
               <div class="card">
                 <div class="card-body">
                   <h5 class="card-title text-primary">Sell Products</h5>
+                    <form method="GET" action="{% url 'sell_product' %}">
+  <div class="row mb-3">
+    <div class="col-8">
+      <label for="category_filter" class="form-label">Filter by Category</label>
+      <select name="category" id="category_filter" class="form-select">
+        <option value="">All Categories</option>
+        {% for cat in categories %}
+          <option value="{{ cat.id }}" {% if cat.id|stringformat:"s" == request.GET.category %}selected{% endif %}>
+            {{ cat.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-4 d-flex align-items-end">
+      <button type="submit" class="btn btn-secondary mb-0">Filter</button>
+    </div>
+  </div>
+</form>
                   <form method="POST" action="{% url 'sell_product' %}">
                     {% csrf_token %}
                     <p class="mb-3">Select products to sell:</p>
