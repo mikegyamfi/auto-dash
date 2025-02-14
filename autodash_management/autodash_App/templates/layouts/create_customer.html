@@ -9,13 +9,15 @@
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
 
-          <h4 class="fw-bold py-3 mb-4">Create Customer</h4>
+          <h4 class="fw-bold py-3 mb-4">Create Customer with Vehicle</h4>
 
           <div class="card">
             <div class="card-body">
               <form method="POST">
                 {% csrf_token %}
                 {{ form.non_field_errors }}
+
+                <!-- CUSTOMER FIELDS -->
                 <div class="row mb-3">
                   <div class="col-md-6">
                     <label for="id_first_name" class="form-label">First Name</label>
@@ -32,6 +34,7 @@
                     {% endif %}
                   </div>
                 </div>
+
                 <div class="row mb-3">
                   <div class="col-md-6">
                     <label for="id_phone_number" class="form-label">Phone Number</label>
@@ -47,15 +50,66 @@
                       <div class="text-danger">{{ form.email.errors }}</div>
                     {% endif %}
                   </div>
-                <div class="col-md-6">
-                    <label for="id_email" class="form-label">Branch</label>
+                </div>
+
+                <div class="row mb-3">
+                  <div class="col-md-6">
+                    <label for="id_branch" class="form-label">Branch</label>
                     {{ form.branch }}
                     {% if form.branch.errors %}
                       <div class="text-danger">{{ form.branch.errors }}</div>
                     {% endif %}
                   </div>
+
+                <div class="col-md-6">
+                    <label for="id_branch" class="form-label">Customer Group</label>
+                    {{ form.customer_group }}
+                    {% if form.customer_group.errors %}
+                      <div class="text-danger">{{ form.customer_group.errors }}</div>
+                    {% endif %}
+                  </div>
                 </div>
-                <button type="submit" class="btn btn-primary">Create Customer</button>
+
+
+                <hr/>
+
+                <!-- VEHICLE FIELDS -->
+                <h5 class="mt-4">Initial Vehicle Details</h5>
+                <div class="row mb-3">
+                  <div class="col-md-6">
+                    <label for="id_vehicle_group" class="form-label">Vehicle Group</label>
+                    {{ form.vehicle_group }}
+                    {% if form.vehicle_group.errors %}
+                      <div class="text-danger">{{ form.vehicle_group.errors }}</div>
+                    {% endif %}
+                  </div>
+                  <div class="col-md-6">
+                    <label for="id_car_make" class="form-label">Car Make</label>
+                    {{ form.car_make }}
+                    {% if form.car_make.errors %}
+                      <div class="text-danger">{{ form.car_make.errors }}</div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="row mb-3">
+                  <div class="col-md-6">
+                    <label for="id_car_plate" class="form-label">Car Plate</label>
+                    {{ form.car_plate }}
+                    {% if form.car_plate.errors %}
+                      <div class="text-danger">{{ form.car_plate.errors }}</div>
+                    {% endif %}
+                  </div>
+                  <div class="col-md-6">
+                    <label for="id_car_color" class="form-label">Car Color</label>
+                    {{ form.car_color }}
+                    {% if form.car_color.errors %}
+                      <div class="text-danger">{{ form.car_color.errors }}</div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Create Customer & Vehicle</button>
               </form>
             </div>
           </div>

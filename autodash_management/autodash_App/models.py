@@ -6,6 +6,7 @@ from django.db.models import Sum
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+
 # -------------Your existing imports and models (CustomUser, Branch, etc.)-------------
 # Keep them as they are, just showing partial for brevity
 
@@ -37,8 +38,18 @@ class Branch(models.Model):
         return f"{self.name} - {self.location}"
 
 
+class WorkerCategory(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True)
+    service_provider = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.name
+
+
 class Worker(models.Model):
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='worker_profile')
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='worker_profile', null=True, blank=True)
+    worker_category = models.ForeignKey('WorkerCategory', on_delete=models.SET_NULL, null=True, blank=True)
     gh_card_number = models.CharField(max_length=20, null=True, blank=True)
     gh_card_photo = models.ImageField(upload_to='gh_card_photos/', null=True, blank=True)
     is_gh_card_approved = models.BooleanField(default=False)
@@ -91,9 +102,20 @@ class AdminAccount(models.Model):
     daily_expense_amount = models.FloatField(default=0)
 
 
+class ServiceCategory(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.CharField(max_length=255, null=True, blank=True)
+    negotiable = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.name
+
+
 class Service(models.Model):
     service_type = models.CharField(max_length=100)
-    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='services', null=True, blank=True)
+    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='services', null=True,
+                                      blank=True)
+    category = models.ForeignKey(ServiceCategory, null=True, blank=True, on_delete=models.SET_NULL)
     description = models.TextField(null=True, blank=True)
     price = models.FloatField()
     branches = models.ManyToManyField(Branch, related_name='services')
@@ -103,15 +125,24 @@ class Service(models.Model):
     commission_rate = models.FloatField(default=0.0)  # e.g. 10 => 10%
 
     def __str__(self):
-        group_name = self.vehicle_group.group_name if self.vehicle_group else "No group"
-        return f"{self.service_type} - {group_name}"
+        return f"{self.service_type} - {self.vehicle_group.group_name} - {self.category.name}"
+
+
+class ProductCategory(models.Model):
+    name = models.CharField(max_length=250, null=False, blank=False)
+    description = models.TextField(null=False, blank=False)
+
+    def __str__(self):
+        return self.name
 
 
 class Product(models.Model):
+    category = models.ForeignKey('ProductCategory', null=True, blank=True, on_delete=models.SET_NULL)
     name = models.CharField(max_length=100)
     description = models.TextField(null=True, blank=True)
     price = models.FloatField()
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='products')
+    cost = models.FloatField()
+    branch = models.ManyToManyField(Branch, related_name='products')
     stock = models.IntegerField(default=0)
 
     def __str__(self):
@@ -154,6 +185,11 @@ class Customer(models.Model):
     date_joined_app = models.DateField(default=timezone.now)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='customers', null=True, blank=True)
     loyalty_points = models.IntegerField(default=0)
+    group_choices = (
+        ("Cash", "Cash"),
+        ("Credit", "Credit")
+    )
+    customer_group = models.CharField(max_length=250, null=True, blank=True, choices=group_choices)
 
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name}"
@@ -189,7 +225,8 @@ class Customer(models.Model):
 
 class CustomerVehicle(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='vehicles', null=True, blank=True)
-    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='vehicles', null=True, blank=True)
+    vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='vehicles', null=True,
+                                      blank=True)
     car_plate = models.CharField(max_length=100, null=True, blank=True)
     car_make = models.CharField(max_length=100, null=True, blank=True)
     car_color = models.CharField(max_length=100, null=True, blank=True)
@@ -236,7 +273,8 @@ class LoyaltyTransaction(models.Model):
     points = models.IntegerField()
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES)
     description = models.TextField()
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='loyalty_transactions', null=True, blank=True)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='loyalty_transactions', null=True,
+                               blank=True)
     date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -283,7 +321,8 @@ class ServiceRenderedOrder(models.Model):
         choices=[('loyalty', 'Loyalty Points'), ('subscription', 'Subscription'), ('cash', 'Cash')],
         null=True, blank=True
     )
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='services_rendered', null=True, blank=True)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='services_rendered', null=True,
+                               blank=True)
     date = models.DateTimeField(auto_now_add=True)
     time_in = models.DateTimeField(default=timezone.now)
     time_out = models.DateTimeField(null=True, blank=True)
@@ -310,11 +349,13 @@ class ServiceRenderedOrder(models.Model):
 
 
 class ServiceRendered(models.Model):
-    order = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='rendered', null=True, blank=True)
+    order = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='rendered', null=True,
+                              blank=True)
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='services_rendered')
     workers = models.ManyToManyField(Worker, related_name='services_rendered', blank=True)
     date = models.DateTimeField(auto_now_add=True)
     commission_amount = models.FloatField(null=True, blank=True)
+    negotiated_price = models.FloatField(null=True, blank=True)
 
     def allocate_commission(self):
         """
@@ -427,7 +468,8 @@ class Revenue(models.Model):
     If the service was onCredit or loyalty, the 'final_amount' might be 0 here
     or might not exist at all (since no real payment).
     """
-    service_rendered = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='revenues', null=True, blank=True)
+    service_rendered = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='revenues',
+                                         null=True, blank=True)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='revenues')
     amount = models.FloatField()
     discount = models.FloatField(null=True, blank=True)
@@ -439,7 +481,8 @@ class Revenue(models.Model):
     def save(self, *args, **kwargs):
         # Calculate profit or loss as final_amount - daily expenses
         # This is simplistic; you might refine how you define "profit"
-        total_expenses = Expense.objects.filter(branch=self.branch, date=self.date).aggregate(total=Sum('amount'))['total'] or 0
+        total_expenses = Expense.objects.filter(branch=self.branch, date=self.date).aggregate(total=Sum('amount'))[
+                             'total'] or 0
         self.profit = (self.final_amount or 0) - total_expenses
         super().save(*args, **kwargs)
 

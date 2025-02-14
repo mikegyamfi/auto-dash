@@ -76,48 +76,78 @@
 
                     <!-- Services Table -->
                     <h5>Services Rendered</h5>
-                    <table class="table table-bordered table-striped table-responsive mb-2">
+                    <table class="table table-bordered table-responsive mb-3">
                       <thead>
                         <tr>
                           <th>Service</th>
+                          <th>Category</th>
                           <th>Price (GHS)</th>
+                          <th>Loyalty Redeem?</th>
                           <th>Subscription Covered?</th>
-                          <th>Redeem with Loyalty Points</th>
                         </tr>
                       </thead>
                       <tbody>
                         {% for sr in services_rendered %}
                           <tr>
                             <td>{{ sr.service.service_type }}</td>
-                            <td>{{ sr.service.price|floatformat:2 }}</td>
                             <td>
-                              {% if subscription_active and sr.id in covered_by_subscription %}
-                                <span class="text-success">Covered</span>
+                              {% if sr.service.category %}
+                                {{ sr.service.category.name }}
                               {% else %}
-                                <span class="text-muted">Not Covered</span>
+                                ---
+                              {% endif %}
+                            </td>
+                            <td>
+                              {% if sr.service.category and sr.service.category.negotiable %}
+                                <!-- Negotiable => blank input so user can type final price -->
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  class="form-control form-control-sm price-input"
+                                  name="negotiated_price_{{ sr.id }}"
+                                  data-service-row="{{ sr.id }}"
+                                  data-base-price="{{ sr.service.price }}"
+                                  value=""
+                                  placeholder="Enter Price"
+                                >
+                              {% else %}
+                                <!-- Non-negotiable => display base price only -->
+                                <span
+                                  class="non-negotiable-price"
+                                  data-service-row="{{ sr.id }}"
+                                  data-base-price="{{ sr.service.price }}"
+                                >
+                                  {{ sr.service.price|floatformat:2 }}
+                                </span>
                               {% endif %}
                             </td>
                             <td>
                               {% if subscription_active and sr.id in covered_by_subscription %}
-                                <!-- If subscription covers it, skip loyalty redemption -->
                                 ---
                               {% else %}
-                                {% if sr.service.loyalty_points_required <= loyalty_points %}
+                                {% if sr.service.loyalty_points_required and sr.service.loyalty_points_required <= loyalty_points %}
                                   <label>
                                     <input
                                       type="checkbox"
                                       class="redeem-checkbox"
                                       name="redeem_service_{{ sr.id }}"
                                       value="{{ sr.id }}"
-                                      data-price="{{ sr.service.price }}"
+                                      data-service-row="{{ sr.id }}"
                                       data-points="{{ sr.service.loyalty_points_required }}"
-                                      data-service-name="{{ sr.service.service_type }}"
                                     >
-                                    (Requires {{ sr.service.loyalty_points_required }} points)
+                                    ({{ sr.service.loyalty_points_required }} pts)
                                   </label>
                                 {% else %}
                                   <span class="text-muted">Not enough points</span>
                                 {% endif %}
+                              {% endif %}
+                            </td>
+                            <td>
+                              {% if subscription_active and sr.id in covered_by_subscription %}
+                                <span class="text-success">Covered</span>
+                              {% else %}
+                                <span class="text-danger">No</span>
                               {% endif %}
                             </td>
                           </tr>
@@ -125,87 +155,25 @@
                       </tbody>
                     </table>
 
-                    <!-- Products Purchased -->
-{#                    <h5 class="mt-2">Products Purchased</h5>#}
-{#                    {% if service_order.products_purchased.all %}#}
-{#                      <table class="table table-bordered table-striped table-responsive">#}
-{#                        <thead>#}
-{#                          <tr>#}
-{#                            <th>Product</th>#}
-{#                            <th>Quantity</th>#}
-{#                            <th>Price (GHS)</th>#}
-{#                            <th>Total (GHS)</th>#}
-{#                          </tr>#}
-{#                        </thead>#}
-{#                        <tbody>#}
-{#                          {% for product_purchased in service_order.products_purchased.all %}#}
-{#                            <tr>#}
-{#                              <td>{{ product_purchased.product.name }}</td>#}
-{#                              <td>{{ product_purchased.quantity }}</td>#}
-{#                              <td>{{ product_purchased.product.price|floatformat:2 }}</td>#}
-{#                              <td>{{ product_purchased.total_price|floatformat:2 }}</td>#}
-{#                            </tr>#}
-{#                          {% endfor %}#}
-{#                        </tbody>#}
-{#                      </table>#}
-{#                    {% else %}#}
-{#                      <p>No products selected. #}
-{#                        <a href="#" id="add-products-link">Click here to add products.</a>#}
-{#                      </p>#}
-{#                    {% endif %}#}
-{##}
-{#                    <!-- Add Products Section -->#}
-{#                    <div id="add-products-section" style="display: none;">#}
-{#                      <h6>Add More Products</h6>#}
-{#                      <table class="table table-bordered table-striped table-responsive">#}
-{#                        <thead>#}
-{#                          <tr>#}
-{#                            <th>Product</th>#}
-{#                            <th>Available Stock</th>#}
-{#                            <th>Quantity to Add</th>#}
-{#                          </tr>#}
-{#                        </thead>#}
-{#                        <tbody>#}
-{#                          {% for product in available_products %}#}
-{#                            <tr>#}
-{#                              <td>{{ product.name }}</td>#}
-{#                              <td>{{ product.stock }}</td>#}
-{#                              <td>#}
-{#                                <input#}
-{#                                  type="number"#}
-{#                                  name="product_{{ product.id }}"#}
-{#                                  min="0"#}
-{#                                  max="{{ product.stock }}"#}
-{#                                  class="form-control product-quantity-input"#}
-{#                                  value="0"#}
-{#                                  data-price="{{ product.price }}"#}
-{#                                >#}
-{#                              </td>#}
-{#                            </tr>#}
-{#                          {% endfor %}#}
-{#                        </tbody>#}
-{#                      </table>#}
-{#                    </div>#}
-
                     <!-- Payment + Discount Section -->
                     <div class="row my-4">
                       <div class="col-md-4">
                         <label for="payment_method">Payment Method</label>
                         <select class="form-control" name="payment_method" id="payment_method">
-                          <option value="cash">Cash</option>
-                          <option value="momo">Mobile Money</option>
-                          <option value="subscription">Subscription</option>
-                          <option value="subscription-cash">Subscription &amp; Cash</option>
-                          <option value="subscription-momo">Subscription &amp; Momo</option>
-                          <option value="loyalty">Loyalty Points</option>
+                          <option value="cash" {% if service_order.payment_method == 'cash' %}selected{% endif %}>Cash</option>
+                          <option value="momo" {% if service_order.payment_method == 'momo' %}selected{% endif %}>Mobile Money</option>
+                          <option value="subscription" {% if service_order.payment_method == 'subscription' %}selected{% endif %}>Subscription</option>
+                          <option value="subscription-cash" {% if service_order.payment_method == 'subscription-cash' %}selected{% endif %}>Subscription &amp; Cash</option>
+                          <option value="subscription-momo" {% if service_order.payment_method == 'subscription-momo' %}selected{% endif %}>Subscription &amp; Momo</option>
+                          <option value="loyalty" {% if service_order.payment_method == 'loyalty' %}selected{% endif %}>Loyalty Points</option>
                         </select>
                       </div>
 
                       <div class="col-md-4">
                         <label for="discount_type">Discount Type</label>
                         <select class="form-control" name="discount_type" id="discount_type">
-                          <option value="percentage">Percentage (%)</option>
-                          <option value="amount" selected>Amount (GHS)</option>
+                          <option value="percentage" {% if service_order.discount_type == 'percentage' %}selected{% endif %}>Percentage (%)</option>
+                          <option value="amount" {% if service_order.discount_type == 'amount' %}selected{% endif %}>Amount (GHS)</option>
                         </select>
                       </div>
                       <div class="col-md-4">
@@ -217,6 +185,7 @@
                           id="discount_value"
                           min="0"
                           step="0.01"
+                          value="{{ service_order.discount_value }}"
                           placeholder="Enter discount"
                         >
                       </div>
@@ -226,13 +195,13 @@
                     <div class="row">
                       <div class="col-md-6">
                         <h6>
-                          Total Amount: GHS 
+                          Total Amount: GHS
                           <span id="total-amount" class="amount">
                             {{ service_order.total_amount|floatformat:2 }}
                           </span>
                         </h6>
                         <h6>
-                          Final Amount: GHS 
+                          Final Amount: GHS
                           <span id="final-amount" class="amount">
                             {{ service_order.final_amount|floatformat:2 }}
                           </span>
@@ -240,34 +209,22 @@
                       </div>
                       <div class="col-md-6">
                         <p>
-                          Total Loyalty Points Required: 
+                          Total Loyalty Points Required:
                           <span id="total-loyalty-points">0</span>
                         </p>
-                        <p 
+                        <p
                           id="loyalty-points-warning"
                           style="display: none; color: red;"
                         >
-                          Warning: Customer doesn't have enough loyalty points 
+                          Warning: Customer doesn't have enough loyalty points
                           for the selected services.
                         </p>
                       </div>
                     </div>
 
-                    <!-- Hidden Inputs -->
-                    <input 
-                      type="hidden" 
-                      id="initial-final-amount" 
-                      value="{{ service_order.final_amount }}"
-                    >
-                    <input 
-                      type="hidden" 
-                      id="customer-loyalty-points-value" 
-                      value="{{ loyalty_points }}"
-                    >
-
                     <!-- Action Buttons -->
                     <div class="text-right mt-4">
-                      <button 
+                      <button
                         type="button"
                         class="btn btn-primary"
                         id="confirm-button"
@@ -276,7 +233,7 @@
                       >
                         Confirm
                       </button>
-                      <a 
+                      <a
                         href="{% url 'discard_order' pk=service_order.id %}"
                         class="btn btn-danger"
                       >
@@ -287,11 +244,11 @@
                   <!-- End Main Form -->
 
                   <!-- Confirmation Modal -->
-                  <div 
-                    class="modal fade" 
-                    id="confirmationModal" 
-                    tabindex="-1" 
-                    aria-labelledby="confirmationModalLabel" 
+                  <div
+                    class="modal fade"
+                    id="confirmationModal"
+                    tabindex="-1"
+                    aria-labelledby="confirmationModalLabel"
                     aria-hidden="true"
                   >
                     <div class="modal-dialog">
@@ -302,10 +259,10 @@
                             <h5 class="modal-title" id="confirmationModalLabel">
                               Confirm Transaction
                             </h5>
-                            <button 
-                              type="button" 
-                              class="close" 
-                              data-bs-dismiss="modal" 
+                            <button
+                              type="button"
+                              class="close"
+                              data-bs-dismiss="modal"
                               aria-label="Close"
                             >
                               &times;
@@ -313,7 +270,7 @@
                           </div>
                           <div class="modal-body">
                             <p>
-                              <strong>Customer:</strong> 
+                              <strong>Customer:</strong>
                               {{ service_order.customer.user.get_full_name }}
                             </p>
                             <p>
@@ -321,40 +278,36 @@
                             </p>
                             <ul id="redeemed-services-list"></ul>
                             <p>
-                              <strong>Discount Applied:</strong> 
+                              <strong>Discount Applied:</strong>
                               <span id="modal-discount-value"></span>
                             </p>
                             <p>
-                              <strong>Total Loyalty Points to be Used:</strong> 
+                              <strong>Total Loyalty Points to be Used:</strong>
                               <span id="modal-total-loyalty-points"></span>
                             </p>
                             <p>
-                              <strong>Final Amount to be Paid:</strong> GHS 
+                              <strong>Final Amount to be Paid:</strong> GHS
                               <span id="modal-final-amount"></span>
                             </p>
                             <p>
-                              <strong>Payment Method:</strong> 
+                              <strong>Payment Method:</strong>
                               <span id="modal-payment-method"></span>
                             </p>
                             <p>
-                              <strong>Status:</strong> 
+                              <strong>Status:</strong>
                               <span id="modal-status"></span>
                             </p>
-                            <p>
-                              <strong>Additional Products:</strong>
-                            </p>
-                            <ul id="modal-added-products-list"></ul>
                           </div>
                           <div class="modal-footer">
-                            <button 
-                              type="button" 
+                            <button
+                              type="button"
                               class="btn btn-secondary"
                               data-bs-dismiss="modal"
                             >
                               Edit
                             </button>
-                            <button 
-                              type="submit" 
+                            <button
+                              type="submit"
                               class="btn btn-primary"
                             >
                               Confirm
@@ -393,26 +346,7 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const initialFinalAmount = parseFloat(
-    document.getElementById('initial-final-amount').value
-  ) || 0;
-  let adjustedFinalAmount = initialFinalAmount;
-
-  const customerLoyaltyPoints = parseInt(
-    document.getElementById('customer-loyalty-points-value').value
-  ) || 0;
-
-  const totalLoyaltyPointsElement = document.getElementById('total-loyalty-points');
-  const finalAmountElement = document.getElementById('final-amount');
-  const discountTypeSelect = document.getElementById('discount_type');
-  const discountValueInput = document.getElementById('discount_value');
-  const addProductsLink = document.getElementById('add-products-link');
-  const addProductsSection = document.getElementById('add-products-section');
-  const productQuantityInputs = document.querySelectorAll('.product-quantity-input');
-  const redeemCheckboxes = document.querySelectorAll('.redeem-checkbox');
-  const confirmButton = document.getElementById('confirm-button');
-
-  // On-Credit note
+  // If the status is onCredit, show the note
   const statusSelect = document.getElementById('status');
   const onCreditNote = document.getElementById('on-credit-note');
   function toggleOnCreditNote() {
@@ -425,160 +359,158 @@ document.addEventListener('DOMContentLoaded', function() {
   toggleOnCreditNote();
   statusSelect.addEventListener('change', toggleOnCreditNote);
 
-  let discountAmount = 0;
+  // Gather references
+  const loyaltyPoints = parseInt(document.getElementById('customer-loyalty-points').textContent) || 0;
+  const finalAmountSpan = document.getElementById('final-amount');
+  const totalAmountSpan = document.getElementById('total-amount');
+  let initialTotalAmount = parseFloat(totalAmountSpan.textContent) || 0; // from the DB
+  let discountTypeSelect = document.getElementById('discount_type');
+  let discountValueInput = document.getElementById('discount_value');
+  let paymentMethodSelect = document.getElementById('payment_method');
+  let confirmButton = document.getElementById('confirm-button');
+  let loyaltyWarning = document.getElementById('loyalty-points-warning');
+  let totalLoyaltyPointsSpan = document.getElementById('total-loyalty-points');
 
-  function updateFinalAmount() {
-    adjustedFinalAmount = initialFinalAmount;
-    let totalLoyaltyPointsRequired = 0;
-    let totalProductsPrice = 0;
+  // Keep track of each service's price in a data structure
+  // Key = sr.id, Value = current price the user typed or the base price
+  let servicePriceMap = {};
 
-    // Redeem services with loyalty points
-    redeemCheckboxes.forEach(function(checkbox) {
-      if (checkbox.checked) {
-        const price = parseFloat(checkbox.getAttribute('data-price')) || 0;
-        const pointsRequired = parseInt(checkbox.getAttribute('data-points')) || 0;
-        adjustedFinalAmount -= price;
-        totalLoyaltyPointsRequired += pointsRequired;
+  // 1) Initialize from non-negotiable elements
+  document.querySelectorAll('.non-negotiable-price').forEach(function(span) {
+    const srId = span.getAttribute('data-service-row');
+    const basePrice = parseFloat(span.getAttribute('data-base-price')) || 0;
+    servicePriceMap[srId] = basePrice;
+  });
+
+  // 2) For negotiable inputs, start at 0 until user types something
+  document.querySelectorAll('.price-input').forEach(function(input) {
+    const srId = input.getAttribute('data-service-row');
+    // We'll default to 0 for now, or you can read the base price if you prefer
+    servicePriceMap[srId] = 0;
+
+    input.addEventListener('input', function() {
+      const val = parseFloat(this.value) || 0;
+      servicePriceMap[srId] = val;
+      recalcFinalAmount();
+    });
+  });
+
+  // 3) For redeem checkboxes, store their srId and loyalty cost
+  document.querySelectorAll('.redeem-checkbox').forEach(function(chk) {
+    const srId = chk.getAttribute('data-service-row');
+    // We'll read or write in recalc
+    chk.addEventListener('change', function() {
+      recalcFinalAmount();
+    });
+  });
+
+  // Listen for discount changes
+  discountTypeSelect.addEventListener('change', recalcFinalAmount);
+  discountValueInput.addEventListener('input', recalcFinalAmount);
+
+  // The main recalculation function
+  function recalcFinalAmount() {
+    // 1) Sum of all service prices from map
+    let sumServices = 0;
+    for (let srId in servicePriceMap) {
+      sumServices += servicePriceMap[srId];
+    }
+    let adjustedTotal = sumServices; // we'll add product total if needed (omitted here)
+
+    // 2) Subtract loyalty for each checked service
+    let totalPointsNeeded = 0;
+    document.querySelectorAll('.redeem-checkbox').forEach(function(chk) {
+      if (chk.checked) {
+        const srId = chk.getAttribute('data-service-row');
+        const pointsNeeded = parseInt(chk.getAttribute('data-points')) || 0;
+        totalPointsNeeded += pointsNeeded;
+        // Subtract that service's price from adjustedTotal
+        adjustedTotal -= (servicePriceMap[srId] || 0);
       }
     });
 
-    // Add newly added products
-    productQuantityInputs.forEach(function(input) {
-      const quantity = parseInt(input.value) || 0;
-      if (quantity > 0) {
-        const price = parseFloat(input.getAttribute('data-price')) || 0;
-        totalProductsPrice += (price * quantity);
-      }
-    });
+    if (adjustedTotal < 0) adjustedTotal = 0;
 
-    adjustedFinalAmount += totalProductsPrice;
-    adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
+    // 3) Apply discount
+    let discountVal = parseFloat(discountValueInput.value) || 0;
+    discountVal = Math.max(discountVal, 0);
 
-    // Apply discount
-    let discountValue = parseFloat(discountValueInput.value) || 0;
-    discountValue = Math.max(discountValue, 0);
-
+    let discountAmount = 0;
     if (discountTypeSelect.value === 'percentage') {
-      discountValue = Math.min(discountValue, 100);
-      discountAmount = (adjustedFinalAmount * discountValue) / 100.0;
+      discountVal = Math.min(discountVal, 100);
+      discountAmount = (adjustedTotal * discountVal) / 100;
     } else {
-      discountAmount = Math.min(discountValue, adjustedFinalAmount);
+      discountAmount = Math.min(discountVal, adjustedTotal);
     }
+    adjustedTotal -= discountAmount;
+    if (adjustedTotal < 0) adjustedTotal = 0;
 
-    adjustedFinalAmount -= discountAmount;
-    adjustedFinalAmount = Math.max(adjustedFinalAmount, 0);
+    // 4) Display final
+    finalAmountSpan.textContent = adjustedTotal.toFixed(2);
+    totalLoyaltyPointsSpan.textContent = totalPointsNeeded;
 
-    // Display final amounts
-    finalAmountElement.textContent = adjustedFinalAmount.toFixed(2);
-    totalLoyaltyPointsElement.textContent = totalLoyaltyPointsRequired;
-
-    // Color changes
-    if (adjustedFinalAmount < initialFinalAmount) {
-      finalAmountElement.classList.remove('increased');
-      finalAmountElement.classList.add('decreased');
-    } else if (adjustedFinalAmount > initialFinalAmount) {
-      finalAmountElement.classList.remove('decreased');
-      finalAmountElement.classList.add('increased');
-    } else {
-      finalAmountElement.classList.remove('increased', 'decreased');
-    }
-
-    // Check if loyalty is enough for selected services
-    if (totalLoyaltyPointsRequired > customerLoyaltyPoints) {
+    // If not enough points, disable confirm
+    if (totalPointsNeeded > loyaltyPoints) {
+      loyaltyWarning.style.display = 'block';
       confirmButton.disabled = true;
-      document.getElementById('loyalty-points-warning').style.display = 'block';
     } else {
+      loyaltyWarning.style.display = 'none';
       confirmButton.disabled = false;
-      document.getElementById('loyalty-points-warning').style.display = 'none';
     }
   }
 
-  // Event listeners
-  redeemCheckboxes.forEach(function(checkbox) {
-    checkbox.addEventListener('change', updateFinalAmount);
-  });
-  discountTypeSelect.addEventListener('change', updateFinalAmount);
-  discountValueInput.addEventListener('input', updateFinalAmount);
-  productQuantityInputs.forEach(function(input) {
-    input.addEventListener('input', updateFinalAmount);
-  });
+  // On page load, do an initial calc
+  recalcFinalAmount();
 
-  // Initial update
-  updateFinalAmount();
-
-  // Toggle add product section
-  if (addProductsLink) {
-    addProductsLink.addEventListener('click', function(e) {
-      e.preventDefault();
-      addProductsSection.style.display = 'block';
-      addProductsLink.style.display = 'none';
-    });
-  }
-
-  // Confirmation Modal
-  document.getElementById('confirm-button').addEventListener('click', function() {
+  // Confirmation Modal logic
+  const confirmationModalBtn = document.getElementById('confirm-button');
+  confirmationModalBtn.addEventListener('click', function() {
+    // Show redeemed services, discount, final amount, etc.
     const redeemedServicesList = document.getElementById('redeemed-services-list');
     redeemedServicesList.innerHTML = '';
 
-    // List redeemed services
-    redeemCheckboxes.forEach(function(checkbox) {
-      if (checkbox.checked) {
-        const serviceName = checkbox.getAttribute('data-service-name');
+    document.querySelectorAll('.redeem-checkbox').forEach(chk => {
+      if (chk.checked) {
+        // Possibly store the service name in a data attribute
+        // Or store it in an attribute like data-service-name
+        // For now we'll just do "Service ID: srId"
+        const srId = chk.getAttribute('data-service-row');
         const li = document.createElement('li');
-        li.textContent = serviceName;
+        li.textContent = `Service #${srId} redeemed`;
         redeemedServicesList.appendChild(li);
       }
     });
 
-    // Fill final summary
-    document.getElementById('modal-total-loyalty-points').textContent =
-      document.getElementById('total-loyalty-points').textContent;
-    document.getElementById('modal-final-amount').textContent =
-      finalAmountElement.textContent;
-
-    // Discount
-    const discountType = discountTypeSelect.value;
-    const discountVal = parseFloat(discountValueInput.value) || 0;
-    let discountDisplay = '';
-    if (discountType === 'percentage') {
-      discountDisplay = discountVal + '% (GHS ' + discountAmount.toFixed(2) + ')';
-    } else {
-      discountDisplay = 'GHS ' + discountAmount.toFixed(2);
-    }
-    document.getElementById('modal-discount-value').textContent = discountDisplay;
-
-    // Payment Method
-    const payMethod = document.getElementById('payment_method').value;
+    // Payment, discount, final
+    const payMethod = paymentMethodSelect.value;
     document.getElementById('modal-payment-method').textContent = payMethod;
 
-    // Status
+    let discountVal = parseFloat(discountValueInput.value) || 0;
+    let discountDisp = '';
+    if (discountTypeSelect.value === 'percentage') {
+      discountDisp = `${discountVal}%`;
+    } else {
+      discountDisp = `GHS ${discountVal.toFixed(2)}`;
+    }
+    document.getElementById('modal-discount-value').textContent = discountDisp;
+
+    document.getElementById('modal-final-amount').textContent =
+      finalAmountSpan.textContent;
+    document.getElementById('modal-total-loyalty-points').textContent =
+      totalLoyaltyPointsSpan.textContent;
+
     const statusText = statusSelect.options[statusSelect.selectedIndex].text;
     document.getElementById('modal-status').textContent = statusText;
 
-    // Additional products
-    const addedProductsList = document.getElementById('modal-added-products-list');
-    addedProductsList.innerHTML = '';
-    productQuantityInputs.forEach(function(input) {
-      const q = parseInt(input.value) || 0;
-      if (q > 0) {
-        const productName = input.closest('tr').querySelector('td:first-child').textContent;
-        const item = document.createElement('li');
-        item.textContent = productName + ' x ' + q;
-        addedProductsList.appendChild(item);
-      }
-    });
-
-    // Copy form data into the confirmation form
+    // Copy form data into hidden fields
     const confirmationForm = document.getElementById('confirmation-form');
     const originalForm = document.getElementById('log-service-form');
 
     // Remove old hidden inputs
-    const oldHidden = confirmationForm.querySelectorAll(
-      'input:not([name=csrfmiddlewaretoken])'
-    );
-    oldHidden.forEach(node => node.remove());
+    const oldHiddens = confirmationForm.querySelectorAll('input:not([name=csrfmiddlewaretoken])');
+    oldHiddens.forEach(node => node.remove());
 
-    // Copy everything from original
+    // Copy all from original
     const formData = new FormData(originalForm);
     formData.forEach((val, key) => {
       const hiddenInput = document.createElement('input');

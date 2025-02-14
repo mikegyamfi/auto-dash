@@ -1,3 +1,5 @@
+import json
+
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
@@ -63,10 +65,11 @@ class LogServiceForm(forms.Form):
                                               required=False)
     product_quantities = forms.CharField(widget=forms.HiddenInput(),
                                          required=False)  # To capture quantities via JavaScript
+    negotiated_prices = forms.CharField(widget=forms.HiddenInput(), required=False)
 
     def __init__(self, branch, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['workers'].queryset = Worker.objects.filter(branch=branch)
+        self.fields['workers'].queryset = Worker.objects.filter(branch=branch, worker_category__service_provider=True)
         self.fields['products'].queryset = Product.objects.filter(branch=branch, stock__gt=0)
 
         # Set vehicle queryset based on customer
@@ -101,6 +104,14 @@ class LogServiceForm(forms.Form):
         if not services:
             raise forms.ValidationError("Please select at least one service.")
         return services
+
+    def clean_negotiated_prices(self):
+        data = self.cleaned_data.get('negotiated_prices') or "{}"
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            parsed = {}
+        return parsed
 
 
 class NewCustomerForm(forms.ModelForm):
@@ -355,6 +366,16 @@ class CreateCustomerForm(forms.Form):
         label="Select Branch",
         widget=forms.Select(attrs={'class': 'form-select'})  # Bootstrap select
     )
+    customer_group = forms.ChoiceField(choices=(("Credit Customer", "Credit Customer"), ("Cash Customer", "Cash Customer")), widget=forms.Select(attrs={'class': 'form-select'}) )
+    vehicle_group = forms.ModelChoiceField(
+        queryset=VehicleGroup.objects.all(),
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        required=True,
+        label="Vehicle Group"
+    )
+    car_make = forms.CharField(max_length=100, required=True, label="Car Make", widget=forms.TextInput(attrs={'class': 'form-control'}))
+    car_plate = forms.CharField(max_length=100, required=True, label="Car Plate", widget=forms.TextInput(attrs={'class': 'form-control'}))
+    car_color = forms.CharField(max_length=100, required=True, label="Car Color", widget=forms.TextInput(attrs={'class': 'form-control'}))
 
 
 class CreateVehicleForm(forms.Form):
