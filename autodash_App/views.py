@@ -541,6 +541,7 @@ def log_service(request):
 
 
 
+from django.urls import reverse
 @login_required(login_url='login')
 @transaction.atomic
 def confirm_service(request, pk):
@@ -866,32 +867,32 @@ def confirm_service(request, pk):
                 product_lines.append(
                     f"{prod_item.product.name} x{prod_item.quantity} => GHS {prod_item.total_price:.2f}"
                 )
+            receipt_url = request.build_absolute_uri(reverse('service_receipt', args=[service_order.id]))
+            if new_status == 'onCredit':
+                message = f"Dear {service_order.customer.user.first_name}, your {new_status} service #{service_order.service_order_number} of GHS{service_order.final_amount:.2f} has been completed. get more details {receipt_url}"
+            else:
+                message = f"Dear {service_order.customer.user.first_name}, your payment of amount GHS{service_order.final_amount:.2f} for #{service_order.service_order_number} has been received. Thank you! - Leave feedback {receipt_url}"
+            send_sms(customer.user.phone_number, message)
 
-            lines = [
-                f"Receipt for Service #{service_order.service_order_number}",
-                f"Final Amount: GHS {service_order.final_amount:.2f}",
-            ]
-            if service_lines:
-                lines.append("Services:")
-                lines.extend(service_lines)
-            if product_lines:
-                lines.append("Products:")
-                lines.extend(product_lines)
-            lines.append("Thank you for choosing us!")
-            receipt_text = "\n".join(lines)
-            print(receipt_text)
+            # if service_lines:
+            #     lines.append("Services:")
+            #     lines.extend(service_lines)
+            # if product_lines:
+            #     lines.append("Products:")
+            #     lines.extend(product_lines)
+            # lines.append("Thank you for choosing us!")
+            # receipt_text = "\n".join(lines)
+            # print(receipt_text)
 
             # Feedback link
-            from django.urls import reverse
-            feedback_url = request.build_absolute_uri(
-                reverse('service_feedback', args=[service_order.id])
-            )
-            feedback_msg = (
-                f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
-                f"is now {new_status}. Kindly leave feedback here: {feedback_url}"
-            )
-            print(feedback_msg)
-            send_sms(customer.user.phone_number, feedback_msg)
+
+
+            # feedback_msg = (
+            #     f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
+            #     f"is now {new_status}. Kindly leave feedback here: {feedback_url}"
+            # )
+            # print(feedback_msg)
+            # send_sms(customer.user.phone_number, feedback_msg)
 
     messages.success(request, f"Service updated to {new_status}.")
     if new_status in ['completed', 'onCredit']:
@@ -901,20 +902,16 @@ def confirm_service(request, pk):
 
 @login_required(login_url='login')
 def service_receipt(request, pk):
-    # Fetch the order
     service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
     services_rendered = service_order.rendered.all()
     products_purchased = service_order.products_purchased.all()
 
-    # If you need the negotiated price or normal price:
     def get_sr_price(sr):
         return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
 
-    # Summaries
     total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
     total_products_price = sum(p.total_price for p in products_purchased)
     final_amount = service_order.final_amount or 0
-    workers = service_order.workers.all()
 
     context = {
         'service_order': service_order,
@@ -923,7 +920,6 @@ def service_receipt(request, pk):
         'total_services_price': total_services_price,
         'total_products_price': total_products_price,
         'final_amount': final_amount,
-        'workers': workers
     }
     return render(request, 'layouts/workers/service_receipt.html', context)
 
@@ -2612,7 +2608,8 @@ def delete_expense(request, pk):
 def commissions_by_date(request):
     """
     Page where admin can pick a single date (and optionally a branch and worker)
-    to see each worker’s total commission for that date.
+    to see each worker’s total commission for that date,
+    along with # of distinct services and vehicles handled.
     Clicking on the total commission shows a breakdown (via AJAX).
     """
     branches = Branch.objects.all()
@@ -2642,22 +2639,30 @@ def commissions_by_date(request):
     if selected_worker_id:
         commissions_qs = commissions_qs.filter(worker_id=selected_worker_id)
 
-    # Group by worker => sum of commissions
+    # Group by worker => sum of commissions + extra aggregates
     commissions_by_worker = (
         commissions_qs
         .values('worker')
-        .annotate(total_commission=Sum('amount'))
+        .annotate(
+            total_commission=Sum('amount'),
+            num_services=Count('service_rendered_id', distinct=True),
+            num_vehicles=Count('service_rendered__order__vehicle_id', distinct=True)
+        )
         .order_by('-total_commission')
     )
 
-    # Convert to a list of dicts with worker objects
+    # Convert to a list of dicts with worker objects + aggregates
     results = []
     for row in commissions_by_worker:
         worker_id = row['worker']
         worker_obj = Worker.objects.get(id=worker_id)
+
         results.append({
             'worker': worker_obj,
-            'total_commission': row['total_commission']
+            'position': worker_obj.position or "-",
+            'num_services': row['num_services'],
+            'num_vehicles': row['num_vehicles'],
+            'total_commission': row['total_commission'],
         })
 
     # If a branch is selected, we only show workers from that branch in the worker dropdown
@@ -2672,7 +2677,7 @@ def commissions_by_date(request):
         'workers': possible_workers,
         'selected_worker_id': selected_worker_id,
         'selected_date': selected_date,
-        'commissions': results,  # a list of dicts {worker, total_commission}
+        'commissions': results,  # each item => {worker, position, num_services, num_vehicles, total_commission}
     }
     return render(request, 'layouts/commissions_by_date.html', context)
 
@@ -2682,7 +2687,7 @@ def commission_breakdown(request):
     """
     AJAX endpoint to get the breakdown of commissions for a given worker on a given date.
     Expects GET params: worker_id, date (YYYY-MM-DD).
-    Returns a JSON list of commissions => service, amount, etc.
+    Returns a JSON list of commissions => service, vehicle, amount, etc.
     """
     worker_id = request.GET.get('worker_id')
     date_str = request.GET.get('date')
@@ -2694,19 +2699,26 @@ def commission_breakdown(request):
 
     worker = get_object_or_404(Worker, id=worker_id)
 
-    # We can select_related the service_rendered => then fetch the service
+    # We can select_related to fetch service + order + vehicle
     commissions = Commission.objects.filter(
         worker=worker,
         date=date_obj
-    ).select_related('service_rendered__service')
+    ).select_related('service_rendered__service', 'service_rendered__order__vehicle')
 
     data = []
     for c in commissions:
         service_name = ''
+        vehicle_info = 'No Vehicle'
         if c.service_rendered and c.service_rendered.service:
             service_name = c.service_rendered.service.service_type
+        # If there's a vehicle on the order
+        if c.service_rendered and c.service_rendered.order and c.service_rendered.order.vehicle:
+            veh_obj = c.service_rendered.order.vehicle
+            vehicle_info = f"{veh_obj.car_make} - {veh_obj.car_plate}"
+
         data.append({
             'service': service_name,
+            'vehicle': vehicle_info,
             'amount': float(c.amount),
         })
 

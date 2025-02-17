@@ -436,6 +436,7 @@ class ProductPurchased(models.Model):
         return f"{self.quantity}x {self.product.name} for Order {self.service_order.service_order_number}"
 
 
+
 class Expense(models.Model):
     """
     Tracks daily expenses from the business perspective.
@@ -443,6 +444,11 @@ class Expense(models.Model):
     because from the business perspective, no cash came in but
     workers still got commission or salaries.
     """
+    expense_choices = (
+        ("Statutory", "Statutory"),
+        ("Variable", "Variable")
+    )
+    expense_category = models.CharField(max_length=250, null=True, blank=True, choices=expense_choices)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='expenses')
     description = models.TextField()
     amount = models.FloatField()

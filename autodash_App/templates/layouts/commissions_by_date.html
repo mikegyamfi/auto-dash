@@ -43,14 +43,13 @@
                 {% endfor %}
               </select>
             </div>
-
             <!-- Worker Filter -->
             <div class="col-md-3">
               <label for="worker" class="form-label">Worker (optional)</label>
               <select name="worker" id="worker" class="form-control">
                 <option value="">All Workers</option>
                 {% for w in workers %}
-                  <option 
+                  <option
                     value="{{ w.id }}"
                     {% if w.id|stringformat:'s' == selected_worker_id %}selected{% endif %}
                   >
@@ -59,16 +58,15 @@
                 {% endfor %}
               </select>
             </div>
-
             <div class="col-md-3 d-flex align-items-end">
-              <button type="submit" class="btn btn-primary">
+              <button type="submit" class="btn btn-primary w-100">
                 Filter
               </button>
             </div>
           </form>
           <!-- / Filter Form -->
 
-          <!-- Results Table -->
+          <!-- "Commission Chart" Table -->
           <div class="card">
             <div class="card-body">
               <h5 class="card-title">
@@ -76,37 +74,39 @@
               </h5>
               <div class="table-responsive">
                 <table class="table table-bordered">
-                  <thead>
+                  <thead class="table-light">
                     <tr>
                       <th>Worker</th>
                       <th>Position</th>
-                      <th>Branch</th>
+                      <th># Services</th>
+                      <th># Vehicles</th>
                       <th>Total Commission (GHS)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {% if commissions %}
                       {% for row in commissions %}
-                        <tr>
-                          <td>{{ row.worker.user.get_full_name }}</td>
-                          <td>{{ row.worker.position|default_if_none:"-" }}</td>
-                          <td>{{ row.worker.branch.name }}</td>
-                          <td>
-                            <!-- Clickable link for breakdown -->
-                            <a 
-                              href="#"
-                              class="commission-breakdown-link"
-                              data-worker-id="{{ row.worker.id }}"
-                              data-date="{{ selected_date|date:'Y-m-d' }}"
-                            >
-                              {{ row.total_commission|floatformat:2 }}
-                            </a>
-                          </td>
-                        </tr>
+                      <tr>
+                        <td>{{ row.worker.user.get_full_name }}</td>
+                        <td>{{ row.position }}</td>
+                        <td>{{ row.num_services }}</td>
+                        <td>{{ row.num_vehicles }}</td>
+                        <td>
+                          <!-- Clickable link for breakdown -->
+                          <a
+                            href="#"
+                            class="commission-breakdown-link"
+                            data-worker-id="{{ row.worker.id }}"
+                            data-date="{{ selected_date|date:'Y-m-d' }}"
+                          >
+                            {{ row.total_commission|floatformat:2 }}
+                          </a>
+                        </td>
+                      </tr>
                       {% endfor %}
                     {% else %}
                       <tr>
-                        <td colspan="4">No commission data found for this date.</td>
+                        <td colspan="5">No commission data found for this date.</td>
                       </tr>
                     {% endif %}
                   </tbody>
@@ -114,8 +114,10 @@
               </div>
             </div>
           </div>
-          <!-- / Results Table -->
+          <!-- / "Commission Chart" Table -->
+
         </div>
+        <!-- /container -->
 
         <!-- Footer -->
         {% include 'inc/footer.html' %}
@@ -127,9 +129,9 @@
 </div>
 
 <!-- Modal for Commission Breakdown -->
-<div 
-  class="modal fade" 
-  id="commissionBreakdownModal" 
+<div
+  class="modal fade"
+  id="commissionBreakdownModal"
   tabindex="-1"
   aria-labelledby="commissionBreakdownModalLabel"
   aria-hidden="true"
@@ -138,7 +140,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="commissionBreakdownModalLabel">Commission Breakdown</h5>
-        <button 
+        <button
           type="button"
           class="btn-close"
           data-bs-dismiss="modal"
@@ -146,15 +148,15 @@
         ></button>
       </div>
       <div class="modal-body">
-        <p><strong>Worker Services on this date:</strong></p>
-        <ul id="commission-breakdown-list"></ul>
+        <p><strong>Worker’s services on this date:</strong></p>
+        <ul id="commission-breakdown-list" class="list-group"></ul>
       </div>
     </div>
   </div>
 </div>
 <!-- /Modal -->
 
-{% endblock %}
+{% endblock content %}
 
 {% block scripts %}
 <script>
@@ -171,21 +173,24 @@ document.addEventListener('DOMContentLoaded', function() {
       const workerId = this.getAttribute('data-worker-id');
       const dateValue = this.getAttribute('data-date');
 
-      // AJAX call
+      // AJAX call to your commission_breakdown view
       fetch(`/elevated/commission_breakdown?worker_id=${workerId}&date=${dateValue}`)
         .then(response => response.json())
         .then(data => {
           if (data.success) {
-            // Clear old list
+            // Clear old data
             breakdownList.innerHTML = '';
             if (data.commissions.length === 0) {
               const li = document.createElement('li');
+              li.classList.add('list-group-item');
               li.textContent = 'No breakdown found.';
               breakdownList.appendChild(li);
             } else {
               data.commissions.forEach(item => {
                 const li = document.createElement('li');
-                li.textContent = `${item.service} => GHS ${item.amount.toFixed(2)}`;
+                li.classList.add('list-group-item');
+                // Show service + vehicle + commission
+                li.textContent = `${item.service} [${item.vehicle}] => GHS ${item.amount.toFixed(2)}`;
                 breakdownList.appendChild(li);
               });
             }
@@ -202,4 +207,4 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
-{% endblock %}
+{% endblock scripts %}
