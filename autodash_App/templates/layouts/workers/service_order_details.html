@@ -55,21 +55,27 @@
                 <thead>
                   <tr>
                     <th>Service</th>
-{#                    <th>Workers</th>#}
+                    <th>Workers</th>
                     <th>Date Rendered</th>
+                      <th>Price</th>
+                      <th>Negotiated Price</th>
+                      <th>Discount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for rendered_service in services_rendered %}
                   <tr>
                     <td>{{ rendered_service.service.service_type }}</td>
-{#                    <td>#}
-{#                      {% for worker in rendered_service.workers.all %}#}
-{#                        {{ worker.user.first_name }} {{ worker.user.last_name }}#}
-{#                        {% if not forloop.last %}, {% endif %}#}
-{#                      {% endfor %}#}
-{#                    </td>#}
+                    <td>
+                      {% for worker in rendered_service.workers.all %}
+                        {{ worker.user.first_name }} {{ worker.user.last_name }}
+                        {% if not forloop.last %}, {% endif %}
+                      {% endfor %}
+                    </td>
                     <td>{{ rendered_service.date }}</td>
+                  <td>{{ rendered_service.service.price }}</td>
+                  <td>{{ rendered_service.negotiated_price }}</td>
+                  <td>{{ rendered_service.order.discount_value }}</td>
                   </tr>
                   {% empty %}
                   <tr>

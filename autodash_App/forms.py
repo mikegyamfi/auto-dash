@@ -344,22 +344,22 @@ class CreateCustomerForm(forms.Form):
     first_name = forms.CharField(
         max_length=100,
         label="First Name",
-        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.TextInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     last_name = forms.CharField(
         max_length=100,
         label="Last Name",
-        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.TextInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     phone_number = forms.CharField(
         max_length=15,
         label="Phone Number",
-        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.TextInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     email = forms.EmailField(
         required=False,
         label="Email (Optional)",
-        widget=forms.EmailInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.EmailInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     branch = forms.ModelChoiceField(
         queryset=Branch.objects.all(),

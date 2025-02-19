@@ -4,25 +4,16 @@
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Sidebar -->
     {% include 'inc/side_nav.html' %}
-    <!-- / Sidebar -->
-
-    <!-- Layout page -->
     <div class="layout-page">
-      <!-- Navbar -->
       {% include 'inc/header.html' %}
-      <!-- / Navbar -->
-
-      <!-- Content wrapper -->
       <div class="content-wrapper">
-        <!-- Content -->
         <div class="container-xxl flex-grow-1 container-p-y">
 
           <h2 class="fw-bold py-3">Service History</h2>
 
           <!-- Filter Form -->
-          <form method="get" class="row row-cols-lg-auto g-3 align-items-end mb-3">
+          <form method="GET" id="dateRangeForm" class="row row-cols-lg-auto g-3 align-items-end mb-3">
 
             <!-- Status Filter -->
             <div class="col-12">
@@ -94,11 +85,24 @@
               </div>
             {% endif %}
 
+            <!-- Filter Button -->
             <div class="col-12">
               <button type="submit" class="btn btn-primary w-100">
                 Filter
               </button>
             </div>
+
+            <!-- Today Button -->
+            <div class="col-12">
+              <button
+                type="button"
+                class="btn btn-secondary w-100"
+                id="todayButton"
+              >
+                Today
+              </button>
+            </div>
+
           </form>
           <!-- / Filter Form -->
 
@@ -172,7 +176,7 @@
                     {% endfor %}
                   {% else %}
                     <tr>
-                      <td colspan="11" class="text-center">No services found.</td>
+                      <td colspan="11">No services found.</td>
                     </tr>
                   {% endif %}
                 </tbody>
@@ -199,6 +203,7 @@
               </div>
             </div>
           </form>
+
         </div>
         <!-- / Content -->
 
@@ -214,27 +219,32 @@
 {% endblock %}
 
 {% block scripts %}
-        <script src="{% static 'assets/vendor/libs/jquery/jquery.js' %}"></script>
-    <script src="{% static 'assets/vendor/libs/popper/popper.js' %}"></script>
-    <script src="{% static 'assets/vendor/js/bootstrap.js' %}"></script>
-    <script src="{% static 'assets/vendor/libs/perfect-scrollbar/perfect-scrollbar.js' %}"></script>
-    <script src="https://cdn.datatables.net/2.1.8/js/dataTables.js"></script>
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  // "Select All" checkbox
+  // (1) "Select All" checkbox
   const selectAllCheckbox = document.getElementById('select-all');
   const orderCheckboxes = document.querySelectorAll('.order-checkbox');
 
   selectAllCheckbox.addEventListener('change', function() {
     orderCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
   });
+
+  // (2) "Today" button => set start/end to today
+  const todayBtn = document.getElementById('todayButton');
+  const dateRangeForm = document.getElementById('dateRangeForm');
+
+  todayBtn.addEventListener('click', function() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2,'0');
+    const d = String(now.getDate()).padStart(2,'0');
+    const todayStr = `${y}-${m}-${d}`;
+
+    document.getElementById('start_date').value = todayStr;
+    document.getElementById('end_date').value = todayStr;
+
+    dateRangeForm.submit();
+  });
 });
 </script>
-
-        <script>
-        $(document).ready( function () {
-    $('#service-table').DataTable();
-} );
-    </script>
-{% endblock %}
+{% endblock scripts %}
