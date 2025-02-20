@@ -464,6 +464,23 @@ def log_service(request):
                 # Decrement stock
                 product.stock -= qty
                 product.save()
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
+=======
+
+            # 6) Optional SMS
+            phone = customer.user.phone_number
+            if phone:
+                msg = (
+                    f"Hello {customer.user.first_name}, "
+                    f"your service #{new_order.service_order_number} is pending at {timezone.now():%Y-%m-%d %H:%M}. "
+                    f"We will update you soon."
+                )
+                try:
+                    print("Sending SMS:", msg)
+                    # send_sms(phone, msg)
+                except Exception as e:
+                    print("SMS error:", e)
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
 
             messages.success(request, 'Service logged successfully (status=pending).')
             return redirect('confirm_service_rendered', pk=new_order.pk)
@@ -490,6 +507,7 @@ from django.urls import reverse
 @transaction.atomic
 def confirm_service(request, pk):
     """
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     Finalizes a service order. If there's no customer attached to the ServiceRenderedOrder,
     we skip loyalty and subscription logic.
     """
@@ -497,14 +515,33 @@ def confirm_service(request, pk):
     def get_sr_price(sr):
         # If there's a negotiated price, override the service's base price
         return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
+=======
+    Handles finalizing a service order:
+      - Allows the user to set negotiated_price for negotiable services on this page.
+      - Allocates/removes commission depending on the new status.
+      - For loyalty or subscription-covered services => record an Expense for that commission.
+      - If leftover is actually paid => record Revenue.
+      - If onCredit => create Arrears, and record commission expense for the entire order.
+      - Sends SMS with receipt details, plus a feedback link if completed/onCredit.
+    """
+
+    # A helper to fetch the price: either the negotiated_price (if set) or the base service price
+    def get_sr_price(service_rendered):
+        return service_rendered.negotiated_price if service_rendered.negotiated_price is not None else service_rendered.service.price
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
 
     user = request.user
     worker = get_object_or_404(Worker, user=user)
     service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # Retrieve the rendered services
+=======
+    # All services tied to this order
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     services_rendered = service_order.rendered.all()
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # Possibly no customer
     customer = service_order.customer  # can be None
     phone_number = None
@@ -520,6 +557,15 @@ def confirm_service(request, pk):
         except CustomerSubscription.DoesNotExist:
             cust_sub = None
             subscription_active = False
+=======
+    # Attempt to see if the customer has a subscription
+    try:
+        cust_sub = CustomerSubscription.objects.filter(customer=customer).latest('end_date')
+        subscription_active = cust_sub.is_active()
+    except CustomerSubscription.DoesNotExist:
+        cust_sub = None
+        subscription_active = False
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
 
     if request.method == 'GET':
         # If GET => show the "confirm_service_order.html"
@@ -527,6 +573,7 @@ def confirm_service(request, pk):
         if subscription_active and service_order.vehicle:
             for sr in services_rendered:
                 if (
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
                     sr.service in cust_sub.subscription.services.all()
                     and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
                 ):
@@ -534,6 +581,15 @@ def confirm_service(request, pk):
 
         # Optionally fetch products for display
         from .models import Product
+=======
+                        sr.service in cust_sub.subscription.services.all()
+                        and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
+                ):
+                    covered_by_subscription.append(sr.id)
+
+        # If you have products to display or add
+        from .models import Product  # or wherever Product is defined
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
         available_products = Product.objects.filter(branch=worker.branch)
 
         context = {
@@ -547,12 +603,20 @@ def confirm_service(request, pk):
         }
         return render(request, 'layouts/workers/confirm_service_order.html', context)
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # ---------------------- POST: Finalize the order -----------------------
+=======
+    # ------------------ POST: Finalize the order ------------------
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     old_status = service_order.status
     new_status = request.POST.get('status', 'completed')
     payment_method = request.POST.get('payment_method', 'cash')
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 1) Parse negotiated prices
+=======
+    # 1) Parse negotiated prices for each negotiable service
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     for sr in services_rendered:
         if sr.service.category and sr.service.category.negotiable:
             field_name = f"negotiated_price_{sr.id}"
@@ -569,15 +633,27 @@ def confirm_service(request, pk):
                 )
                 return redirect('confirm_service_rendered', pk=service_order.pk)
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
             sr.negotiated_price = nego_price
             sr.save()
 
     # 2) Update order's status & payment_method
+=======
+            # Update the negotiable service with the user-provided price
+            sr.negotiated_price = nego_price
+            sr.save()
+
+    # 2) Update the order status & payment method
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     service_order.status = new_status
     service_order.payment_method = payment_method
     service_order.save()
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 3) Commission allocation / removal
+=======
+    # 3) Commission allocation/removal for the entire order
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     if new_status in ['completed', 'onCredit'] and old_status != new_status:
         # Allocate
         for sr in services_rendered:
@@ -587,16 +663,28 @@ def confirm_service(request, pk):
         for sr in services_rendered:
             sr.remove_commission()
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 4) Recalculate final using negotiated prices
+=======
+
+    # 4) Calculate base totals using negotiated or standard price
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
     total_products_price = sum(p.total_price for p in service_order.products_purchased.all())
     recalculated_total = total_services_price + total_products_price
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 5) If there's a customer w/ subscription => subtract covered services
+=======
+    print(f"jk{recalculated_total}")
+
+    # 5) Check subscription coverage
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     subscription_covered_ids = []
     if customer and subscription_active and service_order.vehicle:
         for sr in services_rendered:
             if (
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
                 sr.service in cust_sub.subscription.services.all()
                 and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
             ):
@@ -607,8 +695,22 @@ def confirm_service(request, pk):
                 recalculated_total -= get_sr_price(sr)
 
     # 6) Identify loyalty redemption (only if there's a customer)
+=======
+                    sr.service in cust_sub.subscription.services.all()
+                    and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
+            ):
+                subscription_covered_ids.append(sr.id)
+
+    # Subtract subscription-covered services
+    for sr in services_rendered:
+        if sr.id in subscription_covered_ids:
+            recalculated_total -= get_sr_price(sr)
+
+    # 6) Identify loyalty redemption
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     redeem_service_ids = []
     loyalty_points_needed = 0
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     if customer:
         for sr in services_rendered:
             fieldname = f'redeem_service_{sr.id}'
@@ -623,6 +725,18 @@ def confirm_service(request, pk):
     if recalculated_total < 0:
         recalculated_total = 0
 
+=======
+    for sr in services_rendered:
+        # If user wants to redeem loyalty AND not subscription-covered
+        if sr.id in redeem_service_ids and sr.id not in subscription_covered_ids:
+            recalculated_total -= get_sr_price(sr)
+            loyalty_points_needed += sr.service.loyalty_points_required
+    print(f"jk{recalculated_total}")
+    if recalculated_total < 0:
+        recalculated_total = 0
+
+
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     # 7) Apply discount
     discount_type = request.POST.get('discount_type', 'amount')
     discount_value_str = request.POST.get('discount_value', '0')
@@ -639,6 +753,7 @@ def confirm_service(request, pk):
         discount_amount = min(discount_value, recalculated_total)
 
     recalculated_total -= discount_amount
+    print(f"jk{recalculated_total}")
     if recalculated_total < 0:
         recalculated_total = 0
 
@@ -650,8 +765,13 @@ def confirm_service(request, pk):
 
     leftover = recalculated_total
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 9) Deduct loyalty if there's a customer
     if customer and loyalty_points_needed > 0:
+=======
+    # 9) Deduct loyalty for redeemed services
+    if loyalty_points_needed > 0:
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
         if customer.loyalty_points >= loyalty_points_needed:
             customer.loyalty_points -= loyalty_points_needed
             LoyaltyTransaction.objects.create(
@@ -674,13 +794,20 @@ def confirm_service(request, pk):
                 customer=customer,
                 points=-points_to_use,
                 transaction_type='redeem',
-                description=f"Final payment coverage for {service_order.service_order_number}",
+                description=(
+                    f"Final payment coverage for {service_order.service_order_number}"
+                ),
                 branch=service_order.branch,
             )
         customer.save()
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 10) If onCredit => leftover => Arrears + commission expense
     from .models import Expense, Arrears
+=======
+    # 10) If onCredit => leftover => Arrears, plus commission expense
+    from .models import Expense, Arrears  # or wherever these are
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
     if new_status == 'onCredit':
         if not hasattr(service_order, 'arrears'):
             Arrears.objects.create(
@@ -688,6 +815,10 @@ def confirm_service(request, pk):
                 branch=service_order.branch,
                 amount_owed=leftover
             )
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
+=======
+        # Commission expense for onCredit
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
         total_commission = Commission.objects.filter(
             service_rendered__order=service_order
         ).aggregate(sum=Sum('amount'))['sum'] or 0
@@ -699,11 +830,23 @@ def confirm_service(request, pk):
         )
         # No revenue because leftover not paid
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 11) If completed => leftover => Revenue
     elif new_status == 'completed':
         from .models import Revenue
         if payment_method in [
             'cash', 'momo', 'subscription-cash', 'subscription-momo', 'loyalty-cash'
+=======
+    # 11) If completed => leftover might be real payment => create Revenue
+    elif new_status == 'completed':
+        from .models import Revenue
+        if payment_method in [
+            'cash',
+            'momo',
+            'subscription-cash',
+            'subscription-momo',
+            'loyalty-cash'
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
         ]:
             if leftover > 0:
                 has_revenue = Revenue.objects.filter(service_rendered=service_order).exists()
@@ -716,6 +859,7 @@ def confirm_service(request, pk):
                         user=user
                     )
         elif payment_method == 'loyalty':
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
             total_commission = Commission.objects.filter(
                 service_rendered__order=service_order
             ).aggregate(sum=Sum('amount'))['sum'] or 0
@@ -726,18 +870,43 @@ def confirm_service(request, pk):
                 user=user
             )
         elif payment_method == 'subscription':
+=======
+            # leftover should be 0 => no direct revenue
+            # entire order's commissions => expense
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
             total_commission = Commission.objects.filter(
                 service_rendered__order=service_order
             ).aggregate(sum=Sum('amount'))['sum'] or 0
             Expense.objects.create(
                 branch=service_order.branch,
-                description=f"Subscription coverage commission expense for {service_order.service_order_number}",
+                description=(
+                    f"Loyalty coverage commission expense for {service_order.service_order_number}"
+                ),
+                amount=total_commission,
+                user=user
+            )
+        elif payment_method == 'subscription':
+            # leftover should be 0 => no direct revenue
+            # entire order's commissions => expense
+            total_commission = Commission.objects.filter(
+                service_rendered__order=service_order
+            ).aggregate(sum=Sum('amount'))['sum'] or 0
+            Expense.objects.create(
+                branch=service_order.branch,
+                description=(
+                    f"Subscription coverage commission expense for {service_order.service_order_number}"
+                ),
                 amount=total_commission,
                 user=user
             )
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 12) Earn loyalty if completed (only if there's a customer)
     if new_status == 'completed' and customer:
+=======
+    # 12) Earn loyalty if newly completed
+    if new_status == 'completed':
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
         for sr in services_rendered:
             pts = sr.service.loyalty_points_earned
             if pts > 0:
@@ -751,8 +920,13 @@ def confirm_service(request, pk):
                 customer.loyalty_points += pts
         customer.save()
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 13) Commission expense for loyalty/subscription
     if new_status in ['completed', 'onCredit'] and customer:
+=======
+    # 13) Commission expense for loyalty/subscription services
+    if new_status in ['completed', 'onCredit']:
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
         for sr in services_rendered:
             if sr.id in redeem_service_ids or sr.id in subscription_covered_ids:
                 sr_commission = sr.commissions.aggregate(sum=Sum('amount'))['sum'] or 0
@@ -768,8 +942,13 @@ def confirm_service(request, pk):
                         user=user
                     )
 
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
     # 14) Optional: Send SMS (only if there's a customer and phone)
     if customer and phone_number:
+=======
+    # 14) Optional: Send SMS
+    if phone_number:
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
         if new_status == 'pending':
             txt = (
                 f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
@@ -785,10 +964,18 @@ def confirm_service(request, pk):
             print(txt)
 
         elif new_status in ['completed', 'onCredit']:
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
             service_lines = []
             for sr in services_rendered:
                 price_used = get_sr_price(sr)
                 service_lines.append(f"{sr.service.service_type} - GHS {price_used:.2f}")
+=======
+            # Build textual receipt
+            service_lines = []
+            for sr in services_rendered:
+                actual_price = get_sr_price(sr)
+                service_lines.append(f"{sr.service.service_type} - GHS {actual_price:.2f}")
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
 
             product_lines = []
             for prod_item in service_order.products_purchased.all():
@@ -797,6 +984,7 @@ def confirm_service(request, pk):
                 )
             receipt_url = request.build_absolute_uri(reverse('service_receipt', args=[service_order.id]))
             if new_status == 'onCredit':
+<<<<<<< HEAD:autodash_management/autodash_App/views.py
                 message = (
                     f"Dear {customer.user.first_name}, your onCredit service #{service_order.service_order_number} "
                     f"of GHS{service_order.final_amount:.2f} is completed. Details: {receipt_url}"
@@ -808,12 +996,61 @@ def confirm_service(request, pk):
                 )
             # send_sms(customer.user.phone_number, message)
             print(message)
+=======
+                message = f"Dear {service_order.customer.user.first_name}, your {new_status} service #{service_order.service_order_number} of GHS{service_order.final_amount:.2f} has been completed. get more details {receipt_url}"
+            else:
+                message = f"Dear {service_order.customer.user.first_name}, your payment of amount GHS{service_order.final_amount:.2f} for #{service_order.service_order_number} has been received. Thank you! - Leave feedback {receipt_url}"
+            send_sms(customer.user.phone_number, message)
+
+            # if service_lines:
+            #     lines.append("Services:")
+            #     lines.extend(service_lines)
+            # if product_lines:
+            #     lines.append("Products:")
+            #     lines.extend(product_lines)
+            # lines.append("Thank you for choosing us!")
+            # receipt_text = "\n".join(lines)
+            # print(receipt_text)
+
+            # Feedback link
+
+            # feedback_msg = (
+            #     f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
+            #     f"is now {new_status}. Kindly leave feedback here: {feedback_url}"
+            # )
+            # print(feedback_msg)
+            # send_sms(customer.user.phone_number, feedback_msg)
+>>>>>>> 5b004b0fd7401c5cb966424673387725f997f634:autodash_App/views.py
 
     messages.success(request, f"Service updated to {new_status}.")
     if new_status in ['completed', 'onCredit']:
         return redirect('service_receipt', pk=service_order.pk)
     return redirect('index')
 
+
+
+@login_required(login_url='login')
+def service_receipt(request, pk):
+    service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
+    services_rendered = service_order.rendered.all()
+    products_purchased = service_order.products_purchased.all()
+
+    def get_sr_price(sr):
+        return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
+
+    total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
+    total_products_price = sum(p.total_price for p in products_purchased)
+    final_amount = service_order.final_amount or 0
+
+    context = {
+        'service_order': service_order,
+        'services_rendered': services_rendered,
+        'products_purchased': products_purchased,
+        'total_services_price': total_services_price,
+        'total_products_price': total_products_price,
+        'final_amount': final_amount,
+    }
+    return render(request, 'layouts/workers/service_receipt.html', context)
 
 
 @login_required(login_url='login')

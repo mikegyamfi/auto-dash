@@ -1,0 +1,299 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Product Sales Report</h4>
+
+          <!-- Filter Form -->
+          <form method="GET" class="row mb-4 g-3 align-items-end">
+            <div class="col-md-2">
+              <label for="branch" class="form-label">Branch</label>
+              <select name="branch" id="branch" class="form-control">
+                <option value="">All</option>
+                {% for b in branches %}
+                  <option
+                    value="{{ b.id }}"
+                    {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}
+                  >
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label for="category" class="form-label">Category</label>
+              <select name="category" id="category" class="form-control">
+                <option value="">All</option>
+                {% for cat in categories %}
+                  <option
+                    value="{{ cat.id }}"
+                    {% if cat.id|stringformat:'s' == selected_category_id %}selected{% endif %}
+                  >
+                    {{ cat.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label for="date" class="form-label">Exact Date</label>
+              <input
+                type="date"
+                name="date"
+                id="date"
+                class="form-control"
+                value="{{ date_str }}"
+              >
+            </div>
+            <div class="col-md-2">
+              <label for="month" class="form-label">Month</label>
+              <select name="month" id="month" class="form-control">
+  <option value="">--</option>
+  {% for m in months %}
+    <option
+      value="{{ m }}"
+      {% if m == month_str %} selected {% endif %}
+    >
+      {{ m }}
+    </option>
+  {% endfor %}
+</select>
+            </div>
+            <div class="col-md-2">
+              <label for="year" class="form-label">Year</label>
+              <input
+                type="number"
+                name="year"
+                id="year"
+                class="form-control"
+                value="{{ year_str }}"
+                placeholder="2025"
+                min="2000" max="2100"
+              >
+            </div>
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-primary w-100">
+                Filter
+              </button>
+            </div>
+          </form>
+
+          <!-- Info Summaries -->
+          <div class="row mb-3">
+            <div class="col-md-4">
+              <div class="card bg-light">
+                <div class="card-body">
+                  <h6 class="card-title">Total Revenue</h6>
+                  <p class="display-6 text-primary">
+                    GHS {{ total_revenue|floatformat:2 }}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="card bg-light">
+                <div class="card-body">
+                  <h6 class="card-title">Total Cost</h6>
+                  <p class="display-6 text-danger">
+                    GHS {{ total_cost|floatformat:2 }}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="card bg-light">
+                <div class="card-body">
+                  <h6 class="card-title">Total Profit</h6>
+                  <p class="display-6 text-success">
+                    GHS {{ total_profit|floatformat:2 }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chart Row -->
+          <div class="row mb-4">
+            <div class="col-md-12">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">Category Performance</h5>
+                  <canvas id="categoryChart" width="400" height="150"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sales Table -->
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title mb-3">Sales Breakdown</h5>
+              <div class="table-responsive">
+                <table class="table table-bordered">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Category</th>
+                      <th>Cost (GHS)</th>
+                      <th>Price (GHS)</th>
+                      <th>Quantity</th>
+                      <th>Subtotal (Price x Qty)</th>
+                      <th>Profit ( (Price - Cost) x Qty )</th>
+                      <th>Date Sold</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% if sales %}
+                      {% for sale in sales %}
+                        <tr>
+                          <td>{{ sale.product.name }}</td>
+                          <td>
+                            {% if sale.product.category %}
+                              {{ sale.product.category.name }}
+                            {% else %}
+                              <span class="text-muted">Uncategorized</span>
+                            {% endif %}
+                          </td>
+                          <td>{{ sale.product.cost|floatformat:2 }}</td>
+                          <td>{{ sale.product.price|floatformat:2 }}</td>
+                          <td>{{ sale.quantity }}</td>
+                          <td>{{ sale.total_price|floatformat:2 }}</td>
+                          <!-- line_profit was annotated in the view -->
+                          <td>{{ sale.line_profit|floatformat:2 }}</td>
+                          <td>{{ sale.date_sold|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr>
+                        <td colspan="8">No product sales found for this filter.</td>
+                      </tr>
+                    {% endif %}
+                  </tbody>
+                  {% if sales %}
+                  <tfoot>
+                    <tr class="table-active">
+                      <th colspan="5" class="text-end">Totals:</th>
+                      <th>GHS {{ total_revenue|floatformat:2 }}</th>
+                      <th>GHS {{ total_profit|floatformat:2 }}</th>
+                      <th></th>
+                    </tr>
+                  </tfoot>
+                  {% endif %}
+                </table>
+              </div>
+            </div>
+          </div>
+          <!-- / Sales Table -->
+
+            <!-- New Section: In-Stock Items by Category -->
+          <div class="card mt-4">
+            <div class="card-body">
+              <h5 class="card-title">In-Stock Items Overview</h5>
+              <div class="table-responsive">
+                <table class="table table-bordered">
+                  <thead>
+                    <tr>
+                      <th>Category</th>
+                      <th>In-Stock Qty</th>
+                      <th>Total Cost if Sold</th>
+                      <th>Total Price if Sold</th>
+                      <th>Potential Profit if Sold</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% if stock_summary %}
+                      {% for row in stock_summary %}
+                        <tr>
+                          <td>{{ row.category_name }}</td>
+                          <td>{{ row.in_stock_qty }}</td>
+                          <td>GHS {{ row.total_cost_if_sold|floatformat:2 }}</td>
+                          <td>GHS {{ row.total_price_if_sold|floatformat:2 }}</td>
+                          <td>GHS {{ row.total_profit_if_sold|floatformat:2 }}</td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr>
+                        <td colspan="5">No products found in stock.</td>
+                      </tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <!-- / In-Stock Items Overview -->
+        </div>
+
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Load Chart.js (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Chart data from the view
+  const labels = JSON.parse('{{ chart_labels|safe|escapejs }}');    // array of category names
+  const revenueData = JSON.parse('{{ chart_revenue_data|safe|escapejs }}');
+  const profitData = JSON.parse('{{ chart_profit_data|safe|escapejs }}');
+
+  const ctx = document.getElementById('categoryChart').getContext('2d');
+
+  const categoryChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Revenue (GHS)',
+          backgroundColor: 'rgba(75, 192, 192, 0.7)',
+          data: revenueData,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Profit (GHS)',
+          backgroundColor: 'rgba(255, 99, 132, 0.7)',
+          data: profitData,
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          type: 'linear',
+          position: 'left',
+          title: {
+            display: true,
+            text: 'Revenue'
+          }
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          title: {
+            display: true,
+            text: 'Profit'
+          },
+          grid: {
+            drawOnChartArea: false // so we don't overlap the left axis
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+{% endblock scripts %}
