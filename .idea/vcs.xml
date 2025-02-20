@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="VcsDirectoryMappings">
-<<<<<<< HEAD
-    <mapping directory="" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/autodash_management" vcs="Git" />
-=======
-    <mapping directory="$PROJECT_DIR$/.." vcs="Git" />
->>>>>>> 5b004b0fd7401c5cb966424673387725f997f634
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
   </component>
 </project>
