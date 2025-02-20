@@ -36,7 +36,9 @@
                   <p><strong>Status:</strong> {{ service_order.get_status_display }}</p>
                   <p><strong>Date:</strong> {{ service_order.date }}</p>
                   <p><strong>Payment Method:</strong> {{ service_order.get_payment_method_display }}</p>
-                  <p><strong>Total Amount:</strong> GHS{{ service_order.total_amount }}</p>
+                  <p><strong>Total Amount:</strong> {% if service_order.discount_type == "amount" %}GHS{% else %}%{% endif %}{{ service_order.total_amount }}</p>
+                  <p><strong>Discount Value:</strong> GHS{{ service_order.discount_value }}</p>
+                  <p><strong>Discount Type:</strong> {{ service_order.discount_type }}</p>
                   <p><strong>Final Amount:</strong> GHS{{ service_order.final_amount }}</p>
                   <p><strong>Customer Feedback:</strong> {{ service_order.customer_feedback }}</p>
                   <p><strong>Customer Rating:</strong>
@@ -55,21 +57,25 @@
                 <thead>
                   <tr>
                     <th>Service</th>
-{#                    <th>Workers</th>#}
+                    <th>Workers</th>
                     <th>Date Rendered</th>
+                      <th>Price</th>
+                      <th>Negotiated Price</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for rendered_service in services_rendered %}
                   <tr>
                     <td>{{ rendered_service.service.service_type }}</td>
-{#                    <td>#}
-{#                      {% for worker in rendered_service.workers.all %}#}
-{#                        {{ worker.user.first_name }} {{ worker.user.last_name }}#}
-{#                        {% if not forloop.last %}, {% endif %}#}
-{#                      {% endfor %}#}
-{#                    </td>#}
+                    <td>
+                      {% for worker in rendered_service.workers.all %}
+                        {{ worker.user.first_name }} {{ worker.user.last_name }}
+                        {% if not forloop.last %}, {% endif %}
+                      {% endfor %}
+                    </td>
                     <td>{{ rendered_service.date }}</td>
+                  <td>{{ rendered_service.service.price }}</td>
+                  <td>{{ rendered_service.negotiated_price }}</td>
                   </tr>
                   {% empty %}
                   <tr>

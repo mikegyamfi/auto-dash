@@ -32,13 +32,14 @@ class CustomUserForm(UserCreationForm):
 class LogServiceForm(forms.Form):
     customer = forms.ModelChoiceField(
         queryset=Customer.objects.all(),
-        widget=forms.Select(attrs={'class': 'form-control', 'id': 'customer-select'}),
-        empty_label="Select Customer"
+        widget=forms.Select(attrs={'class': 'select2 form-control', 'id': 'customer-select'}),
+        empty_label="Select Customer",
+        required=False
     )
 
     vehicle = forms.ModelChoiceField(
-        queryset=models.CustomerVehicle.objects.none(),
-        widget=forms.Select(attrs={'class': 'form-control', 'id': 'vehicle-select'}),
+        queryset=models.CustomerVehicle.objects.all(),
+        widget=forms.Select(attrs={'class': 'select2 form-control', 'id': 'vehicle-select'}),
         empty_label="Select Vehicle",
         required=False
     )
@@ -56,7 +57,7 @@ class LogServiceForm(forms.Form):
         queryset=None,
         label="Select Workers",
         widget=forms.SelectMultiple(attrs={
-            'class': 'form-control',
+            'class': 'form-control select2',
             'placeholder': 'Select Workers',
         }),
     )
@@ -344,22 +345,22 @@ class CreateCustomerForm(forms.Form):
     first_name = forms.CharField(
         max_length=100,
         label="First Name",
-        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.TextInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     last_name = forms.CharField(
         max_length=100,
         label="Last Name",
-        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.TextInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     phone_number = forms.CharField(
         max_length=15,
         label="Phone Number",
-        widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.TextInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     email = forms.EmailField(
         required=False,
         label="Email (Optional)",
-        widget=forms.EmailInput(attrs={'class': 'form-control'})  # Bootstrap input
+        widget=forms.EmailInput(attrs={'class': 'form-control', 'required': False})  # Bootstrap input
     )
     branch = forms.ModelChoiceField(
         queryset=Branch.objects.all(),
@@ -382,7 +383,8 @@ class CreateVehicleForm(forms.Form):
     customer = forms.ModelChoiceField(
         queryset=Customer.objects.all(),
         label="Select Customer",
-        widget=forms.Select(attrs={'class': 'form-select'})  # Bootstrap select
+        widget=forms.Select(attrs={'class': 'form-select'}),  # Bootstrap select
+        required=False  # This makes the field optional
     )
     vehicle_group = forms.ModelChoiceField(
         queryset=VehicleGroup.objects.all(),

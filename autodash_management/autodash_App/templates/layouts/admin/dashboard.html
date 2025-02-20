@@ -20,13 +20,59 @@
         <div class="container-xxl flex-grow-1 container-p-y">
           <h4 class="fw-bold py-3 mb-4">Dashboard - {{ branch.name }}</h4>
 
+
+          <form method="GET" class="row mb-4 g-3 align-items-end" id="dateRangeForm">
+  <!-- keep branch -->
+  <input type="hidden" name="branch_id" value="{{ branch.id }}">
+
+  <div class="col-md-3">
+    <label for="start_date" class="form-label">Start Date</label>
+    <input
+      type="date"
+      class="form-control"
+      name="start_date"
+      id="start_date"
+      value="{{ start_date_str }}"
+    >
+  </div>
+
+  <div class="col-md-3">
+    <label for="end_date" class="form-label">End Date</label>
+    <input
+      type="date"
+      class="form-control"
+      name="end_date"
+      id="end_date"
+      value="{{ end_date_str }}"
+    >
+  </div>
+
+  <div class="col-md-2">
+    <!-- Existing Filter Button -->
+    <button type="submit" class="btn btn-primary w-100">
+      Filter
+    </button>
+  </div>
+
+  <div class="col-md-2">
+    <!-- "Today" Button -->
+    <button
+      type="button"
+      class="btn btn-secondary w-100"
+      id="todayButton"
+    >
+      Today
+    </button>
+  </div>
+</form>
+
           <!-- =========================== SERVICES SECTION =========================== -->
           <h5 class="mb-3">Services</h5>
 
           <!-- First row of service cards -->
           <div class="row mb-3">
             <!-- Total Orders -->
-            <div class="col-md-3 col-sm-6 mb-4">
+            <div class="col-md-2 col-sm-6 mb-4">
               <div class="card">
                 <div class="card-body">
                   <h6 class="card-title">Total Orders</h6>
@@ -44,7 +90,7 @@
               </div>
             </div>
             <!-- Pending Orders -->
-            <div class="col-md-3 col-sm-6 mb-4">
+            <div class="col-md-2 col-sm-6 mb-4">
               <div class="card">
                 <div class="card-body">
                   <h6 class="card-title">Pending Orders</h6>
@@ -53,11 +99,20 @@
               </div>
             </div>
             <!-- Canceled Orders -->
-            <div class="col-md-3 col-sm-6 mb-4">
+            <div class="col-md-2 col-sm-6 mb-4">
               <div class="card">
                 <div class="card-body">
                   <h6 class="card-title">Canceled Orders</h6>
                   <p class="display-6">{{ canceled_orders_count }}</p>
+                </div>
+              </div>
+            </div>
+
+              <div class="col-md-2 col-sm-6 mb-4">
+              <div class="card">
+                <div class="card-body">
+                  <h6 class="card-title">On Credit</h6>
+                  <p class="display-6">{{ on_credit_orders_count }}</p>
                 </div>
               </div>
             </div>
@@ -66,19 +121,11 @@
           <!-- Second row of service cards -->
           <div class="row mb-4">
             <!-- On Credit Orders -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">On Credit</h6>
-                  <p class="display-6">{{ on_credit_orders_count }}</p>
-                </div>
-              </div>
-            </div>
             <!-- Revenue Today -->
             <div class="col-md-2 col-sm-6 mb-4">
               <div class="card">
                 <div class="card-body">
-                  <h6 class="card-title">Revenue Today</h6>
+                  <h6 class="card-title">Revenue</h6>
                   <p class="display-6">
                     GHS {{ revenue_today|floatformat:2 }}
                   </p>
@@ -86,10 +133,10 @@
               </div>
             </div>
             <!-- Commission Today -->
-            <div class="col-md-2 col-sm-6 mb-4">
+            <div class="col-md-3 col-sm-6 mb-4">
               <div class="card">
                 <div class="card-body">
-                  <h6 class="card-title">Commission Today</h6>
+                  <h6 class="card-title">Commission</h6>
                   <p class="display-6">
                     GHS {{ commission_today|default:0|floatformat:2 }}
                   </p>
@@ -111,7 +158,7 @@
             <div class="col-md-2 col-sm-6 mb-4">
               <div class="card">
                 <div class="card-body">
-                  <h6 class="card-title">Expenses Today</h6>
+                  <h6 class="card-title">Expenses</h6>
                   <p class="display-6">
                     GHS {{ expenses_today|floatformat:2 }}
                   </p>
@@ -164,10 +211,10 @@
                   <h6 class="card-title">Category Total Qty</h6>
                   <p class="display-6">{{ product_category_total_qty|default:0 }}</p>
                   <!-- Make the entire card clickable with a link that opens the modal -->
-                  <a 
-                    href="#" 
+                  <a
+                    href="#"
                     class="stretched-link"
-                    data-bs-toggle="modal" 
+                    data-bs-toggle="modal"
                     data-bs-target="#categoryModal"
                   >
                     View Breakdown
@@ -185,10 +232,10 @@
                     GHS {{ product_category_total_amt|default:0|floatformat:2 }}
                   </p>
                   <!-- Same modal or a separate one if you prefer -->
-                  <a 
-                    href="#" 
+                  <a
+                    href="#"
                     class="stretched-link"
-                    data-bs-toggle="modal" 
+                    data-bs-toggle="modal"
                     data-bs-target="#categoryModal"
                   >
                     View Breakdown
@@ -199,21 +246,21 @@
           </div>
 
           <!-- Category Breakdown Modal -->
-          <div 
-            class="modal fade" 
-            id="categoryModal" 
-            tabindex="-1" 
-            aria-labelledby="categoryModalLabel" 
+          <div
+            class="modal fade"
+            id="categoryModal"
+            tabindex="-1"
+            aria-labelledby="categoryModalLabel"
             aria-hidden="true"
           >
             <div class="modal-dialog modal-lg">
               <div class="modal-content">
                 <div class="modal-header">
                   <h5 class="modal-title" id="categoryModalLabel">Product Category Breakdown</h5>
-                  <button 
-                    type="button" 
-                    class="btn-close" 
-                    data-bs-dismiss="modal" 
+                  <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
                     aria-label="Close"
                   ></button>
                 </div>
@@ -242,9 +289,9 @@
                   {% endif %}
                 </div>
                 <div class="modal-footer">
-                  <button 
-                    type="button" 
-                    class="btn btn-secondary" 
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
                     data-bs-dismiss="modal"
                   >
                     Close
@@ -326,7 +373,7 @@
                     <td>GHS {{ service.total_amount|floatformat:2 }}</td>
                     <td>GHS {{ service.final_amount|floatformat:2 }}</td>
                     <td>
-                      <a 
+                      <a
                         href="{% url 'confirm_service_rendered' pk=service.id %}"
                         class="btn btn-sm btn-primary"
                       >
@@ -431,7 +478,7 @@
 
 {% block scripts %}
 <script>
-  // Example of how you might load product details by category 
+  // Example of how you might load product details by category
   // when user clicks "View" in the "Sales by Category" table.
 
   function loadCategoryDetails(categoryId) {
@@ -467,5 +514,28 @@
         tableBody.innerHTML = '<tr><td colspan="3">Error loading data.</td></tr>';
       });
   }
+</script>
+
+    <script>
+document.addEventListener('DOMContentLoaded', function() {
+  const todayBtn = document.getElementById('todayButton');
+  const dateRangeForm = document.getElementById('dateRangeForm');
+
+  todayBtn.addEventListener('click', function() {
+    // 1) Get today's date in YYYY-MM-DD
+    const now = new Date();
+    const year = now.getFullYear();
+    let month = (now.getMonth() + 1).toString().padStart(2, '0');
+    let day = now.getDate().toString().padStart(2, '0');
+    const todayStr = `${year}-${month}-${day}`;
+
+    // 2) Set both start & end to today's date
+    document.getElementById('start_date').value = todayStr;
+    document.getElementById('end_date').value = todayStr;
+
+    // 3) Submit the form
+    dateRangeForm.submit();
+  });
+});
 </script>
 {% endblock scripts %}

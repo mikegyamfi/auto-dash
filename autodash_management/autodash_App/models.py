@@ -16,7 +16,7 @@ class CustomUser(AbstractUser):
         ('customer', 'Customer'),
     )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='customer')
-    phone_number = models.CharField(max_length=15, unique=True)
+    phone_number = models.CharField(max_length=15, unique=True, null=True, blank=True)
     email = models.EmailField(null=True, blank=True)
     address = models.CharField(max_length=255, null=True, blank=True)
     approved = models.BooleanField(default=False)
@@ -125,7 +125,7 @@ class Service(models.Model):
     commission_rate = models.FloatField(default=0.0)  # e.g. 10 => 10%
 
     def __str__(self):
-        return f"{self.service_type} - {self.vehicle_group.group_name} - {self.category.name}"
+        return f"{self.service_type} - {self.vehicle_group.group_name}"
 
 
 class ProductCategory(models.Model):
@@ -161,7 +161,7 @@ class ProductSale(models.Model):
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='product_sales')
     quantity = models.PositiveIntegerField(default=1)
     total_price = models.FloatField()
-    date_sold = models.DateTimeField(default=timezone.now)
+    date_sold = models.DateTimeField(auto_now_add=True)
     customer = models.ForeignKey('Customer', null=True, blank=True, on_delete=models.SET_NULL)
 
     def save(self, *args, **kwargs):
@@ -233,7 +233,9 @@ class CustomerVehicle(models.Model):
     date_added = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.customer.user.first_name} - {self.car_make}({self.car_color}) - {self.car_plate}"
+        if self.customer:
+            return f"{self.customer.user.first_name} - {self.car_make}({self.car_color}) - {self.car_plate}"
+        return f"{self.car_make}({self.car_color}) - {self.car_plate}"
 
 
 class Subscription(models.Model):
@@ -298,18 +300,16 @@ class ServiceRenderedOrder(models.Model):
     ]
 
     service_order_number = models.CharField(max_length=100, null=True, blank=True)
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, null=True, blank=True)
     workers = models.ManyToManyField(Worker, blank=True)
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)  # who logged it
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='pending')
     total_amount = models.FloatField()
     amount_paid = models.FloatField(null=True, blank=True)
     final_amount = models.FloatField(null=True, blank=True)
-    discount_type = models.CharField(
-        max_length=10,
-        choices=[('percentage', 'Percentage'), ('amount', 'Amount')],
-        default='amount'
-    )
+    discount_type = models.CharField(max_length=10,
+                                     choices=[('percentage', 'Percentage'), ('amount', 'Amount')],
+                                     default='amount')
     discount_value = models.FloatField(default=0.0)
     customer_feedback = models.TextField(null=True, blank=True)
     customer_rating = models.IntegerField(
@@ -332,39 +332,39 @@ class ServiceRenderedOrder(models.Model):
         return f"{self.service_order_number} - {self.customer.user.first_name} {self.customer.user.last_name}"
 
     def save(self, *args, **kwargs):
+        # If there's no order number, generate one
         if not self.service_order_number:
             self.service_order_number = generate_unique_order_number()
 
-        # Recalculate final_amount if discount is set
-        if self.discount_type == 'amount':
-            self.final_amount = self.total_amount - self.discount_value
-        elif self.discount_type == 'percentage':
-            self.final_amount = self.total_amount - (self.total_amount * self.discount_value / 100)
-
-        # Ensure final_amount is not negative
-        if self.final_amount < 0:
-            self.final_amount = 0
+        # Remove the auto discount logic that re-applies a discount:
+        # We rely on confirm_service to set final_amount properly.
 
         super(ServiceRenderedOrder, self).save(*args, **kwargs)
 
 
 class ServiceRendered(models.Model):
-    order = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='rendered', null=True,
-                              blank=True)
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='services_rendered')
-    workers = models.ManyToManyField(Worker, related_name='services_rendered', blank=True)
+    order = models.ForeignKey('ServiceRenderedOrder', on_delete=models.CASCADE,
+                              related_name='rendered', null=True, blank=True)
+    service = models.ForeignKey('Service', on_delete=models.CASCADE,
+                                related_name='services_rendered')
+    workers = models.ManyToManyField('Worker', related_name='services_rendered', blank=True)
     date = models.DateTimeField(auto_now_add=True)
     commission_amount = models.FloatField(null=True, blank=True)
     negotiated_price = models.FloatField(null=True, blank=True)
 
+    def get_effective_price(self):
+        """Return negotiated price if present, else service price."""
+        if self.negotiated_price is not None:
+            return self.negotiated_price
+        return self.service.price
+
     def allocate_commission(self):
         """
-        For demonstration, we do:
-        commission_amount = service_price * (commission_rate / 100)
-        Then split among assigned workers for this service line.
+        commission_amount = get_effective_price() * (commission_rate / 100)
+        Then split among assigned workers.
         """
         if self.service.commission_rate:
-            self.commission_amount = (self.service.price * self.service.commission_rate) / 100
+            self.commission_amount = self.get_effective_price() * (self.service.commission_rate / 100.0)
         else:
             self.commission_amount = 0.0
         self.save()
@@ -380,24 +380,21 @@ class ServiceRendered(models.Model):
                     date=timezone.now().date()
                 )
 
-                # Alternatively, you could also do:
-                # worker.add_commission(commission_per_worker)
-                # But then you'd have to skip creating Commission rows.
-
     def remove_commission(self):
         """
-        Remove previously allocated commission, e.g. if the order was
-        changed from 'completed' to 'pending' or 'canceled'.
+        Remove previously allocated commission, e.g. if status changed from
+        completed => pending/canceled.
         """
         Commission.objects.filter(service_rendered=self).delete()
         self.commission_amount = 0.0
         self.save()
 
     def save(self, *args, **kwargs):
-        # If not set, compute the commission upon creation or re-save
-        if self.service.commission_rate and self.commission_amount is None:
-            self.commission_amount = (self.service.price * self.service.commission_rate) / 100
-        super(ServiceRendered, self).save(*args, **kwargs)
+        # Optionally compute initial commission if not set
+        if self.pk is None and self.service.commission_rate and self.commission_amount is None:
+            self.commission_amount = self.get_effective_price() * (self.service.commission_rate / 100.0)
+        super().save(*args, **kwargs)
+
 
 
 class Commission(models.Model):
@@ -436,18 +433,23 @@ class ProductPurchased(models.Model):
         return f"{self.quantity}x {self.product.name} for Order {self.service_order.service_order_number}"
 
 
+
 class Expense(models.Model):
-    """
-    Tracks daily expenses from the business perspective.
-    This also includes 'on-credit' coverage or loyalty coverage,
-    because from the business perspective, no cash came in but
-    workers still got commission or salaries.
-    """
+    expense_choices = (
+        ("Statutory", "Statutory"),
+        ("Variable", "Variable"),
+    )
+    expense_category = models.CharField(max_length=250, null=True, blank=True, choices=expense_choices)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='expenses')
     description = models.TextField()
     amount = models.FloatField()
     date = models.DateField(auto_now_add=True)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='expenses', null=True, blank=True)
+
+    # Optional fields to handle recurring (start_date, end_date, is_recurring, etc.)
+    # e.g.
+    is_recurring = models.BooleanField(default=False)
+    # or you can store the frequency: daily, weekly, monthly, etc.
 
     def __str__(self):
         return f"{self.branch.name} Expense on {self.date}: {self.amount}"
