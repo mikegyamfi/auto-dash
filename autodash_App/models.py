@@ -358,19 +358,21 @@ class ServiceRendered(models.Model):
             return self.negotiated_price
         return self.service.price
 
-    def allocate_commission(self):
+    def allocate_commission(self, discount_factor=1.0):
         """
-        commission_amount = get_effective_price() * (commission_rate / 100)
-        Then split among assigned workers.
+        Calculates commission based on the effective service price (which is either
+        the negotiated price if set or the service's base price) multiplied by a discount factor.
+        Then the commission is computed as (effective_price * commission_rate/100) and split among assigned workers.
         """
+        effective_price = (self.negotiated_price if self.negotiated_price is not None else self.service.price) * discount_factor
         if self.service.commission_rate:
-            self.commission_amount = self.get_effective_price() * (self.service.commission_rate / 100.0)
+            self.commission_amount = (effective_price * self.service.commission_rate) / 100
         else:
             self.commission_amount = 0.0
         self.save()
 
         assigned_workers = self.workers.all()
-        if assigned_workers.exists():
+        if assigned_workers.exists() and self.commission_amount:
             commission_per_worker = self.commission_amount / assigned_workers.count()
             for worker in assigned_workers:
                 Commission.objects.create(
@@ -381,13 +383,15 @@ class ServiceRendered(models.Model):
                 )
 
     def remove_commission(self):
-        """
-        Remove previously allocated commission, e.g. if status changed from
-        completed => pending/canceled.
-        """
         Commission.objects.filter(service_rendered=self).delete()
         self.commission_amount = 0.0
         self.save()
+
+    def save(self, *args, **kwargs):
+        # Optionally, compute commission upon creation if not set
+        if self.service.commission_rate and self.commission_amount is None:
+            self.commission_amount = (self.service.price * self.service.commission_rate) / 100
+        super(ServiceRendered, self).save(*args, **kwargs)
 
     def save(self, *args, **kwargs):
         # Optionally compute initial commission if not set

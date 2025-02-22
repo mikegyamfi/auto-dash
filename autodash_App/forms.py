@@ -32,14 +32,14 @@ class CustomUserForm(UserCreationForm):
 class LogServiceForm(forms.Form):
     customer = forms.ModelChoiceField(
         queryset=Customer.objects.all(),
-        widget=forms.Select(attrs={'class': 'select2 form-control', 'id': 'customer-select'}),
+        widget=forms.Select(attrs={'class': 'form-control', 'id': 'customer-select'}),
         empty_label="Select Customer",
         required=False
     )
 
     vehicle = forms.ModelChoiceField(
         queryset=models.CustomerVehicle.objects.all(),
-        widget=forms.Select(attrs={'class': 'select2 form-control', 'id': 'vehicle-select'}),
+        widget=forms.Select(attrs={'class': 'form-control', 'id': 'vehicle-select'}),
         empty_label="Select Vehicle",
         required=False
     )
@@ -57,7 +57,7 @@ class LogServiceForm(forms.Form):
         queryset=None,
         label="Select Workers",
         widget=forms.SelectMultiple(attrs={
-            'class': 'form-control select2',
+            'class': 'form-control',
             'placeholder': 'Select Workers',
         }),
     )
@@ -80,6 +80,8 @@ class LogServiceForm(forms.Form):
                 self.fields['vehicle'].queryset = models.CustomerVehicle.objects.filter(customer_id=customer_id)
             except (ValueError, TypeError):
                 pass  # Invalid input
+        else:
+            self.fields['vehicle'].queryset = models.CustomerVehicle.objects.all()
 
         # Set service queryset based on vehicle
         if 'vehicle' in self.data:

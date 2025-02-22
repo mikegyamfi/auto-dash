@@ -1,85 +1,75 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block style %}
-    <style>
-    .star-rating {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  font-size: 2rem; /* Adjust size as needed */
-  direction: rtl; /* Right-to-left layout to make the CSS easier */
-}
-
-.star-rating input {
-  display: none; /* Hide the radio inputs */
-}
-
-.star-rating label {
-  color: #ccc; /* Unselected star color */
-  cursor: pointer;
-}
-
-.star-rating label:hover,
-.star-rating label:hover ~ label {
-  color: #f5a623; /* Hover color for stars */
-}
-
-/* When a star is selected, highlight all previous stars */
-.star-rating input:checked ~ label {
-  color: #f5a623; /* Selected star color */
-}
-
-/* Highlight the stars when hovering */
-.star-rating input:checked:hover ~ label {
-  color: #f5a623; /* Hover color when star is checked */
-}
-
-    </style>
+<style>
+  .star-rating {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    font-size: 2rem;
+    direction: rtl;
+  }
+  .star-rating input {
+    display: none;
+  }
+  .star-rating label {
+    color: #ccc;
+    cursor: pointer;
+  }
+  .star-rating label:hover,
+  .star-rating label:hover ~ label,
+  .star-rating input:checked ~ label {
+    color: #f5a623;
+  }
+  table {
+    width: 100%;
+  }
+</style>
 {% endblock style %}
 
 {% block content %}
-<!-- Layout wrapper -->
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Layout container -->
+    {% include 'inc/side_nav.html' %}
     <div class="layout-page">
-      <!-- Content wrapper -->
+      {% include 'inc/header.html' %}
       <div class="content-wrapper">
-        <!-- Content -->
         <div class="container-xxl flex-grow-1 container-p-y">
-          <div class="card">
+
+          <!-- Feedback Card -->
+          <div class="card mb-4">
             <div class="card-header">
-            <h5>Service Order Number: {{ service_order.service_order_number }}</h5>
-            <h5>Total: GHS{{ service_order.final_amount }}</h5>
-                <p>Thank you for trusting us with your vehicle related activities</p>
-                <hr>
-                <h5>Services Rendered: </h5>
-                <ul>
-                    {% for service in services %}
-                    <li>{{ service.service.service_type }}</li>
-                    {% endfor %}
-                </ul>
+              <h5>Service Order: {{ service_order.service_order_number }}</h5>
+              <h5>Total: GHS {{ service_order.final_amount|floatformat:2 }}</h5>
+              {% if service_order.vehicle %}
+                <p>Vehicle: {{ service_order.vehicle.car_make }} - {{ service_order.vehicle.car_plate }}</p>
+              {% endif %}
+              <p>Thank you for trusting us with your vehicle-related needs.</p>
+              <hr>
+              <h5>Services Rendered:</h5>
+              <ul>
+                {% for sr in services %}
+                  <li>{{ sr.service.service_type }}</li>
+                {% endfor %}
+              </ul>
               <h3 class="card-title">Rate Our Service</h3>
             </div>
             <div class="card-body">
               <form method="POST" action="">
-                  {% csrf_token %}
+                {% csrf_token %}
                 <!-- Star Rating -->
                 <div class="mb-4">
                   <label for="rating" class="form-label">Your Rating</label>
                   <div class="star-rating">
                     <input type="radio" id="rate5" name="rating" value="5" />
                     <label for="rate5" title="Amazing" class="fa fa-star"></label>
-
                     <input type="radio" id="rate4" name="rating" value="4" />
                     <label for="rate4" title="Very good" class="fa fa-star"></label>
-
                     <input type="radio" id="rate3" name="rating" value="3" />
                     <label for="rate3" title="Average" class="fa fa-star"></label>
-
                     <input type="radio" id="rate2" name="rating" value="2" />
                     <label for="rate2" title="Not good" class="fa fa-star"></label>
-
                     <input type="radio" id="rate1" name="rating" value="1" />
                     <label for="rate1" title="Terrible" class="fa fa-star"></label>
                   </div>
@@ -98,22 +88,58 @@
               </form>
             </div>
           </div>
+
+          <!-- Recent Services Table -->
+          {% if last_services %}
+          <div class="card">
+            <div class="card-header">
+              <h5>Recent Services for You</h5>
+            </div>
+            <div class="card-body">
+              <table class="table table-bordered">
+                <thead>
+                  <tr>
+                    <th>Order Number</th>
+                    <th>Date</th>
+                    <th>Vehicle</th>
+                    <th>Services Performed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for order in last_services %}
+                  <tr>
+                    <td>{{ order.service_order_number }}</td>
+                    <td>{{ order.date|date:"Y-m-d H:i" }}</td>
+                    <td>
+                      {% if order.vehicle %}
+                        {{ order.vehicle.car_make }} - {{ order.vehicle.car_plate }}
+                      {% else %}
+                        N/A
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% for sr in order.rendered.all %}
+                        {{ sr.service.service_type }}{% if not forloop.last %}, {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="4">No recent services found.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+
         </div>
-        <!-- / Content -->
-
-        <!-- Footer -->
         {% include 'inc/footer.html' %}
-        <!-- / Footer -->
-
         <div class="content-backdrop fade"></div>
       </div>
-      <!-- Content wrapper -->
     </div>
-    <!-- / Layout page -->
   </div>
-
-  <!-- Overlay -->
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
-<!-- / Layout wrapper -->
 {% endblock content %}

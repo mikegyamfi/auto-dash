@@ -13,6 +13,7 @@
       {% include 'inc/header.html' %}
       <!-- / Navbar -->
 
+      <!-- Content wrapper -->
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
 
@@ -30,22 +31,21 @@
           <div class="card">
             <div class="card-body">
               <div class="row g-4">
-
                 <!-- Left Form Column -->
                 <div class="col-md-8">
-                  <!-- The main form -->
+                  <!-- Main form -->
                   <form id="log-service-form" method="POST">
                     {% csrf_token %}
-
                     <!-- STEP 1: Customer Section -->
                     <div class="stepper-step completed mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
-                        <div class="step-icon bg-primary text-white rounded-circle me-3">1</div>
                         <h6 class="mb-0">Select Customer</h6>
                       </div>
                       <div class="step-content">
                         <div class="row g-3">
                           <div class="col-md-8">
+                            <!-- Search input for customer -->
+                            <input type="text" id="customer-search" placeholder="Search Customer" class="form-control mb-2">
                             <div class="input-group">
                               <span class="input-group-text">
                                 <i class="fas fa-user-circle"></i>
@@ -54,13 +54,7 @@
                             </div>
                           </div>
                           <div class="col-md-4 w-auto">
-                            <button
-                              type="button"
-                              id="new-customer-btn"
-                              class="btn btn-outline-primary w-100 h-100 d-flex flex-column justify-content-center"
-                              data-bs-toggle="modal"
-                              data-bs-target="#new-customer-modal"
-                            >
+                            <button type="button" id="new-customer-btn" class="btn btn-outline-primary w-100 h-100 d-flex flex-column justify-content-center" data-bs-toggle="modal" data-bs-target="#new-customer-modal">
                               <i class="fas fa-user-plus mb-1"></i>
                             </button>
                           </div>
@@ -71,12 +65,13 @@
                     <!-- STEP 2: Vehicle Section -->
                     <div class="stepper-step mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
-                        <div class="step-icon bg-secondary text-white rounded-circle me-3">2</div>
                         <h6 class="mb-0">Select Vehicle</h6>
                       </div>
                       <div class="step-content">
                         <div class="row g-3">
                           <div class="col-md-8">
+                            <!-- Search input for vehicle -->
+                            <input type="text" id="vehicle-search" placeholder="Search Vehicle" class="form-control mb-2">
                             <div class="input-group">
                               <span class="input-group-text">
                                 <i class="fas fa-car"></i>
@@ -85,13 +80,7 @@
                             </div>
                           </div>
                           <div class="col-md-4 w-auto">
-                            <button
-                              type="button"
-                              id="new-vehicle-btn"
-                              class="btn btn-outline-secondary w-100 h-100 d-flex flex-column justify-content-center"
-                              data-bs-toggle="modal"
-                              data-bs-target="#new-vehicle-modal"
-                            >
+                            <button type="button" id="new-vehicle-btn" class="btn btn-outline-secondary w-100 h-100 d-flex flex-column justify-content-center" data-bs-toggle="modal" data-bs-target="#new-vehicle-modal">
                               <i class="fas fa-car mb-1"></i>
                               <span class="small">Add Vehicle</span>
                             </button>
@@ -103,7 +92,6 @@
                     <!-- STEP 3: Service Selection -->
                     <div class="stepper-step mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
-                        <div class="step-icon bg-info text-white rounded-circle me-3">3</div>
                         <h6 class="mb-0">Select Service(s)</h6>
                       </div>
                       <div class="step-content">
@@ -111,14 +99,12 @@
                           <span class="input-group-text">
                             <i class="fas fa-tools"></i>
                           </span>
-                          <!-- Multi-select for services -->
                           {{ form.service }}
                         </div>
-
                         <!-- Container for negotiable service price inputs -->
                         <div id="negotiable-services-container" class="mb-3" style="display: none;">
-                          <h6>Negotiable Service Prices:</h6>
-                          <!-- We'll populate this via JavaScript -->
+                          <h6>Negotiated Service Prices:</h6>
+                          <!-- Will be populated by JavaScript -->
                         </div>
                       </div>
                     </div>
@@ -126,7 +112,6 @@
                     <!-- STEP 4: Workers Selection -->
                     <div class="stepper-step mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
-                        <div class="step-icon bg-warning text-dark rounded-circle me-3">4</div>
                         <h6 class="mb-0">Assign Workers</h6>
                       </div>
                       <div class="step-content">
@@ -139,34 +124,13 @@
                       </div>
                     </div>
 
-                    <!-- Products (optional) -->
-{#                    <div class="stepper-step mb-4">#}
-{#                      <div class="step-header d-flex align-items-center mb-3">#}
-{#                        <div class="step-icon bg-success text-white rounded-circle me-3">5</div>#}
-{#                        <h6 class="mb-0">Add Products (Optional)</h6>#}
-{#                      </div>#}
-{#                      <div class="step-content">#}
-{#                        {{ form.products }}#}
-{#                        <!-- #}
-{#                          If you're capturing product quantities, you might #}
-{#                          have a UI for that, or you rely on checkboxes only. #}
-{#                        -->#}
-{#                      </div>#}
-{#                    </div>#}
-
                     <!-- Hidden input for negotiated prices JSON -->
-                    <input 
-                      type="hidden" 
-                      name="negotiated_prices" 
-                      id="negotiated-prices-hidden" 
-                      value=""
-                    >
+                    <input type="hidden" name="negotiated_prices" id="negotiated-prices-hidden" value="">
 
                     <!-- Submit Section -->
                     <div class="d-flex justify-content-end mt-5">
                       <button type="submit" class="btn btn-primary btn-lg px-5">
-                        <i class="fas fa-check-circle me-2"></i>
-                        Log Service
+                        <i class="fas fa-check-circle me-2"></i> Log Service
                       </button>
                     </div>
                   </form>
@@ -204,23 +168,12 @@
           </div>
 
           <!-- Modal: Add New Customer -->
-          <div
-            id="new-customer-modal"
-            class="modal fade"
-            tabindex="-1"
-            aria-labelledby="newCustomerModalLabel"
-            aria-hidden="true"
-          >
+          <div id="new-customer-modal" class="modal fade" tabindex="-1" aria-labelledby="newCustomerModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
               <div class="modal-content">
                 <div class="modal-header">
                   <h5 class="modal-title" id="newCustomerModalLabel">Add New Customer</h5>
-                  <button
-                    type="button"
-                    class="btn-close"
-                    data-bs-dismiss="modal"
-                    aria-label="Close"
-                  ></button>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                   <form id="new-customer-form">
@@ -252,23 +205,12 @@
           <!-- End Modal: Add New Customer -->
 
           <!-- Modal: Add New Vehicle -->
-          <div
-            id="new-vehicle-modal"
-            class="modal fade"
-            tabindex="-1"
-            aria-labelledby="newVehicleModalLabel"
-            aria-hidden="true"
-          >
+          <div id="new-vehicle-modal" class="modal fade" tabindex="-1" aria-labelledby="newVehicleModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
               <div class="modal-content">
                 <div class="modal-header">
                   <h5 class="modal-title" id="newVehicleModalLabel">Add New Vehicle</h5>
-                  <button
-                    type="button"
-                    class="btn-close"
-                    data-bs-dismiss="modal"
-                    aria-label="Close"
-                  ></button>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                   <form id="new-vehicle-form">
@@ -305,10 +247,8 @@
           </div>
           <!-- End Modal: Add New Vehicle -->
 
-          <!-- A small spinner for loading feedback (if you want a global spinner) -->
-          <div id="loadingSpinner"
-               class="position-fixed top-50 start-50 translate-middle"
-               style="display:none; z-index:2000;">
+          <!-- Global Spinner -->
+          <div id="loadingSpinner" class="position-fixed top-50 start-50 translate-middle" style="display:none; z-index:2000;">
             <div class="spinner-border text-primary" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -319,49 +259,54 @@
     </div> <!-- /layout-page -->
   </div> <!-- /layout-container -->
 </div>
-
-<style>
-.stepper-step {
-  padding: 1.5rem;
-  border-radius: 0.5rem;
-  background: rgba(255,255,255,0.8);
-  transition: all 0.3s ease;
-  border: 1px solid #eee;
-}
-.stepper-step:hover {
-  background: #f8f9fa;
-  transform: translateY(-3px);
-}
-.step-header .step-icon {
-  width: 32px; height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-  border-radius: 50%;
-}
-.guidance-card {
-  background: #f8fafc;
-  border-radius: 0.5rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  position: sticky;
-  top: 1rem;
-}
-</style>
 {% endblock content %}
 
 {% block scripts %}
-<!-- Font Awesome for icons -->
-<link
-  rel="stylesheet"
-  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
-/>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  // Show/hide a global spinner
+  // SEARCH CUSTOMER (without Select2)
+  const customerSearchInput = document.getElementById('customer-search');
+  const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
+  const originalCustomerOptions = Array.from(customerSelect.options).slice(1).map(opt => {
+    return { value: opt.value, text: opt.textContent };
+  });
+
+  customerSearchInput.addEventListener('input', function() {
+    const filter = this.value.toLowerCase();
+    customerSelect.innerHTML = '<option value="">Select Customer</option>';
+    originalCustomerOptions.forEach(opt => {
+      if (opt.text.toLowerCase().includes(filter)) {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.text;
+        customerSelect.appendChild(option);
+      }
+    });
+  });
+
+  // SEARCH VEHICLE (without Select2)
+  const vehicleSearchInput = document.getElementById('vehicle-search');
+  const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
+  // Initially store existing options (if any)
+  let originalVehicleOptions = Array.from(vehicleSelect.options).slice(1).map(opt => {
+    return { value: opt.value, text: opt.textContent };
+  });
+
+  vehicleSearchInput.addEventListener('input', function() {
+    const filter = this.value.toLowerCase();
+    vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
+    originalVehicleOptions.forEach(opt => {
+      if (opt.text.toLowerCase().includes(filter)) {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.text;
+        vehicleSelect.appendChild(option);
+      }
+    });
+  });
+
+  // Global Spinner functions
   function showSpinner() {
     document.getElementById('loadingSpinner').style.display = 'block';
   }
@@ -376,7 +321,6 @@ document.addEventListener('DOMContentLoaded', function() {
   newCustomerForm.addEventListener('submit', function(event) {
     event.preventDefault();
     const formData = new FormData(this);
-
     showSpinner();
     fetch('{% url "create_customer" %}', {
       method: 'POST',
@@ -387,22 +331,18 @@ document.addEventListener('DOMContentLoaded', function() {
     .then(data => {
       hideSpinner();
       if (data.success) {
-        // Close the modal
         const modalEl = document.getElementById('new-customer-modal');
         const modalInstance = bootstrap.Modal.getInstance(modalEl);
         modalInstance.hide();
-
-        // Update the customer <select>
         const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
-        const opt = document.createElement('option');
-        opt.value = data.customer.id;
-        opt.textContent = data.customer.name;
-        customerSelect.appendChild(opt);
-
-        // Set the new customer
+        const option = document.createElement('option');
+        option.value = data.customer.id;
+        option.textContent = data.customer.name;
+        customerSelect.appendChild(option);
         customerSelect.value = data.customer.id;
         customerSelect.dispatchEvent(new Event('change'));
-
+        // Also update the original options list used for searching
+        originalCustomerOptions.push({ value: data.customer.id, text: data.customer.name });
         newCustomerForm.reset();
       } else {
         alert('Error creating customer: ' + data.error);
@@ -421,7 +361,6 @@ document.addEventListener('DOMContentLoaded', function() {
   newVehicleForm.addEventListener('submit', function(event) {
     event.preventDefault();
     const formData = new FormData(this);
-
     showSpinner();
     fetch('{% url "create_vehicle" %}', {
       method: 'POST',
@@ -432,20 +371,18 @@ document.addEventListener('DOMContentLoaded', function() {
     .then(data => {
       hideSpinner();
       if (data.success) {
-        // Close the modal
         const modalEl = document.getElementById('new-vehicle-modal');
         const modalInstance = bootstrap.Modal.getInstance(modalEl);
         modalInstance.hide();
-
-        // Update vehicle <select>
         const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
-        const opt = document.createElement('option');
-        opt.value = data.vehicle.id;
-        opt.textContent = data.vehicle.display;
-        vehicleSelect.appendChild(opt);
+        const option = document.createElement('option');
+        option.value = data.vehicle.id;
+        option.textContent = data.vehicle.display;
+        vehicleSelect.appendChild(option);
         vehicleSelect.value = data.vehicle.id;
-
         vehicleSelect.dispatchEvent(new Event('change'));
+        // Update stored original options
+        originalVehicleOptions.push({ value: data.vehicle.id, text: data.vehicle.display });
         newVehicleForm.reset();
       } else {
         alert('Error creating vehicle: ' + data.error);
@@ -477,17 +414,12 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   /*
-   * 4. Auto-populate vehicles when the customer changes
+   * 4. Auto-populate vehicles when the customer changes via AJAX
    */
-  const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
-  const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
-  const serviceSelect = document.getElementById('{{ form.service.id_for_label }}');
-
   customerSelect.addEventListener('change', function() {
     const customerId = this.value;
     vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
-    serviceSelect.innerHTML = '';
-
+    document.getElementById('{{ form.service.id_for_label }}').innerHTML = '';
     if (customerId) {
       showSpinner();
       fetch(`/get_customer_vehicles/${customerId}/`)
@@ -496,11 +428,16 @@ document.addEventListener('DOMContentLoaded', function() {
         hideSpinner();
         if (data.vehicles) {
           data.vehicles.forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = v.id;
-            opt.textContent = v.display;
-            vehicleSelect.appendChild(opt);
+            const option = document.createElement('option');
+            option.value = v.id;
+            option.textContent = v.display;
+            vehicleSelect.appendChild(option);
           });
+          // Update the stored originalVehicleOptions as well
+          originalVehicleOptions = Array.from(vehicleSelect.options).slice(1).map(opt => ({
+            value: opt.value,
+            text: opt.textContent
+          }));
         }
       })
       .catch(err => {
@@ -511,36 +448,31 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   /*
-   * 5. Auto-populate services (with "negotiable") when vehicle changes
+   * 5. Auto-populate services (with negotiable flag) when vehicle changes
    */
+  const serviceSelect = document.getElementById('{{ form.service.id_for_label }}');
   vehicleSelect.addEventListener('change', function() {
     const vehicleId = this.value;
     serviceSelect.innerHTML = '';
-
     if (vehicleId) {
       showSpinner();
       fetch(`/get_vehicle_services/${vehicleId}/`)
       .then(res => res.json())
       .then(data => {
-          console.log("got here")
-          console.log(data)
-          console.log(data.services)
         hideSpinner();
         if (data.services && data.services.length > 0) {
           data.services.forEach(svc => {
-            const opt = document.createElement('option');
-            opt.value = svc.id;
-            opt.textContent = svc.name;
-            // Store negotiable in a data attribute
-            opt.setAttribute('data-negotiable', svc.negotiable ? 'true' : 'false');
-            serviceSelect.appendChild(opt);
+            const option = document.createElement('option');
+            option.value = svc.id;
+            option.textContent = svc.name;
+            option.setAttribute('data-negotiable', svc.negotiable ? 'true' : 'false');
+            serviceSelect.appendChild(option);
           });
         } else {
-          // Optionally show a "No services available" placeholder
-          const opt = document.createElement('option');
-          opt.value = '';
-          opt.textContent = 'No services available for this vehicle';
-          serviceSelect.appendChild(opt);
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'No services available for this vehicle';
+          serviceSelect.appendChild(option);
         }
       })
       .catch(err => {
@@ -551,67 +483,51 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   /*
-   * 6. Dynamic negotiable fields for the selected services
+   * 6. Dynamic negotiable fields for selected services
    */
   const negotiableContainer = document.getElementById('negotiable-services-container');
   const negotiatedPricesHidden = document.getElementById('negotiated-prices-hidden');
+  let negotiatedPrices = {};
 
-  let negotiatedPrices = {};  // { serviceId: price }
-
-  // Listen for changes to the multi-select
   serviceSelect.addEventListener('change', function() {
     negotiableContainer.innerHTML = '';
-    negotiablePrices = {};
-    
-    // Because it's a multiple select:
+    negotiatedPrices = {};
     const selectedOptions = Array.from(serviceSelect.selectedOptions);
-
-    // If no options selected, hide the container
     if (selectedOptions.length === 0) {
       negotiableContainer.style.display = 'none';
       return;
     }
-
     let anyNegotiable = false;
-
     selectedOptions.forEach(opt => {
       const svcId = opt.value;
       const isNegotiable = (opt.getAttribute('data-negotiable') === 'true');
       if (svcId && isNegotiable) {
         anyNegotiable = true;
-        // Create an input for negotiated price
         const div = document.createElement('div');
         div.classList.add('mb-2');
         div.innerHTML = `
           <label class="form-label">Negotiated Price for "${opt.textContent}":</label>
-          <input 
-            type="number" step="0.01" min="0" 
-            class="form-control negotiated-price-input" 
-            data-service-id="${svcId}" 
-            placeholder="Enter final price in GHS"
-          >
+          <input type="number" step="0.01" min="0" class="form-control negotiated-price-input" data-service-id="${svcId}" placeholder="Enter final price in GHS">
         `;
         negotiableContainer.appendChild(div);
       }
     });
-
     negotiableContainer.style.display = anyNegotiable ? 'block' : 'none';
   });
 
-  // On form submit, gather negotiated price inputs into negotiatedPricesHidden
+  /*
+   * 7. On form submit, gather negotiated price inputs into hidden field
+   */
   const logServiceForm = document.getElementById('log-service-form');
   logServiceForm.addEventListener('submit', function(e) {
-    // Gather user inputs
     const priceInputs = negotiableContainer.querySelectorAll('.negotiated-price-input');
     priceInputs.forEach(input => {
       const svcId = input.getAttribute('data-service-id');
       const val = parseFloat(input.value) || 0;
       negotiatedPrices[svcId] = val;
     });
-
     negotiatedPricesHidden.value = JSON.stringify(negotiatedPrices);
   });
 });
 </script>
-    
 {% endblock scripts %}

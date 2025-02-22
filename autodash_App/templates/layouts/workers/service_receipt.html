@@ -16,7 +16,8 @@
     <div class="mb-3">
       <p>
         <strong>Order #:</strong> {{ service_order.service_order_number }} <br>
-        <strong>Customer:</strong> {{ service_order.customer.user.get_full_name }}
+        <strong>Customer:</strong> {{ service_order.customer.user.get_full_name }} <br>
+        <strong>Vehicle:</strong> {{ service_order.vehicle }}
       </p>
     </div>
 

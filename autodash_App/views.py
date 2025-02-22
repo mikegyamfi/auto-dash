@@ -492,50 +492,42 @@ def confirm_service(request, pk):
     """
     Finalizes a service order. If there's no customer attached to the ServiceRenderedOrder,
     we skip loyalty and subscription logic.
+    Commission is recalculated on the final service amount (i.e. after discount is applied).
     """
+    from django.db.models import Sum
 
+    # Helper: returns negotiated_price if set, otherwise base service price.
     def get_sr_price(sr):
-        # If there's a negotiated price, override the service's base price
         return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
 
     user = request.user
     worker = get_object_or_404(Worker, user=user)
     service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
-
-    # Retrieve the rendered services
     services_rendered = service_order.rendered.all()
+    customer = service_order.customer  # may be None
+    phone_number = customer.user.phone_number if customer else None
 
-    # Possibly no customer
-    customer = service_order.customer  # can be None
-    phone_number = None
-    subscription_active = False
-    cust_sub = None
-
-    # If there is a customer, attempt to find subscription, phone, etc.
+    # Check for customer subscription if customer exists.
     if customer:
-        phone_number = customer.user.phone_number
         try:
             cust_sub = CustomerSubscription.objects.filter(customer=customer).latest('end_date')
             subscription_active = cust_sub.is_active()
         except CustomerSubscription.DoesNotExist:
             cust_sub = None
             subscription_active = False
+    else:
+        cust_sub = None
+        subscription_active = False
 
     if request.method == 'GET':
-        # If GET => show the "confirm_service_order.html"
         covered_by_subscription = []
         if subscription_active and service_order.vehicle:
             for sr in services_rendered:
-                if (
-                    sr.service in cust_sub.subscription.services.all()
-                    and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
-                ):
+                if (sr.service in cust_sub.subscription.services.all() and
+                    service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
                     covered_by_subscription.append(sr.id)
-
-        # Optionally fetch products for display
         from .models import Product
         available_products = Product.objects.filter(branch=worker.branch)
-
         context = {
             'service_order': service_order,
             'services_rendered': services_rendered,
@@ -547,12 +539,12 @@ def confirm_service(request, pk):
         }
         return render(request, 'layouts/workers/confirm_service_order.html', context)
 
-    # ---------------------- POST: Finalize the order -----------------------
+    # ------------------ POST: Finalize the order ------------------
     old_status = service_order.status
     new_status = request.POST.get('status', 'completed')
     payment_method = request.POST.get('payment_method', 'cash')
 
-    # 1) Parse negotiated prices
+    # 1) Parse negotiated prices for negotiable services
     for sr in services_rendered:
         if sr.service.category and sr.service.category.negotiable:
             field_name = f"negotiated_price_{sr.id}"
@@ -561,60 +553,48 @@ def confirm_service(request, pk):
                 nego_price = float(raw_value)
             except (ValueError, TypeError):
                 nego_price = 0.0
-
             if nego_price <= 0:
-                messages.error(
-                    request,
-                    f"You must provide a valid negotiated price for {sr.service.service_type}"
-                )
+                messages.error(request, f"You must provide a valid negotiated price for {sr.service.service_type}")
                 return redirect('confirm_service_rendered', pk=service_order.pk)
-
             sr.negotiated_price = nego_price
             sr.save()
 
-    # 2) Update order's status & payment_method
+    # 2) Update order status & payment method
     service_order.status = new_status
     service_order.payment_method = payment_method
     service_order.save()
 
-    # 3) Commission allocation / removal
+    # 3) Allocate or remove commission based on status change (we will update commission later)
     if new_status in ['completed', 'onCredit'] and old_status != new_status:
-        # Allocate
         for sr in services_rendered:
-            sr.allocate_commission()
+            sr.allocate_commission()  # initial allocation; we will adjust it below
     elif old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
-        # Remove
         for sr in services_rendered:
             sr.remove_commission()
 
-    # 4) Recalculate final using negotiated prices
+    # 4) Calculate base totals using negotiated or standard prices
     total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
     total_products_price = sum(p.total_price for p in service_order.products_purchased.all())
     recalculated_total = total_services_price + total_products_price
 
-    # 5) If there's a customer w/ subscription => subtract covered services
+    # 5) Subscription logic (if customer exists and has subscription)
     subscription_covered_ids = []
     if customer and subscription_active and service_order.vehicle:
         for sr in services_rendered:
-            if (
-                sr.service in cust_sub.subscription.services.all()
-                and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
-            ):
+            if (sr.service in cust_sub.subscription.services.all() and
+                service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
                 subscription_covered_ids.append(sr.id)
-
         for sr in services_rendered:
             if sr.id in subscription_covered_ids:
                 recalculated_total -= get_sr_price(sr)
 
-    # 6) Identify loyalty redemption (only if there's a customer)
+    # 6) Loyalty redemption (if customer exists)
     redeem_service_ids = []
     loyalty_points_needed = 0
     if customer:
         for sr in services_rendered:
-            fieldname = f'redeem_service_{sr.id}'
-            if fieldname in request.POST:
+            if f'redeem_service_{sr.id}' in request.POST:
                 redeem_service_ids.append(sr.id)
-
         for sr in services_rendered:
             if sr.id in redeem_service_ids and sr.id not in subscription_covered_ids:
                 recalculated_total -= get_sr_price(sr)
@@ -631,19 +611,27 @@ def confirm_service(request, pk):
     except ValueError:
         discount_value = 0.0
     discount_value = max(discount_value, 0)
-
     if discount_type == 'percentage':
         discount_value = min(discount_value, 100)
         discount_amount = (recalculated_total * discount_value) / 100.0
     else:
         discount_amount = min(discount_value, recalculated_total)
-
     recalculated_total -= discount_amount
-    print(f"jk{recalculated_total}")
     if recalculated_total < 0:
         recalculated_total = 0
 
-    # 8) Save final amount
+    # 7a) Calculate discount factor for services (for commission calculation)
+    # Assume discount applies proportionally to services vs. products.
+    if total_services_price + total_products_price > 0:
+        discount_on_services = discount_amount * (total_services_price / (total_services_price + total_products_price))
+    else:
+        discount_on_services = 0
+    if total_services_price > 0:
+        discount_factor = (total_services_price - discount_on_services) / total_services_price
+    else:
+        discount_factor = 1
+
+    # 8) Save final amount in order
     service_order.final_amount = recalculated_total
     service_order.discount_type = discount_type
     service_order.discount_value = discount_value
@@ -651,7 +639,7 @@ def confirm_service(request, pk):
 
     leftover = recalculated_total
 
-    # 9) Deduct loyalty if there's a customer
+    # 9) Deduct loyalty (if customer)
     if customer and loyalty_points_needed > 0:
         if customer.loyalty_points >= loyalty_points_needed:
             customer.loyalty_points -= loyalty_points_needed
@@ -665,7 +653,7 @@ def confirm_service(request, pk):
         else:
             messages.warning(request, "Not enough points to redeem selected services.")
 
-    # If entire payment is 'loyalty', subtract leftover from loyalty again
+    # If payment method is loyalty, further deduct leftover from loyalty
     if customer and payment_method == 'loyalty':
         points_to_use = min(customer.loyalty_points, leftover)
         leftover -= points_to_use
@@ -675,14 +663,12 @@ def confirm_service(request, pk):
                 customer=customer,
                 points=-points_to_use,
                 transaction_type='redeem',
-                description=(
-                    f"Final payment coverage for {service_order.service_order_number}"
-                ),
+                description=f"Final payment coverage for {service_order.service_order_number}",
                 branch=service_order.branch,
             )
         customer.save()
 
-    # 10) If onCredit => leftover => Arrears + commission expense
+    # 10) If onCredit, create Arrears and commission expense
     from .models import Expense, Arrears
     if new_status == 'onCredit':
         if not hasattr(service_order, 'arrears'):
@@ -700,17 +686,12 @@ def confirm_service(request, pk):
             amount=total_commission,
             user=user
         )
-        # No revenue because leftover not paid
-
-    # 11) If completed => leftover => Revenue
+    # 11) If completed, create Revenue or record commission expense for other payment methods
     elif new_status == 'completed':
         from .models import Revenue
-        if payment_method in [
-            'cash', 'momo', 'subscription-cash', 'subscription-momo', 'loyalty-cash'
-        ]:
+        if payment_method in ['cash', 'momo', 'subscription-cash', 'subscription-momo', 'loyalty-cash']:
             if leftover > 0:
-                has_revenue = Revenue.objects.filter(service_rendered=service_order).exists()
-                if not has_revenue:
+                if not Revenue.objects.filter(service_rendered=service_order).exists():
                     Revenue.objects.create(
                         service_rendered=service_order,
                         branch=service_order.branch,
@@ -734,28 +715,12 @@ def confirm_service(request, pk):
             ).aggregate(sum=Sum('amount'))['sum'] or 0
             Expense.objects.create(
                 branch=service_order.branch,
-                description=(
-                    f"Loyalty coverage commission expense for {service_order.service_order_number}"
-                ),
-                amount=total_commission,
-                user=user
-            )
-        elif payment_method == 'subscription':
-            # leftover should be 0 => no direct revenue
-            # entire order's commissions => expense
-            total_commission = Commission.objects.filter(
-                service_rendered__order=service_order
-            ).aggregate(sum=Sum('amount'))['sum'] or 0
-            Expense.objects.create(
-                branch=service_order.branch,
-                description=(
-                    f"Subscription coverage commission expense for {service_order.service_order_number}"
-                ),
+                description=f"Subscription coverage commission expense for {service_order.service_order_number}",
                 amount=total_commission,
                 user=user
             )
 
-    # 12) Earn loyalty if completed (only if there's a customer)
+    # 12) Earn loyalty if completed
     if new_status == 'completed' and customer:
         for sr in services_rendered:
             pts = sr.service.loyalty_points_earned
@@ -770,68 +735,63 @@ def confirm_service(request, pk):
                 customer.loyalty_points += pts
         customer.save()
 
-    # 13) Commission expense for loyalty/subscription
-    if new_status in ['completed', 'onCredit'] and customer:
-        for sr in services_rendered:
-            if sr.id in redeem_service_ids or sr.id in subscription_covered_ids:
-                sr_commission = sr.commissions.aggregate(sum=Sum('amount'))['sum'] or 0
-                if sr_commission > 0:
-                    Expense.objects.create(
-                        branch=service_order.branch,
-                        description=(
-                            f"Commission expense for "
-                            f"{'loyalty' if sr.id in redeem_service_ids else 'subscription'} "
-                            f"service on {service_order.service_order_number}"
-                        ),
-                        amount=sr_commission,
-                        user=user
+    # 13) Recalculate commission on services based on final discount.
+    # Remove old commission records and reallocate commission using the discount_factor.
+    # Commission is computed on each service's effective price (get_sr_price(sr) * discount_factor)
+    for sr in services_rendered:
+        Commission.objects.filter(service_rendered=sr).delete()
+        if sr.id not in redeem_service_ids and sr.id not in subscription_covered_ids:
+            effective_price = get_sr_price(sr) * discount_factor
+            commission_amount = (effective_price * sr.service.commission_rate) / 100
+            sr.commission_amount = commission_amount
+            sr.save()
+            assigned_workers = sr.workers.all()
+            if assigned_workers.exists() and commission_amount > 0:
+                commission_per_worker = commission_amount / assigned_workers.count()
+                for w in assigned_workers:
+                    Commission.objects.create(
+                        worker=w,
+                        service_rendered=sr,
+                        amount=commission_per_worker,
+                        date=timezone.now().date()
                     )
 
-    # 14) Optional: Send SMS (only if there's a customer and phone)
+    # 14) Optional: Send SMS (if customer and phone available)
     if customer and phone_number:
         if new_status == 'pending':
-            txt = (
-                f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
-                f"is now pending."
-            )
+            txt = f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} is now pending."
             print(txt)
-
         elif new_status == 'canceled':
-            txt = (
-                f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} "
-                f"has been canceled."
-            )
+            txt = f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} has been canceled."
             print(txt)
-
         elif new_status in ['completed', 'onCredit']:
             service_lines = []
             for sr in services_rendered:
                 price_used = get_sr_price(sr)
                 service_lines.append(f"{sr.service.service_type} - GHS {price_used:.2f}")
-
             product_lines = []
-            for prod_item in service_order.products_purchased.all():
-                product_lines.append(
-                    f"{prod_item.product.name} x{prod_item.quantity} => GHS {prod_item.total_price:.2f}"
-                )
+            for prod in service_order.products_purchased.all():
+                product_lines.append(f"{prod.product.name} x{prod.quantity} => GHS {prod.total_price:.2f}")
             receipt_url = request.build_absolute_uri(reverse('service_receipt', args=[service_order.id]))
+            feedback_url = request.build_absolute_uri(reverse('service_feedback', args=[service_order.id]))
             if new_status == 'onCredit':
                 message = (
-                    f"Dear {customer.user.first_name}, your onCredit service #{service_order.service_order_number} "
-                    f"of GHS{service_order.final_amount:.2f} is completed. Details: {receipt_url}"
+                    f"Dear {customer.user.first_name}, your onCredit service on {service_order.vehicle} "
+                    f"of GHS {service_order.final_amount:.2f} is completed. Details: {receipt_url}"
                 )
             else:
                 message = (
-                    f"Dear {customer.user.first_name}, payment of GHS{service_order.final_amount:.2f} "
-                    f"for #{service_order.service_order_number} received. Thank you! {receipt_url}"
+                    f"Dear {customer.user.first_name}, payment of GHS {service_order.final_amount:.2f} "
+                    f"for services on {service_order.vehicle} received. Thank you! Kindly leave feedback - {feedback_url}"
                 )
-            # send_sms(customer.user.phone_number, message)
+            send_sms(customer.user.phone_number, message)
             print(message)
 
     messages.success(request, f"Service updated to {new_status}.")
     if new_status in ['completed', 'onCredit']:
         return redirect('service_receipt', pk=service_order.pk)
     return redirect('index')
+
 
 
 
@@ -1148,16 +1108,28 @@ def add_vehicle_to_customer(request, customer_id):
     return JsonResponse({'success': False, 'message': 'Invalid request method.'})
 
 
+@login_required(login_url='login')
 def service_feedback_page(request, pk):
     """
     Page for customers to provide feedback and ratings for a completed service.
+    Also shows the vehicle used (if any) and the customer's last 10 service orders.
     """
     service_order = get_object_or_404(ServiceRenderedOrder, id=pk)
     services_under_service_order = ServiceRendered.objects.filter(order=service_order)
 
-    # If feedback & rating are already provided
+    # If feedback & rating are already provided, warn the user.
     if service_order.customer_feedback and service_order.customer_rating:
         messages.success(request, 'Your feedback has already been recorded.')
+
+    # Get the last 10 service orders (excluding the current one) for this customer, if available.
+    last_services = []
+    if service_order.customer:
+        last_services = (
+            ServiceRenderedOrder.objects
+            .filter(customer=service_order.customer)
+            .exclude(pk=service_order.pk)
+            .order_by('-date')[:10]
+        )
 
     if request.method == 'POST':
         rating = request.POST.get('rating')
@@ -1167,7 +1139,7 @@ def service_feedback_page(request, pk):
         service_order.customer_feedback = feedback
         service_order.save()
 
-        # Update worker ratings
+        # Update each worker's rating (assumes add_rating is implemented)
         for w in service_order.workers.all():
             w.add_rating(int(rating))
             w.save()
@@ -1178,8 +1150,10 @@ def service_feedback_page(request, pk):
     context = {
         'service_order': service_order,
         'services': services_under_service_order,
+        'last_services': last_services,
     }
     return render(request, "layouts/service_feedback_page.html", context)
+
 
 
 def thank_you_feedback(request, pk):
