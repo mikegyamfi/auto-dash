@@ -10,6 +10,7 @@ from .models import (
     ProductCategory, ProductPurchased, ProductSale
 )
 
+
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     """CustomUser admin with approval action."""
