@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from autodash_App import models
 from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product, Expense, \
-    VehicleGroup
+    VehicleGroup, CustomerVehicle
 
 
 class CustomUserForm(UserCreationForm):
@@ -410,6 +410,17 @@ class CreateVehicleForm(forms.Form):
         widget=forms.TextInput(attrs={'class': 'form-control'})  # Bootstrap input
     )
 
+
+class EditCustomerVehicleForm(forms.ModelForm):
+    class Meta:
+        model = CustomerVehicle
+        fields = ['customer', 'vehicle_group', 'car_plate', 'car_make', 'car_color']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Add the 'form-control' class to each widget for Bootstrap styling
+        for field in self.fields.values():
+            field.widget.attrs.update({'class': 'form-control'})
 
 
 

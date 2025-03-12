@@ -44,8 +44,6 @@
                       <div class="step-content">
                         <div class="row g-3">
                           <div class="col-md-8">
-                            <!-- Search input for customer -->
-                            <input type="text" id="customer-search" placeholder="Search Customer" class="form-control mb-2">
                             <div class="input-group">
                               <span class="input-group-text">
                                 <i class="fas fa-user-circle"></i>
@@ -70,8 +68,6 @@
                       <div class="step-content">
                         <div class="row g-3">
                           <div class="col-md-8">
-                            <!-- Search input for vehicle -->
-                            <input type="text" id="vehicle-search" placeholder="Search Vehicle" class="form-control mb-2">
                             <div class="input-group">
                               <span class="input-group-text">
                                 <i class="fas fa-car"></i>
@@ -262,272 +258,210 @@
 {% endblock content %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-  // SEARCH CUSTOMER (without Select2)
-  const customerSearchInput = document.getElementById('customer-search');
-  const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
-  const originalCustomerOptions = Array.from(customerSelect.options).slice(1).map(opt => {
-    return { value: opt.value, text: opt.textContent };
-  });
+  <!-- Include jQuery (required for Select2) -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <!-- Include Select2 CSS and JS -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+  <!-- Include Bootstrap Bundle JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  customerSearchInput.addEventListener('input', function() {
-    const filter = this.value.toLowerCase();
-    customerSelect.innerHTML = '<option value="">Select Customer</option>';
-    originalCustomerOptions.forEach(opt => {
-      if (opt.text.toLowerCase().includes(filter)) {
-        const option = document.createElement('option');
-        option.value = opt.value;
-        option.textContent = opt.text;
-        customerSelect.appendChild(option);
-      }
-    });
-  });
-
-  // SEARCH VEHICLE (without Select2)
-  const vehicleSearchInput = document.getElementById('vehicle-search');
-  const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
-  // Initially store existing options (if any)
-  let originalVehicleOptions = Array.from(vehicleSelect.options).slice(1).map(opt => {
-    return { value: opt.value, text: opt.textContent };
-  });
-
-  vehicleSearchInput.addEventListener('input', function() {
-    const filter = this.value.toLowerCase();
-    vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
-    originalVehicleOptions.forEach(opt => {
-      if (opt.text.toLowerCase().includes(filter)) {
-        const option = document.createElement('option');
-        option.value = opt.value;
-        option.textContent = opt.text;
-        vehicleSelect.appendChild(option);
-      }
-    });
-  });
-
-  // Global Spinner functions
-  function showSpinner() {
-    document.getElementById('loadingSpinner').style.display = 'block';
-  }
-  function hideSpinner() {
-    document.getElementById('loadingSpinner').style.display = 'none';
-  }
-
-  /*
-   * 1. CREATE NEW CUSTOMER (AJAX)
-   */
-  const newCustomerForm = document.getElementById('new-customer-form');
-  newCustomerForm.addEventListener('submit', function(event) {
-    event.preventDefault();
-    const formData = new FormData(this);
-    showSpinner();
-    fetch('{% url "create_customer" %}', {
-      method: 'POST',
-      body: formData,
-      headers: { 'X-CSRFToken': '{{ csrf_token }}' },
-    })
-    .then(response => response.json())
-    .then(data => {
-      hideSpinner();
-      if (data.success) {
-        const modalEl = document.getElementById('new-customer-modal');
-        const modalInstance = bootstrap.Modal.getInstance(modalEl);
-        modalInstance.hide();
-        const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
-        const option = document.createElement('option');
-        option.value = data.customer.id;
-        option.textContent = data.customer.name;
-        customerSelect.appendChild(option);
-        customerSelect.value = data.customer.id;
-        customerSelect.dispatchEvent(new Event('change'));
-        // Also update the original options list used for searching
-        originalCustomerOptions.push({ value: data.customer.id, text: data.customer.name });
-        newCustomerForm.reset();
-      } else {
-        alert('Error creating customer: ' + data.error);
-      }
-    })
-    .catch(error => {
-      hideSpinner();
-      console.error('Error:', error);
-    });
-  });
-
-  /*
-   * 2. CREATE NEW VEHICLE (AJAX)
-   */
-  const newVehicleForm = document.getElementById('new-vehicle-form');
-  newVehicleForm.addEventListener('submit', function(event) {
-    event.preventDefault();
-    const formData = new FormData(this);
-    showSpinner();
-    fetch('{% url "create_vehicle" %}', {
-      method: 'POST',
-      body: formData,
-      headers: { 'X-CSRFToken': '{{ csrf_token }}' },
-    })
-    .then(response => response.json())
-    .then(data => {
-      hideSpinner();
-      if (data.success) {
-        const modalEl = document.getElementById('new-vehicle-modal');
-        const modalInstance = bootstrap.Modal.getInstance(modalEl);
-        modalInstance.hide();
-        const vehicleSelect = document.getElementById('{{ form.vehicle.id_for_label }}');
-        const option = document.createElement('option');
-        option.value = data.vehicle.id;
-        option.textContent = data.vehicle.display;
-        vehicleSelect.appendChild(option);
-        vehicleSelect.value = data.vehicle.id;
-        vehicleSelect.dispatchEvent(new Event('change'));
-        // Update stored original options
-        originalVehicleOptions.push({ value: data.vehicle.id, text: data.vehicle.display });
-        newVehicleForm.reset();
-      } else {
-        alert('Error creating vehicle: ' + data.error);
-      }
-    })
-    .catch(error => {
-      hideSpinner();
-      console.error('Error:', error);
-    });
-  });
-
-  /*
-   * 3. Ensure a customer is selected before adding a vehicle
-   */
-  const newVehicleBtn = document.getElementById('new-vehicle-btn');
-  newVehicleBtn.addEventListener('click', function() {
-    const customerSelect = document.getElementById('{{ form.customer.id_for_label }}');
-    const customerId = customerSelect.value;
-    if (!customerId) {
-      alert('Please select a customer first.');
-      const modalEl = document.getElementById('new-vehicle-modal');
-      const modalInstance = bootstrap.Modal.getInstance(modalEl);
-      if (modalInstance) {
-        modalInstance.hide();
-      }
-      return;
-    }
-    document.getElementById('new-vehicle-customer-id').value = customerId;
-  });
-
-  /*
-   * 4. Auto-populate vehicles when the customer changes via AJAX
-   */
-  customerSelect.addEventListener('change', function() {
-    const customerId = this.value;
-    vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
-    document.getElementById('{{ form.service.id_for_label }}').innerHTML = '';
-    if (customerId) {
-      showSpinner();
-      fetch(`/get_customer_vehicles/${customerId}/`)
-      .then(res => res.json())
-      .then(data => {
-        hideSpinner();
-        if (data.vehicles) {
-          data.vehicles.forEach(v => {
-            const option = document.createElement('option');
-            option.value = v.id;
-            option.textContent = v.display;
-            vehicleSelect.appendChild(option);
-          });
-          // Update the stored originalVehicleOptions as well
-          originalVehicleOptions = Array.from(vehicleSelect.options).slice(1).map(opt => ({
-            value: opt.value,
-            text: opt.textContent
-          }));
-        }
-      })
-      .catch(err => {
-        hideSpinner();
-        console.error('Error fetching vehicles:', err);
+  <script>
+    $(document).ready(function() {
+      // Initialize Select2 on customer, vehicle, service, and workers selects
+      $('#{{ form.customer.id_for_label }}').select2({
+        placeholder: 'Select Customer',
+        width: '100%'
       });
-    }
-  });
-
-  /*
-   * 5. Auto-populate services (with negotiable flag) when vehicle changes
-   */
-  const serviceSelect = document.getElementById('{{ form.service.id_for_label }}');
-  vehicleSelect.addEventListener('change', function() {
-    const vehicleId = this.value;
-    serviceSelect.innerHTML = '';
-    if (vehicleId) {
-      showSpinner();
-      fetch(`/get_vehicle_services/${vehicleId}/`)
-      .then(res => res.json())
-      .then(data => {
-        hideSpinner();
-        if (data.services && data.services.length > 0) {
-          data.services.forEach(svc => {
-            const option = document.createElement('option');
-            option.value = svc.id;
-            option.textContent = svc.name;
-            option.setAttribute('data-negotiable', svc.negotiable ? 'true' : 'false');
-            serviceSelect.appendChild(option);
-          });
-        } else {
-          const option = document.createElement('option');
-          option.value = '';
-          option.textContent = 'No services available for this vehicle';
-          serviceSelect.appendChild(option);
-        }
-      })
-      .catch(err => {
-        hideSpinner();
-        console.error('Error fetching services:', err);
+      $('#{{ form.vehicle.id_for_label }}').select2({
+        placeholder: 'Select Vehicle',
+        width: '100%'
       });
-    }
-  });
+      $('#{{ form.service.id_for_label }}').select2({
+        width: '100%'
+      });
+      $('#{{ form.workers.id_for_label }}').select2({
+        width: '100%'
+      });
 
-  /*
-   * 6. Dynamic negotiable fields for selected services
-   */
-  const negotiableContainer = document.getElementById('negotiable-services-container');
-  const negotiatedPricesHidden = document.getElementById('negotiated-prices-hidden');
-  let negotiatedPrices = {};
+      // When typing in the dedicated search inputs, open the corresponding Select2 dropdown
+      $('#customer-search').on('input', function() {
+        $('#{{ form.customer.id_for_label }}').select2('open');
+      });
+      $('#vehicle-search').on('input', function() {
+        $('#{{ form.vehicle.id_for_label }}').select2('open');
+      });
 
-  serviceSelect.addEventListener('change', function() {
-    negotiableContainer.innerHTML = '';
-    negotiatedPrices = {};
-    const selectedOptions = Array.from(serviceSelect.selectedOptions);
-    if (selectedOptions.length === 0) {
-      negotiableContainer.style.display = 'none';
-      return;
-    }
-    let anyNegotiable = false;
-    selectedOptions.forEach(opt => {
-      const svcId = opt.value;
-      const isNegotiable = (opt.getAttribute('data-negotiable') === 'true');
-      if (svcId && isNegotiable) {
-        anyNegotiable = true;
-        const div = document.createElement('div');
-        div.classList.add('mb-2');
-        div.innerHTML = `
-          <label class="form-label">Negotiated Price for "${opt.textContent}":</label>
-          <input type="number" step="0.01" min="0" class="form-control negotiated-price-input" data-service-id="${svcId}" placeholder="Enter final price in GHS">
-        `;
-        negotiableContainer.appendChild(div);
-      }
+      // AJAX: Create new customer
+      $('#new-customer-form').on('submit', function(event) {
+        event.preventDefault();
+        var formData = new FormData(this);
+        $('#loadingSpinner').show();
+        $.ajax({
+          url: "{% url 'create_customer' %}",
+          method: "POST",
+          data: formData,
+          processData: false,
+          contentType: false,
+          headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+          success: function(data) {
+            $('#loadingSpinner').hide();
+            if(data.success) {
+              var newOption = new Option(data.customer.name, data.customer.id, true, true);
+              $('#{{ form.customer.id_for_label }}').append(newOption).trigger('change');
+              $('#new-customer-modal').modal('hide');
+              $('#new-customer-form')[0].reset();
+            } else {
+              alert("Error creating customer: " + data.error);
+            }
+          },
+          error: function(xhr, status, error) {
+            $('#loadingSpinner').hide();
+            console.error("AJAX Error: ", error);
+          }
+        });
+      });
+
+      // AJAX: Create new vehicle
+      $('#new-vehicle-form').on('submit', function(event) {
+        event.preventDefault();
+        var formData = new FormData(this);
+        $('#loadingSpinner').show();
+        $.ajax({
+          url: "{% url 'create_vehicle' %}",
+          method: "POST",
+          data: formData,
+          processData: false,
+          contentType: false,
+          headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+          success: function(data) {
+            $('#loadingSpinner').hide();
+            if(data.success) {
+              var newVehOption = new Option(data.vehicle.display, data.vehicle.id, true, true);
+              $('#{{ form.vehicle.id_for_label }}').append(newVehOption).trigger('change');
+              $('#new-vehicle-modal').modal('hide');
+              $('#new-vehicle-form')[0].reset();
+            } else {
+              alert("Error creating vehicle: " + data.error);
+            }
+          },
+          error: function(xhr, status, error) {
+            $('#loadingSpinner').hide();
+            console.error("AJAX Error: ", error);
+          }
+        });
+      });
+
+      // Ensure a customer is selected before allowing new vehicle creation
+      $('#new-vehicle-btn').on('click', function() {
+        var customerId = $('#{{ form.customer.id_for_label }}').val();
+        if (!customerId) {
+          alert("Please select a customer first.");
+          $('#new-vehicle-modal').modal('hide');
+          return;
+        }
+        $('#new-vehicle-customer-id').val(customerId);
+      });
+
+      // Auto-populate vehicles when customer changes via AJAX
+      $('#{{ form.customer.id_for_label }}').on('change', function() {
+        var customerId = $(this).val();
+        var vehicleSelect = $('#{{ form.vehicle.id_for_label }}');
+        vehicleSelect.empty().append(new Option("Select Vehicle", ""));
+        if (customerId) {
+          $('#loadingSpinner').show();
+          $.ajax({
+            url: "/get_customer_vehicles/" + customerId + "/",
+            method: "GET",
+            success: function(data) {
+              $('#loadingSpinner').hide();
+              if(data.vehicles) {
+                data.vehicles.forEach(function(v) {
+                  var option = new Option(v.display, v.id);
+                  vehicleSelect.append(option);
+                });
+                vehicleSelect.trigger('change');
+              }
+            },
+            error: function(xhr, status, error) {
+              $('#loadingSpinner').hide();
+              console.error("Error fetching vehicles: ", error);
+            }
+          });
+        }
+      });
+
+      // Auto-populate services when vehicle changes via AJAX
+      $('#{{ form.vehicle.id_for_label }}').on('change', function() {
+        var vehicleId = $(this).val();
+        var serviceSelect = $('#{{ form.service.id_for_label }}');
+        serviceSelect.empty();
+        if (vehicleId) {
+          $('#loadingSpinner').show();
+          $.ajax({
+            url: "/get_vehicle_services/" + vehicleId + "/",
+            method: "GET",
+            success: function(data) {
+              $('#loadingSpinner').hide();
+              if(data.services && data.services.length > 0) {
+                data.services.forEach(function(svc) {
+                  var option = new Option(svc.name, svc.id);
+                  $(option).attr('data-negotiable', svc.negotiable ? 'true' : 'false');
+                  serviceSelect.append(option);
+                });
+                serviceSelect.trigger('change');
+              } else {
+                serviceSelect.append(new Option("No services available for this vehicle", ""));
+              }
+            },
+            error: function(xhr, status, error) {
+              $('#loadingSpinner').hide();
+              console.error("Error fetching services: ", error);
+            }
+          });
+        }
+      });
+
+      // Dynamic negotiable fields for selected services
+      var negotiableContainer = document.getElementById('negotiable-services-container');
+      var negotiatedPricesHidden = document.getElementById('negotiated-prices-hidden');
+      var negotiatedPrices = {};
+
+      $('#{{ form.service.id_for_label }}').on('change', function() {
+        negotiableContainer.innerHTML = '';
+        negotiatedPrices = {};
+        var selectedOptions = $(this).find(':selected');
+        if (selectedOptions.length === 0) {
+          negotiableContainer.style.display = 'none';
+          return;
+        }
+        var anyNegotiable = false;
+        selectedOptions.each(function() {
+          var svcId = $(this).val();
+          var isNegotiable = $(this).attr('data-negotiable') === 'true';
+          if (svcId && isNegotiable) {
+            anyNegotiable = true;
+            var div = document.createElement('div');
+            div.classList.add('mb-2');
+            div.innerHTML = '<label class="form-label">Negotiated Price for "' + $(this).text() + '":</label>' +
+                            '<input type="number" step="0.01" min="0" class="form-control negotiated-price-input" data-service-id="' + svcId + '" placeholder="Enter final price in GHS">';
+            negotiableContainer.appendChild(div);
+          }
+        });
+        negotiableContainer.style.display = anyNegotiable ? 'block' : 'none';
+      });
+
+      // On form submit, gather negotiated price inputs into hidden field
+      $('#log-service-form').on('submit', function() {
+        var priceInputs = negotiableContainer.querySelectorAll('.negotiated-price-input');
+        priceInputs.forEach(function(input) {
+          var svcId = input.getAttribute('data-service-id');
+          var val = parseFloat(input.value) || 0;
+          negotiatedPrices[svcId] = val;
+        });
+        negotiatedPricesHidden.value = JSON.stringify(negotiatedPrices);
+      });
+
     });
-    negotiableContainer.style.display = anyNegotiable ? 'block' : 'none';
-  });
-
-  /*
-   * 7. On form submit, gather negotiated price inputs into hidden field
-   */
-  const logServiceForm = document.getElementById('log-service-form');
-  logServiceForm.addEventListener('submit', function(e) {
-    const priceInputs = negotiableContainer.querySelectorAll('.negotiated-price-input');
-    priceInputs.forEach(input => {
-      const svcId = input.getAttribute('data-service-id');
-      const val = parseFloat(input.value) || 0;
-      negotiatedPrices[svcId] = val;
-    });
-    negotiatedPricesHidden.value = JSON.stringify(negotiatedPrices);
-  });
-});
-</script>
+  </script>
 {% endblock scripts %}

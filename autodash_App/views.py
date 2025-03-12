@@ -22,7 +22,7 @@ from django.utils.http import urlsafe_base64_encode
 from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
-    CreateVehicleForm
+    CreateVehicleForm, EditCustomerVehicleForm
 )
 from .helper import send_sms
 from .models import (
@@ -4127,3 +4127,29 @@ def customer_page_add_subscription_to_customer(request, customer_id):
             'end_date': cs.end_date.strftime('%Y-%m-%d'),
         })
     return JsonResponse({'success': False, 'error': 'Invalid request method'}, status=405)
+
+
+def vehicle_list(request):
+    vehicles = CustomerVehicle.objects.all().select_related('customer__user', 'vehicle_group')
+    context = {
+        'vehicles': vehicles,
+    }
+    return render(request, 'layouts/all_vehicles.html', context)
+
+
+def edit_vehicle(request, pk):
+    vehicle = get_object_or_404(CustomerVehicle, pk=pk)
+    if request.method == 'POST':
+        form = EditCustomerVehicleForm(request.POST, instance=vehicle)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Customer Vehicle Edited Successfully")
+            return redirect('vehicle_list')  # update with your URL name if different
+    else:
+        form = EditCustomerVehicleForm(instance=vehicle)
+    context = {
+        'form': form,
+        'vehicle': vehicle,
+    }
+    return render(request, 'layouts/vehicle_edit.html', context)
+

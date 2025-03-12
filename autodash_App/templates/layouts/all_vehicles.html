@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Customer Vehicles</h4>
+
+          <div class="card">
+            <h5 class="card-header">Vehicles</h5>
+            <div class="table-responsive text-nowrap p-3">
+              <table id="myTable" class="table align-middle">
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Car Plate</th>
+                    <th>Car Make</th>
+                    <th>Car Color</th>
+                    <th>Vehicle Group</th>
+                    <th>Date Added</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% if vehicles %}
+                    {% for vehicle in vehicles %}
+                      <tr>
+                        <td>
+                          {% if vehicle.customer %}
+                            {{ vehicle.customer.user.first_name }} {{ vehicle.customer.user.last_name }}
+                          {% else %}
+                            Not assigned
+                          {% endif %}
+                        </td>
+                        <td>{{ vehicle.car_plate }}</td>
+                        <td>{{ vehicle.car_make }}</td>
+                        <td>{{ vehicle.car_color }}</td>
+                        <td>
+                          {% if vehicle.vehicle_group %}
+                            {{ vehicle.vehicle_group.group_name }}
+                          {% else %}
+                            -
+                          {% endif %}
+                        </td>
+                        <td>{{ vehicle.date_added|date:"Y-m-d" }}</td>
+                        <td>
+                          <a href="{% url 'edit_vehicle' vehicle.pk %}" class="btn btn-sm btn-warning">
+                            Edit
+                          </a>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  {% else %}
+                    <tr>
+                      <td colspan="7" class="text-center">No vehicles found.</td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock %}
