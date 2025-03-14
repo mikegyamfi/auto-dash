@@ -759,10 +759,10 @@ def confirm_service(request, pk):
     # 14) Optional: Send SMS (if customer and phone available)
     if customer and phone_number:
         if new_status == 'pending':
-            txt = f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} is now pending."
+            txt = f"Hello {customer.user.first_name}, your service {service_order.vehicle.car_plate} is now pending."
             print(txt)
         elif new_status == 'canceled':
-            txt = f"Hello {customer.user.first_name}, your service #{service_order.service_order_number} has been canceled."
+            txt = f"Hello {customer.user.first_name}, your service #{service_order.vehicle.car_plate} has been canceled."
             print(txt)
         elif new_status in ['completed', 'onCredit']:
             service_lines = []
@@ -776,13 +776,13 @@ def confirm_service(request, pk):
             feedback_url = request.build_absolute_uri(reverse('service_feedback', args=[service_order.id]))
             if new_status == 'onCredit':
                 message = (
-                    f"Hello, your credit service #{service_order.service_order_number} "
+                    f"Hello, your credit service for {service_order.vehicle.car_plate} "
                     f"of GHS {service_order.final_amount:.2f} has been completed. Get more details: {receipt_url}"
                 )
             else:
                 message = (
                     f"Hello, your payment amount  of GHS {service_order.final_amount:.2f} "
-                    f"for {service_order.service_order_number} has been received. Thank you! leave feedback - {feedback_url}"
+                    f"for {service_order.vehicle.car_plate} has been received. Thank you! leave feedback - {feedback_url}"
                 )
             send_sms(customer.user.phone_number, message)
             print(message)
