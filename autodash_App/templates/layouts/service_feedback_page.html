@@ -93,10 +93,12 @@
           {% if last_services %}
           <div class="card">
             <div class="card-header">
+              Customer Loyalty Points: {{service_order.customer.loyalty_points}}
               <h5>Recent Services for You</h5>
             </div>
             <div class="card-body">
-              <table class="table table-bordered">
+              <div class="table-responsive">
+              <table id="myTable" class="table table-bordered">
                 <thead>
                   <tr>
                     <th>Order Number</th>
@@ -130,7 +132,8 @@
                   {% endfor %}
                 </tbody>
               </table>
-            </div>
+              </div>
+              </div>
           </div>
           {% endif %}
 
