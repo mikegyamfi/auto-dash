@@ -78,13 +78,14 @@
         <strong>Total Services Price:</strong> 
         GHS {{ total_services_price|floatformat:2 }} <br>
         <strong>Total Products Price:</strong>
-        {% if service_order.status == 'completed' %}
-          <label class="badge badge-success">Paid</label>
-        {% else %}
-          <label class="badge badge-danger">Pending Payment</label>
-        {% endif %}
         GHS {{ total_products_price|floatformat:2 }}
       </p>
+
+          {% if service_order.status == 'completed' %}
+  <span class="badge bg-success mb-2">Paid</span>
+{% else %}
+  <span class="badge bg-warning mb-2">Pending Payment</span>
+{% endif %}
 
       <!-- Show the discount if any was applied -->
       {% if service_order.discount_value and service_order.discount_value > 0 %}
