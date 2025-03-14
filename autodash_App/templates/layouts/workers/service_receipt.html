@@ -77,7 +77,12 @@
       <p>
         <strong>Total Services Price:</strong> 
         GHS {{ total_services_price|floatformat:2 }} <br>
-        <strong>Total Products Price:</strong> 
+        <strong>Total Products Price:</strong>
+        {% if service_order.status == 'completed' %}
+          <label class="badge badge-success">Paid</label>
+        {% else %}
+          <label class="badge badge-danger">Pending Payment</label>
+        {% endif %}
         GHS {{ total_products_price|floatformat:2 }}
       </p>
 

@@ -494,7 +494,9 @@ def confirm_service(request, pk):
     we skip loyalty and subscription logic.
     Commission is recalculated on the final service amount (i.e. after discount is applied).
     """
-    from django.db.models import Sum
+    from django.db.models import Sum, Count, Q
+    from datetime import datetime, timedelta
+    from django.urls import reverse
 
     # Helper: returns negotiated_price if set, otherwise base service price.
     def get_sr_price(sr):
@@ -564,10 +566,10 @@ def confirm_service(request, pk):
     service_order.payment_method = payment_method
     service_order.save()
 
-    # 3) Allocate or remove commission based on status change (we will update commission later)
+    # 3) Allocate or remove commission based on status change
     if new_status in ['completed', 'onCredit'] and old_status != new_status:
         for sr in services_rendered:
-            sr.allocate_commission()  # initial allocation; we will adjust it below
+            sr.allocate_commission()  # initial allocation; will adjust later
     elif old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
         for sr in services_rendered:
             sr.remove_commission()
@@ -577,21 +579,20 @@ def confirm_service(request, pk):
     total_products_price = sum(p.total_price for p in service_order.products_purchased.all())
     recalculated_total = total_services_price + total_products_price
 
-    # 5) Subscription logic (if customer exists and has subscription)
+    # 5 & 6) Subscription & Loyalty redemption logic – only apply if order is not on credit.
     subscription_covered_ids = []
-    if customer and subscription_active and service_order.vehicle:
-        for sr in services_rendered:
-            if (sr.service in cust_sub.subscription.services.all() and
-                service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
-                subscription_covered_ids.append(sr.id)
-        for sr in services_rendered:
-            if sr.id in subscription_covered_ids:
-                recalculated_total -= get_sr_price(sr)
-
-    # 6) Loyalty redemption (if customer exists)
     redeem_service_ids = []
     loyalty_points_needed = 0
-    if customer:
+    if new_status != 'onCredit' and customer:
+        if subscription_active and service_order.vehicle:
+            for sr in services_rendered:
+                if (sr.service in cust_sub.subscription.services.all() and
+                    service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
+                    subscription_covered_ids.append(sr.id)
+            for sr in services_rendered:
+                if sr.id in subscription_covered_ids:
+                    recalculated_total -= get_sr_price(sr)
+
         for sr in services_rendered:
             if f'redeem_service_{sr.id}' in request.POST:
                 redeem_service_ids.append(sr.id)
@@ -620,8 +621,7 @@ def confirm_service(request, pk):
     if recalculated_total < 0:
         recalculated_total = 0
 
-    # 7a) Calculate discount factor for services (for commission calculation)
-    # Assume discount applies proportionally to services vs. products.
+    # 7a) Calculate discount factor for commission (services vs. products)
     if total_services_price + total_products_price > 0:
         discount_on_services = discount_amount * (total_services_price / (total_services_price + total_products_price))
     else:
@@ -639,8 +639,8 @@ def confirm_service(request, pk):
 
     leftover = recalculated_total
 
-    # 9) Deduct loyalty (if customer)
-    if customer and loyalty_points_needed > 0:
+    # 9) Deduct loyalty if applicable (skip for onCredit orders)
+    if new_status != 'onCredit' and customer and loyalty_points_needed > 0:
         if customer.loyalty_points >= loyalty_points_needed:
             customer.loyalty_points -= loyalty_points_needed
             LoyaltyTransaction.objects.create(
@@ -686,7 +686,7 @@ def confirm_service(request, pk):
             amount=total_commission,
             user=user
         )
-    # 11) If completed, create Revenue or record commission expense for other payment methods
+    # 11) If completed, create Revenue (or record commission expense for loyalty/subscription payments)
     elif new_status == 'completed':
         from .models import Revenue
         if payment_method in ['cash', 'momo', 'subscription-cash', 'subscription-momo', 'loyalty-cash']:
@@ -736,8 +736,7 @@ def confirm_service(request, pk):
         customer.save()
 
     # 13) Recalculate commission on services based on final discount.
-    # Remove old commission records and reallocate commission using the discount_factor.
-    # Commission is computed on each service's effective price (get_sr_price(sr) * discount_factor)
+    # Remove old commission records and reallocate commission using discount_factor.
     for sr in services_rendered:
         Commission.objects.filter(service_rendered=sr).delete()
         if sr.id not in redeem_service_ids and sr.id not in subscription_covered_ids:
@@ -756,36 +755,31 @@ def confirm_service(request, pk):
                         date=timezone.now().date()
                     )
 
-    # 14) Optional: Send SMS (if customer and phone available)
+    # 14) Optional: Send SMS with receipt details.
     if customer and phone_number:
-        if new_status == 'pending':
-            txt = f"Hello {customer.user.first_name}, your service {service_order.vehicle.car_plate} is now pending."
-            print(txt)
-        elif new_status == 'canceled':
-            txt = f"Hello {customer.user.first_name}, your service #{service_order.vehicle.car_plate} has been canceled."
-            print(txt)
-        elif new_status in ['completed', 'onCredit']:
-            service_lines = []
-            for sr in services_rendered:
-                price_used = get_sr_price(sr)
-                service_lines.append(f"{sr.service.service_type} - GHS {price_used:.2f}")
-            product_lines = []
-            for prod in service_order.products_purchased.all():
-                product_lines.append(f"{prod.product.name} x{prod.quantity} => GHS {prod.total_price:.2f}")
-            receipt_url = request.build_absolute_uri(reverse('service_receipt', args=[service_order.id]))
-            feedback_url = request.build_absolute_uri(reverse('service_feedback', args=[service_order.id]))
-            if new_status == 'onCredit':
-                message = (
-                    f"Hello, your credit service for {service_order.vehicle.car_plate} "
-                    f"of GHS {service_order.final_amount:.2f} has been completed. Get more details: {receipt_url}"
-                )
-            else:
-                message = (
-                    f"Hello, your payment amount  of GHS {service_order.final_amount:.2f} "
-                    f"for {service_order.vehicle.car_plate} has been received. Thank you! leave feedback - {feedback_url}"
-                )
-            send_sms(customer.user.phone_number, message)
-            print(message)
+        service_lines = []
+        for sr in services_rendered:
+            price_used = get_sr_price(sr)
+            service_lines.append(f"{sr.service.service_type} - GHS {price_used:.2f}")
+        product_lines = []
+        for prod in service_order.products_purchased.all():
+            product_lines.append(f"{prod.product.name} x{prod.quantity} => GHS {prod.total_price:.2f}")
+        receipt_url = request.build_absolute_uri(reverse('service_receipt', args=[service_order.id]))
+        feedback_url = request.build_absolute_uri(reverse('service_feedback', args=[service_order.id]))
+        if new_status == 'onCredit':
+            # Use final_amount from the order and indicate pending payment.
+            message = (
+                f"Hello {customer.user.first_name}, your service for {service_order.vehicle.car_plate} "
+                f"with a final amount of GHS {service_order.final_amount:.2f} is on credit (Pending Payment). "
+                f"Details: {receipt_url}"
+            )
+        else:
+            message = (
+                f"Hello {customer.user.first_name}, your payment of GHS {service_order.final_amount:.2f} "
+                f"for {service_order.vehicle.car_plate} has been received. Thank you! Leave feedback: {feedback_url}"
+            )
+        send_sms(customer.user.phone_number, message)
+        print(message)
 
     messages.success(request, f"Service updated to {new_status}.")
     if new_status in ['completed', 'onCredit']:
