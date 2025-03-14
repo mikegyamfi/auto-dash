@@ -90,52 +90,103 @@
           </div>
 
           <!-- Recent Services Table -->
-          {% if last_services %}
-          <div class="card">
-            <div class="card-header">
-              Customer Loyalty Points: {{service_order.customer.loyalty_points}}
-              <h5>Recent Services for You</h5>
-            </div>
-            <div class="card-body">
-              <div class="table-responsive">
-              <table id="myTable" class="table table-bordered">
-                <thead>
-                  <tr>
-                    <th>Order Number</th>
-                    <th>Date</th>
-                    <th>Vehicle</th>
-                    <th>Services Performed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for order in last_services %}
-                  <tr>
-                    <td>{{ order.service_order_number }}</td>
-                    <td>{{ order.date|date:"Y-m-d H:i" }}</td>
-                    <td>
-                      {% if order.vehicle %}
-                        {{ order.vehicle.car_make }} - {{ order.vehicle.car_plate }}
-                      {% else %}
-                        N/A
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% for sr in order.rendered.all %}
-                        {{ sr.service.service_type }}{% if not forloop.last %}, {% endif %}
-                      {% endfor %}
-                    </td>
-                  </tr>
-                  {% empty %}
-                  <tr>
-                    <td colspan="4">No recent services found.</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-              </div>
-              </div>
-          </div>
-          {% endif %}
+          {% if recent_completed_orders or oncredit_orders %}
+  <!-- Recent Completed Services -->
+  {% if recent_completed_orders %}
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5>Recent Completed Services for You</h5>
+      <small>Customer Loyalty Points: {{ service_order.customer.loyalty_points }}</small>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table id="completedTable" class="table table-bordered">
+          <thead>
+            <tr>
+              <th>Order Number</th>
+              <th>Date</th>
+              <th>Vehicle</th>
+              <th>Services Performed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order in recent_completed_orders %}
+            <tr>
+              <td>{{ order.service_order_number }}</td>
+              <td>{{ order.date|date:"Y-m-d H:i" }}</td>
+              <td>
+                {% if order.vehicle %}
+                  {{ order.vehicle.car_make }} - {{ order.vehicle.car_plate }}
+                {% else %}
+                  N/A
+                {% endif %}
+              </td>
+              <td>
+                {% for sr in order.rendered.all %}
+                  {{ sr.service.service_type }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="4">No completed services found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- On Credit Services -->
+  {% if oncredit_orders %}
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5>On Credit Services for You</h5>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table id="onCreditTable" class="table table-bordered">
+          <thead>
+            <tr>
+              <th>Order Number</th>
+              <th>Date</th>
+              <th>Vehicle</th>
+              <th>Services Performed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order in oncredit_orders %}
+            <tr>
+              <td>{{ order.service_order_number }}</td>
+              <td>{{ order.date|date:"Y-m-d H:i" }}</td>
+              <td>
+                {% if order.vehicle %}
+                  {{ order.vehicle.car_make }} - {{ order.vehicle.car_plate }}
+                {% else %}
+                  N/A
+                {% endif %}
+              </td>
+              <td>
+                {% for sr in order.rendered.all %}
+                  {{ sr.service.service_type }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="4">No on credit services found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+{% endif %}
+
 
         </div>
         {% include 'inc/footer.html' %}

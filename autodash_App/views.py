@@ -1079,7 +1079,8 @@ def add_vehicle_to_customer(request, customer_id):
 def service_feedback_page(request, pk):
     """
     Page for customers to provide feedback and ratings for a completed service.
-    Also shows the vehicle used (if any) and the customer's last 10 service orders.
+    Also shows the vehicle used (if any) and the customer's last service orders.
+    Displays the last 3 completed orders and, if available, all onCredit orders.
     """
     service_order = get_object_or_404(ServiceRenderedOrder, id=pk)
     services_under_service_order = ServiceRendered.objects.filter(order=service_order)
@@ -1088,14 +1089,20 @@ def service_feedback_page(request, pk):
     if service_order.customer_feedback and service_order.customer_rating:
         messages.success(request, 'Your feedback has already been recorded.')
 
-    # Get the last 10 service orders (excluding the current one) for this customer, if available.
-    last_services = []
+    # Get recent orders for the customer if available.
+    recent_completed_orders = []
+    oncredit_orders = []
     if service_order.customer:
-        last_services = (
+        recent_completed_orders = (
             ServiceRenderedOrder.objects
-            .filter(customer=service_order.customer)
+            .filter(customer=service_order.customer, status='completed')
             .exclude(pk=service_order.pk)
-            .order_by('-date')[:10]
+            .order_by('-date')[:3]
+        )
+        oncredit_orders = (
+            ServiceRenderedOrder.objects
+            .filter(customer=service_order.customer, status='onCredit')
+            .order_by('-date')
         )
 
     if request.method == 'POST':
@@ -1117,9 +1124,11 @@ def service_feedback_page(request, pk):
     context = {
         'service_order': service_order,
         'services': services_under_service_order,
-        'last_services': last_services,
+        'recent_completed_orders': recent_completed_orders,
+        'oncredit_orders': oncredit_orders,
     }
     return render(request, "layouts/service_feedback_page.html", context)
+
 
 
 
