@@ -371,7 +371,7 @@ class ServiceRendered(models.Model):
             self.commission_amount = 0.0
         self.save()
 
-        assigned_workers = self.workers.all()
+        assigned_workers = self.workers.filter(worker_category__service_provider=True)
         if assigned_workers.exists() and self.commission_amount:
             commission_per_worker = self.commission_amount / assigned_workers.count()
             for worker in assigned_workers:

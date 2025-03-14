@@ -33,10 +33,14 @@
             </div>
           </form>
 
+          <div>
+            <a class="btn btn-outline-success m-1" href="{% url 'create_customer_page' %}">Add New Customer</a>
+          </div>
+
           <!-- Customers Table -->
-          <div class="card">
+          <div class="card p-3">
             <div class="table-responsive">
-              <table class="table table-hover mb-0">
+              <table id="myTable" class="table table-hover mb-0">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -61,6 +65,13 @@
                          class="btn btn-sm btn-info"
                       >
                         View
+                      </a>
+
+                      <!-- Edit Customer button -->
+                      <a href="{% url 'edit_customer' customer.id %}"
+                         class="btn btn-sm btn-primary"
+                      >
+                        Edit
                       </a>
 
                       <!-- Action 1: Change Branch (inline form) -->

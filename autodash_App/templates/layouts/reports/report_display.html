@@ -24,9 +24,10 @@
           <tr>
             <th>Branch</th>
             <th>Revenue</th>
-            <th>Expense</th>
-            <th>Commission</th>
+             <th>Commission</th>
+            <th>Gross Sales</th>
             <th>Profit</th>
+            <th>Expense</th>
             <th>#Workers</th>
             <th>#Customers</th>
           </tr>
@@ -36,9 +37,11 @@
           <tr>
             <td>{{ row.branch.name }}</td>
             <td>{{ row.revenue|floatformat:2 }}</td>
-            <td>{{ row.expense|floatformat:2 }}</td>
             <td>{{ row.commission|floatformat:2 }}</td>
+            <td>{{ row.gross_sales|floatformat:2 }}</td>
             <td>{{ row.profit|floatformat:2 }}</td>
+            <td>{{ row.expense|floatformat:2 }}</td>
+
             <td>{{ row.workers }}</td>
             <td>{{ row.customers }}</td>
           </tr>
@@ -58,6 +61,7 @@
         <thead>
           <tr>
             <th>Worker</th>
+            <th>Branch</th>
             <th>Total Services (Completed)</th>
             <th>Total Commission</th>
             <th>Average Rating</th>
@@ -67,6 +71,7 @@
           {% for w in worker_data %}
           <tr>
             <td>{{ w.worker.user.get_full_name }}</td>
+            <td>{{w.worker.branch</td>
             <td>{{ w.total_services }}</td>
             <td>{{ w.total_commission|floatformat:2 }}</td>
             <td>{{ w.avg_rating }}</td>
@@ -91,6 +96,7 @@
             <th>Total Spend</th>
             <th>On-Credit Orders</th>
             <th>Arrears Amount</th>
+            <th>Loyalty Points</th>
           </tr>
         </thead>
         <tbody>
@@ -101,6 +107,7 @@
             <td>{{ c.total_spend|floatformat:2 }}</td>
             <td>{{ c.on_credit_count }}</td>
             <td>{{ c.arrears_amount|floatformat:2 }}</td>
+            <td>{{ c.customer.loyalty_points }}</td>
           </tr>
           {% empty %}
           <tr><td colspan="5">No customer data.</td></tr>

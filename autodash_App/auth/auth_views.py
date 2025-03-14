@@ -58,6 +58,8 @@ def login_page(request):
                     return redirect('login')
                 login(request, user)
                 messages.success(request, 'Log in Successful')
+                if user.role == 'customer':
+                    return redirect('customer_dashboard')
                 return redirect('index')
             else:
                 print("here")

@@ -22,7 +22,7 @@ from django.utils.http import urlsafe_base64_encode
 from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
-    CreateVehicleForm, EditCustomerVehicleForm
+    CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm
 )
 from .helper import send_sms
 from .models import (
@@ -776,13 +776,13 @@ def confirm_service(request, pk):
             feedback_url = request.build_absolute_uri(reverse('service_feedback', args=[service_order.id]))
             if new_status == 'onCredit':
                 message = (
-                    f"Dear {customer.user.first_name}, your onCredit service on {service_order.vehicle} "
-                    f"of GHS {service_order.final_amount:.2f} is completed. Details: {receipt_url}"
+                    f"Hello, your credit service #{service_order.service_order_number} "
+                    f"of GHS {service_order.final_amount:.2f} has been completed. Get more details: {receipt_url}"
                 )
             else:
                 message = (
-                    f"Dear {customer.user.first_name}, payment of GHS {service_order.final_amount:.2f} "
-                    f"for services on {service_order.vehicle} received. Thank you! Kindly leave feedback - {feedback_url}"
+                    f"Hello, your payment amount  of GHS {service_order.final_amount:.2f} "
+                    f"for {service_order.service_order_number} has been received. Thank you! leave feedback - {feedback_url}"
                 )
             send_sms(customer.user.phone_number, message)
             print(message)
@@ -794,32 +794,6 @@ def confirm_service(request, pk):
 
 
 
-
-@login_required(login_url='login')
-def service_receipt(request, pk):
-    service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
-    services_rendered = service_order.rendered.all()
-    products_purchased = service_order.products_purchased.all()
-
-    def get_sr_price(sr):
-        return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
-
-    total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
-    total_products_price = sum(p.total_price for p in products_purchased)
-    final_amount = service_order.final_amount or 0
-
-    context = {
-        'service_order': service_order,
-        'services_rendered': services_rendered,
-        'products_purchased': products_purchased,
-        'total_services_price': total_services_price,
-        'total_products_price': total_products_price,
-        'final_amount': final_amount,
-    }
-    return render(request, 'layouts/workers/service_receipt.html', context)
-
-
-@login_required(login_url='login')
 def service_receipt(request, pk):
     service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
     services_rendered = service_order.rendered.all()
@@ -1108,7 +1082,6 @@ def add_vehicle_to_customer(request, customer_id):
     return JsonResponse({'success': False, 'message': 'Invalid request method.'})
 
 
-@login_required(login_url='login')
 def service_feedback_page(request, pk):
     """
     Page for customers to provide feedback and ratings for a completed service.
@@ -3810,7 +3783,6 @@ def generate_report(request):
                 if branch_filter:
                     branches_qs = branches_qs.filter(id=branch_filter.id)
 
-                # Example: for each branch, gather stats in a list or dictionary
                 branch_data = []
                 for br in branches_qs:
                     # Revenue in range
@@ -3819,33 +3791,33 @@ def generate_report(request):
                         date__range=[final_start, final_end]
                     ).aggregate(total=Sum('final_amount'))['total'] or 0
 
-                    # Expense
+                    # Expense in range
                     exp_total = Expense.objects.filter(
                         branch=br,
                         date__range=[final_start, final_end]
                     ).aggregate(total=Sum('amount'))['total'] or 0
 
-                    # Commission
+                    # Commission in range
                     comm_total = Commission.objects.filter(
                         worker__branch=br,
                         date__range=[final_start, final_end]
                     ).aggregate(total=Sum('amount'))['total'] or 0
 
-                    # Net profit
-                    profit = rev_total - exp_total
+                    # Calculate Gross Sales (Revenue - Commission) and Profit (Gross Sales - Expense)
+                    gross_sales = rev_total - comm_total
+                    profit = gross_sales - exp_total
 
                     # Workers & customers
                     worker_count = Worker.objects.filter(branch=br).count()
-                    customer_count = Customer.objects.filter(branch=br).count()  # if you store branch in Customer
-                    # Alternatively, if you do not store branch in Customer model,
-                    # you can find how many used that branch in orders, etc.
+                    customer_count = Customer.objects.filter(branch=br).count()
 
                     branch_data.append({
                         'branch': br,
                         'revenue': rev_total,
-                        'expense': exp_total,
                         'commission': comm_total,
+                        'gross_sales': gross_sales,
                         'profit': profit,
+                        'expense': exp_total,
                         'workers': worker_count,
                         'customers': customer_count,
                     })
@@ -4153,3 +4125,15 @@ def edit_vehicle(request, pk):
     }
     return render(request, 'layouts/vehicle_edit.html', context)
 
+
+def edit_customer(request, customer_id):
+    customer = get_object_or_404(Customer, id=customer_id)
+    if request.method == "POST":
+        form = CustomerEditForm(request.POST, instance=customer)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Customer updated successfully.")
+            return redirect('manage_customers')  # Change this to your manage customers URL name
+    else:
+        form = CustomerEditForm(instance=customer)
+    return render(request, 'layouts/edit_customer.html', {'form': form, 'customer': customer})

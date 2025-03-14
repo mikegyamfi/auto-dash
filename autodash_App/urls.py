@@ -119,6 +119,7 @@ urlpatterns = [
                   path('service/<int:pk>/receipt/', views.service_receipt, name='service_receipt'),
                   path('vehicles/', views.vehicle_list, name='vehicle_list'),
                   path('vehicles/edit/<int:pk>/', views.edit_vehicle, name='edit_vehicle'),
+                  path('customer/edit/<int:customer_id>/', views.edit_customer, name='edit_customer'),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

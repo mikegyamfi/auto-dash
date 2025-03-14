@@ -70,7 +70,7 @@ class LogServiceForm(forms.Form):
 
     def __init__(self, branch, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['workers'].queryset = Worker.objects.filter(branch=branch, worker_category__service_provider=True)
+        self.fields['workers'].queryset = Worker.objects.filter(branch=branch)
         self.fields['products'].queryset = Product.objects.filter(branch=branch, stock__gt=0)
 
         # Set vehicle queryset based on customer
@@ -421,6 +421,42 @@ class EditCustomerVehicleForm(forms.ModelForm):
         # Add the 'form-control' class to each widget for Bootstrap styling
         for field in self.fields.values():
             field.widget.attrs.update({'class': 'form-control'})
+
+
+class CustomerEditForm(forms.ModelForm):
+    first_name = forms.CharField(max_length=150)
+    last_name = forms.CharField(max_length=150)
+    email = forms.EmailField(required=False)
+    phone_number = forms.CharField(max_length=15, required=False)
+
+    class Meta:
+        model = Customer
+        fields = ['branch', 'loyalty_points', 'customer_group', 'first_name', 'last_name', 'email', 'phone_number']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.user:
+            self.fields['first_name'].initial = self.instance.user.first_name
+            self.fields['last_name'].initial = self.instance.user.last_name
+            self.fields['email'].initial = self.instance.user.email
+            self.fields['phone_number'].initial = self.instance.user.phone_number
+
+        # Add Bootstrap styling to all form fields
+        for field in self.fields.values():
+            field.widget.attrs.update({'class': 'form-control'})
+
+    def save(self, commit=True):
+        customer = super().save(commit=False)
+        user = customer.user
+        user.first_name = self.cleaned_data.get('first_name')
+        user.last_name = self.cleaned_data.get('last_name')
+        user.email = self.cleaned_data.get('email')
+        user.phone_number = self.cleaned_data.get('phone_number')
+        if commit:
+            user.save()
+            customer.save()
+        return customer
+
 
 
 
