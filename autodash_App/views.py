@@ -770,7 +770,7 @@ def confirm_service(request, pk):
             # Use final_amount from the order and indicate pending payment.
             message = (
                 f"Hello {customer.user.first_name}, your service for {service_order.vehicle.car_plate} "
-                f"with a final amount of GHS {service_order.final_amount:.2f} is on credit (Pending Payment). "
+                f"with amount of GHS {service_order.final_amount:.2f} has been completed."
                 f"Details: {receipt_url}"
             )
         else:

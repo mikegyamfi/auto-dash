@@ -26,8 +26,8 @@
             <th>Revenue</th>
              <th>Commission</th>
             <th>Gross Sales</th>
-            <th>Profit</th>
             <th>Expense</th>
+            <th>Profit</th>
             <th>#Workers</th>
             <th>#Customers</th>
           </tr>
@@ -39,9 +39,8 @@
             <td>{{ row.revenue|floatformat:2 }}</td>
             <td>{{ row.commission|floatformat:2 }}</td>
             <td>{{ row.gross_sales|floatformat:2 }}</td>
-            <td>{{ row.profit|floatformat:2 }}</td>
             <td>{{ row.expense|floatformat:2 }}</td>
-
+            <td>{{ row.profit|floatformat:2 }}</td>
             <td>{{ row.workers }}</td>
             <td>{{ row.customers }}</td>
           </tr>
