@@ -19,21 +19,20 @@
                     <!-- Content -->
                     <div class="container-xxl flex-grow-1 container-p-y">
                         <h2>Service History</h2>
-                        <table class="table table-bordered">
+                        <table id="myTable" class="table table-bordered">
                             <thead>
                                 <tr>
                                     <th>Service Number</th>
                                     <th>Workers</th>
                                     <th>Branch</th>
                                     <th>Date</th>
-                                    <th>Payment Method</th>
                                     <th>Total Amount</th>
                                     <th>Final Amount</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for service in services_rendered %}
+                                {% for service in services_rendered.reverse %}
                                     <tr>
                                         <td>{{ service.service_order_number }}</td>
                                         <td>
@@ -44,7 +43,6 @@
                                         </td>
                                         <td>{{ service.branch }}</td>
                                         <td>{{ service.date }}</td>
-                                        <td>{{ service.payment_method }}</td>
                                         <td>GHS{{ service.total_amount }}</td>
                                         <td>GHS{{ service.final_amount }}</td>
                                         <td>

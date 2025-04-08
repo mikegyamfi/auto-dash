@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from decouple import config, Csv
 
+from autodash_App.templatetags import custom_filters
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = BASE_DIR / 'autodash_App' / 'templates'
 

@@ -35,7 +35,6 @@
                   <p><strong>Branch:</strong> {{ service_order.branch }}</p>
                   <p><strong>Status:</strong> {{ service_order.get_status_display }}</p>
                   <p><strong>Date:</strong> {{ service_order.date }}</p>
-                  <p><strong>Payment Method:</strong> {{ service_order.get_payment_method_display }}</p>
                   <p><strong>Total Amount:</strong> {% if service_order.discount_type == "amount" %}GHS{% else %}%{% endif %}{{ service_order.total_amount }}</p>
                   <p><strong>Discount Value:</strong> GHS{{ service_order.discount_value }}</p>
                   <p><strong>Discount Type:</strong> {{ service_order.discount_type }}</p>
@@ -59,6 +58,7 @@
                     <th>Service</th>
                     <th>Workers</th>
                     <th>Date Rendered</th>
+                      <th>Payment Method</th>
                       <th>Price</th>
                       <th>Negotiated Price</th>
                   </tr>
@@ -74,6 +74,7 @@
                       {% endfor %}
                     </td>
                     <td>{{ rendered_service.date }}</td>
+                  <td>{{ rendered_service.payment_type }}</td>
                   <td>{{ rendered_service.service.price }}</td>
                   <td>{{ rendered_service.negotiated_price }}</td>
                   </tr>

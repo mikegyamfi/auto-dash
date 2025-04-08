@@ -1,0 +1,266 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Sidebar -->
+    {% include 'inc/side_nav.html' %}
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Main Container -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Log Service for {{ customer.user.get_full_name }}</h4>
+
+          <!-- If you have messages framework in use -->
+          {% if messages %}
+            {% for message in messages %}
+              <div class="alert alert-info">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+
+          <div class="card">
+            <div class="card-body">
+              <form id="log-service-scanned-form" method="POST">
+                {% csrf_token %}
+
+                <!-- Display just the customer's name; no user field -->
+                <p class="text-muted mb-3">
+                  <strong>Customer:</strong> {{ customer.user.get_full_name }}
+                </p>
+
+                <!-- STEP 2: Vehicle Section -->
+                    <div class="stepper-step mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <h6 class="mb-0">Select Vehicle</h6>
+                      </div>
+                      <div class="step-content">
+                        <div class="row g-3">
+                          <div class="col-md-8">
+                            <div class="input-group">
+                              <span class="input-group-text">
+                                <i class="fas fa-car"></i>
+                              </span>
+                              {{ form.vehicle }}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 3: Service Selection -->
+                    <div class="stepper-step mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <h6 class="mb-0">Select Service(s)</h6>
+                      </div>
+                      <div class="step-content">
+                        <div class="input-group mb-2">
+                          <span class="input-group-text">
+                            <i class="fas fa-tools"></i>
+                          </span>
+                          {{ form.service }}
+                        </div>
+                        <!-- Container for negotiable service price inputs -->
+                        <div id="negotiable-services-container" class="mb-3" style="display: none;">
+                          <h6>Negotiated Service Prices:</h6>
+                          <!-- Will be populated by JavaScript -->
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 4: Workers Selection -->
+                    <div class="stepper-step mb-4">
+                      <div class="step-header d-flex align-items-center mb-3">
+                        <h6 class="mb-0">Assign Workers</h6>
+                      </div>
+                      <div class="step-content">
+                        <div class="input-group">
+                          <span class="input-group-text">
+                            <i class="fas fa-users-cog"></i>
+                          </span>
+                          {{ form.workers }}
+                        </div>
+                      </div>
+                    </div>
+
+                <!-- Hidden negotiated prices for future usage -->
+                {{ form.negotiated_prices }}
+                {{ form.product_quantities }}
+
+                <button type="submit" class="btn btn-primary">
+                  <i class="fas fa-check-circle me-2"></i> Log Service
+                </button>
+              </form>
+            </div>
+          </div>
+
+        </div>
+        <!-- / Main Container -->
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- / Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+  <!-- / Layout container -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script src="{% static 'assets/vendor/libs/jquery/jquery.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+    $(document).ready(function() {
+      // Initialize Select2 on customer, vehicle, service, and workers selects
+      $('#vehicle-select-scanned').select2({
+        placeholder: 'Select Vehicle',
+        width: '100%'
+      });
+      $('#service-select-scanned').select2({
+        width: '100%'
+      });
+      $('#{{ form.workers.id_for_label }}').select2({
+        width: '100%'
+      });
+
+      // Auto-populate vehicles when customer changes via AJAX
+      $('#{{ form.customer.id_for_label }}').on('change', function() {
+        var customerId = $(this).val();
+        var vehicleSelect = $('#{{ form.vehicle.id_for_label }}');
+        vehicleSelect.empty().append(new Option("Select Vehicle", ""));
+        if (customerId) {
+          $('#loadingSpinner').show();
+          $.ajax({
+            url: "/get_customer_vehicles/" + customerId + "/",
+            method: "GET",
+            success: function(data) {
+              $('#loadingSpinner').hide();
+              if(data.vehicles) {
+                data.vehicles.forEach(function(v) {
+                  var option = new Option(v.display, v.id);
+                  vehicleSelect.append(option);
+                });
+                vehicleSelect.trigger('change');
+              }
+            },
+            error: function(xhr, status, error) {
+              $('#loadingSpinner').hide();
+              console.error("Error fetching vehicles: ", error);
+            }
+          });
+        }
+      });
+
+      // Auto-populate services when vehicle changes via AJAX
+      $('#{{ form.vehicle.id_for_label }}').on('change', function() {
+        var vehicleId = $(this).val();
+        var serviceSelect = $('#{{ form.service.id_for_label }}');
+        serviceSelect.empty();
+        if (vehicleId) {
+          $('#loadingSpinner').show();
+          $.ajax({
+            url: "/get_vehicle_services/" + vehicleId + "/",
+            method: "GET",
+            success: function(data) {
+              $('#loadingSpinner').hide();
+              if(data.services && data.services.length > 0) {
+                data.services.forEach(function(svc) {
+                  var option = new Option(svc.name, svc.id);
+                  $(option).attr('data-negotiable', svc.negotiable ? 'true' : 'false');
+                  serviceSelect.append(option);
+                });
+                serviceSelect.trigger('change');
+              } else {
+                serviceSelect.append(new Option("No services available for this vehicle", ""));
+              }
+            },
+            error: function(xhr, status, error) {
+              $('#loadingSpinner').hide();
+              console.error("Error fetching services: ", error);
+            }
+          });
+        }
+      });
+
+      // Dynamic negotiable fields for selected services
+      var negotiableContainer = document.getElementById('negotiable-services-container');
+      var negotiatedPricesHidden = document.getElementById('negotiated-prices-hidden');
+      var negotiatedPrices = {};
+
+      $('#{{ form.service.id_for_label }}').on('change', function() {
+        negotiableContainer.innerHTML = '';
+        negotiatedPrices = {};
+        var selectedOptions = $(this).find(':selected');
+        if (selectedOptions.length === 0) {
+          negotiableContainer.style.display = 'none';
+          return;
+        }
+        var anyNegotiable = false;
+        selectedOptions.each(function() {
+          var svcId = $(this).val();
+          var isNegotiable = $(this).attr('data-negotiable') === 'true';
+          if (svcId && isNegotiable) {
+            anyNegotiable = true;
+            var div = document.createElement('div');
+            div.classList.add('mb-2');
+            div.innerHTML = '<label class="form-label">Negotiated Price for "' + $(this).text() + '":</label>' +
+                            '<input type="number" step="0.01" min="0" class="form-control negotiated-price-input" data-service-id="' + svcId + '" placeholder="Enter final price in GHS">';
+            negotiableContainer.appendChild(div);
+          }
+        });
+        negotiableContainer.style.display = anyNegotiable ? 'block' : 'none';
+      });
+
+    });
+  </script>
+
+<script>
+$(document).ready(function() {
+  // When a vehicle is selected in the scanned form, update the services field via AJAX.
+  $('#vehicle-select-scanned').on('change', function() {
+    var vehicleId = $(this).val();
+    var serviceSelect = $('#service-select-scanned');
+    serviceSelect.empty(); // Clear current options
+
+    if(vehicleId) {
+      // Optionally show a loading indicator here...
+      $.ajax({
+        url: "/get_vehicle_services/" + vehicleId + "/",
+        method: "GET",
+        dataType: "json",
+        success: function(data) {
+          // Clear any previous options
+          serviceSelect.empty();
+          if (data.services && data.services.length > 0) {
+            // Add each service as an option
+            data.services.forEach(function(svc) {
+              var option = new Option(svc.name, svc.id);
+              // Attach a data attribute if the service is negotiable
+              $(option).attr('data-negotiable', svc.negotiable ? 'true' : 'false');
+              serviceSelect.append(option);
+            });
+          } else {
+            // If no services are returned, show a fallback option
+            serviceSelect.append(new Option("No services available for this vehicle", ""));
+          }
+          // Trigger change event so that any dependent JS updates (if any) occur
+          serviceSelect.trigger('change');
+        },
+        error: function(xhr, status, error) {
+          console.error("Error fetching services: ", error);
+        }
+      });
+    } else {
+      // If no vehicle is selected, clear the service select
+      serviceSelect.append(new Option("Select a vehicle first", ""));
+    }
+  });
+});
+</script>
+{% endblock scripts %}

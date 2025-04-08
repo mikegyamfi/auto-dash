@@ -231,7 +231,7 @@ document.addEventListener('DOMContentLoaded', function() {
               const row = document.createElement('tr');
               row.innerHTML =
                 `<td>${svc.service_type}</td>` +
-                `<td>${parseFloat(svc.price).toFixed(2)}</td>`;
+                `<td>${parseFloat(svc.price).toFixed(2)}</td>` +
               servicesList.appendChild(row);
             });
 

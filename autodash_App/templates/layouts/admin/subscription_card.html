@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold py-3 mb-4">Subscription Card</h4>
+
+          <!-- Cards Container: Front and Back -->
+          <div class="row justify-content-center gap-4 mb-4">
+            <!-- FRONT Card -->
+            <div class="col-md-5 col-sm-12 mb-4">
+              <div id="frontCard" class="card mx-auto" style="width:320px; height:210px; border-radius:8px; background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 50%, #bfbfbf 100%); color:#333; border:1px solid #ccc; padding:10px;">
+                <div class="card-body py-0 px-1 d-flex flex-column" style="height:100%;">
+                  <!-- Logo Row -->
+                  <div class="text-center mb-2">
+                    <img src="{% static 'assets/img/Autodash logo.png' %}" alt="AutoDash Logo" style="width:100px; height:auto;">
+                  </div>
+                  <!-- Subscription Details Row using Bootstrap row/cols -->
+                  <div class="row align-items-center flex-grow-1">
+                    <!-- Left Column: Details -->
+                    <div class="col-8">
+                      <h5 class="fw-bold mb-2" style="font-size:1rem;">{{ subscription.subscription.name }}</h5>
+                      <p class="mb-1" style="font-size:0.85rem;">{{ customer.user.first_name }} {{ customer.user.last_name }}</p>
+                      <p class="mb-1" style="font-size:0.85rem;"><strong>Valid For:</strong> {{ subscription.subscription.duration_in_days }} days</p>
+                      <p class="mb-0" style="font-size:0.85rem;"><strong>Status:</strong> {{ status_text }}</p>
+                    </div>
+                    <!-- Right Column: QR Code -->
+                    <div class="col-4 d-flex justify-content-center">
+                      <div style="width:70px; height:70px; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+                        <img src="data:image/png;base64,{{ qr_base64 }}" alt="QR Code" style="width:100%; height:100%; object-fit: contain;">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- / FRONT Card -->
+
+            <!-- BACK Card -->
+            <div class="col-md-5 col-sm-12 mb-4">
+              <div id="backCard" class="card mx-auto" style="width:320px; height:210px; border-radius:8px; background:#f0f0f0; border:1px solid #ccc; padding:10px;">
+                <div class="card-body d-flex flex-column justify-content-between" style="height:100%;">
+                  <div>
+                    <h6 class="fw-bold mb-2" style="font-size:0.9rem;">If Found</h6>
+                    <p class="small mb-2" style="font-size:0.75rem;">
+                      If you find this card, please return it to any AutoDash location or contact us immediately.
+                    </p>
+                    <p class="small mb-0" style="font-size:0.75rem;"><strong>AutoDash Contact:</strong> 024 398 3422 (Call/WhatsApp)</p>
+                  </div>
+                  <div>
+                    <p class="small text-center mb-0" style="font-size:0.7rem;">
+                      &copy; {{ current_year }} AutoDash Car Care. All rights reserved.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- / BACK Card -->
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="d-flex flex-wrap justify-content-center gap-2 mb-4">
+            <button class="btn btn-secondary me-2" onclick="window.print()">
+              <i class="fa fa-print me-1"></i> Print
+            </button>
+            <button class="btn btn-outline-primary me-2" id="downloadFrontBtn">
+              Download Front as Image
+            </button>
+            <button class="btn btn-outline-primary me-2" id="downloadBackBtn">
+              Download Back as Image
+            </button>
+            <button class="btn btn-primary" id="downloadPdfBtn">
+              Download as PDF
+            </button>
+          </div>
+
+          <div class="text-center">
+            <a href="{{ scanned_url }}" target="_blank" class="btn btn-primary">
+              Open Scan Link
+            </a>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNa5R5CYy95F2zogKwl8HjbVrmWftcB+azI1rPJgqV7rSev3Rzfs54Lx1npH1sUSk4WBlGvH8VrXl39z6CF2Ww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-EI7fAXFlG90RRCjHUimUq/Ai7fi+aj52IpwST4ELe5rLtB8zU6a3C8XnjrSReoAVSM2gKQF5NphP/1wGlGfx4w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var customerName = "{{ customer.user.first_name }}_{{ customer.user.last_name }}";
+
+  function captureElementAsImage(elementId) {
+    return html2canvas(document.getElementById(elementId), { scale: 2 }).then(function(canvas) {
+      return canvas.toDataURL('image/png');
+    });
+  }
+
+  document.getElementById('downloadFrontBtn').addEventListener('click', function() {
+    captureElementAsImage('frontCard').then(function(dataUrl) {
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `subscription_${customerName}_front.png`;
+      link.click();
+    });
+  });
+
+  document.getElementById('downloadBackBtn').addEventListener('click', function() {
+    captureElementAsImage('backCard').then(function(dataUrl) {
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `subscription_${customerName}_back.png`;
+      link.click();
+    });
+  });
+
+  document.getElementById('downloadPdfBtn').addEventListener('click', function() {
+    Promise.all([
+      captureElementAsImage('frontCard'),
+      captureElementAsImage('backCard')
+    ]).then(function(images) {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [320, 210]
+      });
+      pdf.addImage(images[0], 'PNG', 0, 0, 320, 210);
+      pdf.addPage([320, 210], 'landscape');
+      pdf.addImage(images[1], 'PNG', 0, 0, 320, 210);
+      pdf.save(`subscription_${customerName}_card.pdf`);
+    });
+  });
+});
+</script>
+{% endblock scripts %}

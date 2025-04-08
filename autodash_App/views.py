@@ -17,18 +17,20 @@ from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.encoding import force_bytes
+from django.utils.html import json_script
 from django.utils.http import urlsafe_base64_encode
+from qrcode import QRCode
 
 from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
-    CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm
+    CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm
 )
 from .helper import send_sms
 from .models import (
     CustomerSubscription, CustomUser,
     Service, LoyaltyTransaction, VehicleGroup, ProductSale, ProductCategory,
-    Subscription, WorkerCategory
+    Subscription, WorkerCategory, CustomerSubscriptionTrail, CustomerSubscriptionRenewalTrail
 )
 from .models import (
     DailyExpenseBudget
@@ -211,7 +213,7 @@ def home(request):
         expenses_today = expense_qs.aggregate(total=Sum('amount'))['total'] or 0
 
         revenue_qs = Revenue.objects.filter(branch=branch, date__range=[start_dt, end_dt])
-        revenue_today = revenue_qs.aggregate(total=Sum('final_amount'))['total'] or 0
+        revenue_today = revenue_qs.aggregate(total=Sum('amount'))['total'] or 0
 
         # Commission in that range
         commission_qs = Commission.objects.filter(worker__branch=branch, date__range=[start_dt, end_dt])
@@ -222,8 +224,6 @@ def home(request):
         #  net   = gross - expense
         gross_sales = revenue_today - total_commission
         net_sales = gross_sales - expenses_today
-
-
 
         # Product sales
         product_sales_qs = ProductSale.objects.filter(
@@ -417,20 +417,9 @@ def log_service(request):
             total_services = 0
             for svc in selected_services:
                 total_services += svc.price
+            print(total_services)
 
-            # 2) Sum up any products selected
-            total_products = 0
-            products_purchased = []
-            for product, qty_str in zip(selected_products, product_quantities):
-                qty = int(qty_str) if qty_str.isdigit() else 1
-                if product.stock < qty:
-                    messages.error(request, f'Not enough stock for {product.name}.')
-                    return redirect('log_service')
-                total_price = product.price * qty
-                total_products += total_price
-                products_purchased.append((product, qty, total_price))
-
-            total = total_services + total_products
+            total = total_services
 
             # 3) Create the ServiceRenderedOrder with status 'pending'
             new_order = ServiceRenderedOrder.objects.create(
@@ -449,21 +438,10 @@ def log_service(request):
                 sr = ServiceRendered.objects.create(
                     service=svc,
                     order=new_order,
-                    negotiated_price=None  # We'll handle at confirm time if negotiable
+                    negotiated_price=svc.price,  # We'll handle at confirm time if negotiable
+                    payment_type="Cash"
                 )
                 sr.workers.set(selected_workers)
-
-            # 5) Create ProductPurchased entries
-            for product, qty, total_price in products_purchased:
-                ProductPurchased.objects.create(
-                    service_order=new_order,
-                    product=product,
-                    quantity=qty,
-                    total_price=total_price
-                )
-                # Decrement stock
-                product.stock -= qty
-                product.save()
 
             messages.success(request, 'Service logged successfully (status=pending).')
             return redirect('confirm_service_rendered', pk=new_order.pk)
@@ -490,323 +468,469 @@ from django.urls import reverse
 @transaction.atomic
 def confirm_service(request, pk):
     """
-    Finalizes a service order. If there's no customer attached to the ServiceRenderedOrder,
-    we skip loyalty and subscription logic.
-    Commission is recalculated on the final service amount (i.e. after discount is applied).
+    GET:
+      1. Retrieve the service order and related info (services, subscription, loyalty, etc.).
+      2. Render the confirmation page so a worker can edit negotiable prices,
+         choose a discount, and set the final status.
+         Also, display a detailed estimated coverage breakdown per service.
+
+    POST:
+      1. (Existing logic:) Use the negotiable prices from the form.
+         Apply coverage (Subscription → Loyalty → Cash), discount, commission, revenue, etc.
+         (No changes to POST logic.)
     """
-    from django.db.models import Sum, Count, Q
-    from datetime import datetime, timedelta
-    from django.urls import reverse
-
-    # Helper: returns negotiated_price if set, otherwise base service price.
-    def get_sr_price(sr):
-        return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
-
+    from .models import (
+        Worker, ServiceRenderedOrder, ServiceRendered, CustomerSubscription,
+        Product
+    )
     user = request.user
     worker = get_object_or_404(Worker, user=user)
     service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
     services_rendered = service_order.rendered.all()
-    customer = service_order.customer  # may be None
-    phone_number = customer.user.phone_number if customer else None
+    customer = service_order.customer
 
-    # Check for customer subscription if customer exists.
+    # --------------------- Check for active subscription & loyalty (if any) ---------------------
+    subscription_active = False
+    cust_sub = None
+    loyalty_points = 0
     if customer:
         try:
-            cust_sub = CustomerSubscription.objects.filter(customer=customer).latest('end_date')
-            subscription_active = cust_sub.is_active()
+            latest_sub = CustomerSubscription.objects.filter(customer=customer).latest('end_date')
+            if latest_sub.is_active() and latest_sub.sub_amount_remaining > 0:
+                subscription_active = True
+                cust_sub = latest_sub
         except CustomerSubscription.DoesNotExist:
-            cust_sub = None
-            subscription_active = False
-    else:
-        cust_sub = None
-        subscription_active = False
+            pass
+        loyalty_points = customer.loyalty_points
 
     if request.method == 'GET':
-        covered_by_subscription = []
-        if subscription_active and service_order.vehicle:
-            for sr in services_rendered:
+        # --------------------- SIMULATE COVERAGE BREAKDOWN FOR EACH SERVICE ---------------------
+        # We use simulated variables so that changes here do not affect DB values.
+        covered_details = []
+        sim_sub_remaining = cust_sub.remaining_balance if cust_sub else 0.0
+        sim_loyalty = loyalty_points
+        total_cash_est = 0.0
+
+        for sr in services_rendered:
+            # Effective price: negotiated_price if present, else base price
+            effective_price = sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
+            sub_cover = 0.0
+            loyalty_cover = 0.0
+            payment_type = "Cash"
+            remaining_cost = effective_price
+            qualifies_subscription = False
+
+            # Check if service qualifies for subscription coverage:
+            if subscription_active and service_order.vehicle:
                 if (sr.service in cust_sub.subscription.services.all() and
-                    service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
-                    covered_by_subscription.append(sr.id)
-        from .models import Product
+                        service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
+                    qualifies_subscription = True
+
+            if qualifies_subscription:
+                sub_cover = min(remaining_cost, sim_sub_remaining)
+                remaining_cost -= sub_cover
+                sim_sub_remaining -= sub_cover
+
+            # Check loyalty coverage.
+            # (Here we assume that if the customer's loyalty points meet or exceed the service's required points,
+            # the service is fully covered by loyalty for its remaining cost.)
+            if remaining_cost > 0 and customer:
+                if sim_loyalty >= sr.service.loyalty_points_required:
+                    loyalty_cover = remaining_cost
+                    remaining_cost = 0
+                    sim_loyalty -= sr.service.loyalty_points_required
+                # Otherwise, if not enough points, we assume no coverage (or you may choose partial coverage).
+
+            # Decide on payment_type string based on what covered the cost.
+            if sub_cover > 0 and loyalty_cover > 0:
+                payment_type = "Subscription + Loyalty"
+            elif sub_cover > 0:
+                payment_type = "Subscription" if remaining_cost == 0 else "Subscription + Cash"
+            elif loyalty_cover > 0:
+                payment_type = "Loyalty" if remaining_cost == 0 else "Loyalty + Cash"
+            else:
+                payment_type = "Cash"
+
+            cash_due = remaining_cost
+            total_cash_est += cash_due
+
+            covered_details.append({
+                'service_name': sr.service.service_type,
+                'effective_price': effective_price,
+                'sub_cover': sub_cover,
+                'loyalty_cover': loyalty_cover,
+                'cash_due': cash_due,
+                'payment_type': payment_type,
+            })
+
         available_products = Product.objects.filter(branch=worker.branch)
         context = {
             'service_order': service_order,
             'services_rendered': services_rendered,
-            'loyalty_points': customer.loyalty_points if customer else 0,
+            'loyalty_points': loyalty_points,
             'available_products': available_products,
             'subscription_active': subscription_active,
             'cust_sub': cust_sub,
-            'covered_by_subscription': covered_by_subscription,
+            'covered_details': covered_details,  # new breakdown info for template display
+            'total_cash_est': total_cash_est,  # total estimated cash due
         }
         return render(request, 'layouts/workers/confirm_service_order.html', context)
 
-    # ------------------ POST: Finalize the order ------------------
+    # --------------------- HANDLE FINALIZATION (POST) ---------------------
     old_status = service_order.status
-    new_status = request.POST.get('status', 'completed')
-    payment_method = request.POST.get('payment_method', 'cash')
+    total_covered_by_loyalty = 0
+    total_covered_by_subscription = 0
 
-    # 1) Parse negotiated prices for negotiable services
+    # 1) Handle negotiable prices + compute total
+    total_services_price = 0.0
+    loyalty_used = 0.0
     for sr in services_rendered:
+        # If service is negotiable, get the new price from POST
         if sr.service.category and sr.service.category.negotiable:
-            field_name = f"negotiated_price_{sr.id}"
-            raw_value = request.POST.get(field_name, "")
+            print(sr.id)
+            raw_value = request.POST.get(f"negotiated_price_{sr.id}")
+
+            print(raw_value)
             try:
                 nego_price = float(raw_value)
             except (ValueError, TypeError):
                 nego_price = 0.0
             if nego_price <= 0:
-                messages.error(request, f"You must provide a valid negotiated price for {sr.service.service_type}")
+                messages.error(
+                    request,
+                    f"Please provide a valid negotiated price for {sr.service.service_type}"
+                )
                 return redirect('confirm_service_rendered', pk=service_order.pk)
+
             sr.negotiated_price = nego_price
             sr.save()
 
-    # 2) Update order status & payment method
-    service_order.status = new_status
-    service_order.payment_method = payment_method
+        # Sum negotiated or base
+        effective_price = float(sr.get_effective_price())
+        total_services_price += effective_price
+
+    # 2) Sum product prices
+    # total_products_price = sum(p.total_price for p in service_order.products_purchased.all())
+    original_total = total_services_price
+
+    # Update the order's total
+    service_order.total_amount = original_total
     service_order.save()
 
-    # 3) Allocate or remove commission based on status change
-    if new_status in ['completed', 'onCredit'] and old_status != new_status:
-        for sr in services_rendered:
-            sr.allocate_commission()  # initial allocation; will adjust later
-    elif old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
+    new_status = request.POST.get('status', 'completed')
+    service_order.status = new_status
+    service_order.save()
+
+    if new_status == 'canceled':
+        messages.info(request, 'Service order cancelled.')
+        return redirect('service_history')
+
+    if new_status == "pending":
+        messages.info(request, 'Service order pending.')
+        return redirect('service_history')
+
+    # 3) If reverting from completed/onCredit to pending/canceled, remove existing commissions
+    if old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
         for sr in services_rendered:
             sr.remove_commission()
 
-    # 4) Calculate base totals using negotiated or standard prices
-    total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
-    total_products_price = sum(p.total_price for p in service_order.products_purchased.all())
-    recalculated_total = total_services_price + total_products_price
+    # 4) We'll reassign commissions if new_status is completed/onCredit at the end
 
-    # 5 & 6) Subscription & Loyalty redemption logic – only apply if order is not on credit.
-    subscription_covered_ids = []
-    redeem_service_ids = []
-    loyalty_points_needed = 0
-    if new_status != 'onCredit' and customer:
-        if subscription_active and service_order.vehicle:
-            for sr in services_rendered:
-                if (sr.service in cust_sub.subscription.services.all() and
-                    service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
-                    subscription_covered_ids.append(sr.id)
-            for sr in services_rendered:
-                if sr.id in subscription_covered_ids:
-                    recalculated_total -= get_sr_price(sr)
+    # 5) Coverage per service: subscription -> loyalty -> leftover is cash
+    coverage_list = []
 
-        for sr in services_rendered:
-            if f'redeem_service_{sr.id}' in request.POST:
-                redeem_service_ids.append(sr.id)
-        for sr in services_rendered:
-            if sr.id in redeem_service_ids and sr.id not in subscription_covered_ids:
-                recalculated_total -= get_sr_price(sr)
-                loyalty_points_needed += sr.service.loyalty_points_required
+    has_active_subscription = subscription_active
+    print(has_active_subscription)
+    total_loyalty_used = 0
 
-    if recalculated_total < 0:
-        recalculated_total = 0
+    for sr in services_rendered:
+        service_cost = sr.get_effective_price()
+        original_cost = service_cost
+        covered_by_subscription = 0.0
+        covered_by_loyalty = 0.0
+        covered_by_cash = 0.0
+        payment_type = "Cash"
 
-    # 7) Apply discount
+        # (a) Subscription coverage (fully or partially)
+        if has_active_subscription:
+            if (
+                    sr.service in cust_sub.subscription.services.all()
+                    and service_order.vehicle
+                    and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
+            ):
+                print(f"yes this {sr.service} is in this subscription")
+                if cust_sub.sub_amount_remaining >= service_cost:
+                    covered_by_subscription += service_cost
+                    print(covered_by_subscription)
+                    payment_type = "Subscription"
+
+                    cust_sub.used_amount += service_cost
+                    cust_sub.sub_amount_remaining -= service_cost
+                    cust_sub.save()
+
+                    CustomerSubscriptionTrail.objects.create(
+                        subscription=cust_sub,
+                        amount_used=service_cost,
+                        remaining_balance=cust_sub.sub_amount_remaining,
+                        date_used=timezone.now(),
+                        customer=customer,
+                        order=service_order
+                    )
+                    service_order.subscription_package_used = cust_sub
+                    total_covered_by_subscription += service_cost
+                    service_cost = 0
+                else:
+                    if cust_sub.sub_amount_remaining == 0:
+                        pass
+                    else:
+                        # partial coverage
+                        covered_by_subscription = cust_sub.sub_amount_remaining
+                        total_covered_by_subscription += cust_sub.sub_amount_remaining
+                        CustomerSubscriptionTrail.objects.create(
+                            subscription=cust_sub,
+                            amount_used=cust_sub.sub_amount_remaining,
+                            remaining_balance=0,
+                            date_used=timezone.now(),
+                            customer=customer,
+                            order=service_order
+                        )
+                        service_order.subscription_package_used = cust_sub.subscription
+                        service_cost -= cust_sub.sub_amount_remaining
+                        cust_sub.sub_amount_remaining = 0
+                        cust_sub.save()
+                        payment_type = "Subscription"  # might add more coverage next
+
+        # (b) Loyalty coverage (fully or partially)
+        if service_cost > 0 and customer and customer.loyalty_points > 0:
+            if customer.loyalty_points >= sr.service.loyalty_points_required:
+                covered_by_loyalty = service_cost
+                total_covered_by_loyalty += service_cost
+
+                customer.loyalty_points = customer.loyalty_points - sr.service.loyalty_points_required
+                customer.save()
+                total_loyalty_used += sr.service.loyalty_points_required
+                print(customer.loyalty_points)
+                service_cost = 0
+                payment_type = "Subscription + Loyalty" if covered_by_subscription > 0 else "Loyalty"
+
+                LoyaltyTransaction.objects.create(
+                    customer=customer,
+                    points=int(total_loyalty_used),
+                    transaction_type='redeem',
+                    description=f"Loyalty redeemed for {sr.service}",
+                    branch=service_order.branch,
+                    order=service_order
+                )
+            else:
+                pass
+
+        # (c) Leftover is cash if completed (or onCredit, see below)
+        if service_cost > 0:
+            covered_by_cash = total_services_price - (total_covered_by_loyalty + total_covered_by_subscription)
+            print("service cost covered by cash", covered_by_cash)
+            service_order.cash_paid = covered_by_cash
+            service_order.save()
+            if covered_by_subscription > 0 and covered_by_loyalty > 0:
+                payment_type = "Subscription + Loyalty + Cash"
+            elif covered_by_subscription > 0:
+                payment_type = "Subscription + Cash"
+            elif covered_by_loyalty > 0:
+                payment_type = "Loyalty + Cash"
+            else:
+                payment_type = "Cash"
+
+        # If you store the payment_type in ServiceRendered, update it
+        sr.payment_type = payment_type
+        sr.save()
+
+    # 6) Apply discount only on the leftover cash portion
+    print(total_covered_by_loyalty)
+    print(total_covered_by_subscription)
+
+    print(coverage_list)
+    service_order.loyalty_points_amount_deduction = total_covered_by_loyalty
+    service_order.save()
+    print(covered_by_cash, "outside")
+    leftover_before_discount = covered_by_cash
     discount_type = request.POST.get('discount_type', 'amount')
     discount_value_str = request.POST.get('discount_value', '0')
+
     try:
         discount_value = float(discount_value_str)
     except ValueError:
         discount_value = 0.0
-    discount_value = max(discount_value, 0)
+    discount_value = max(discount_value, 0.0)
+
     if discount_type == 'percentage':
         discount_value = min(discount_value, 100)
-        discount_amount = (recalculated_total * discount_value) / 100.0
+        discount_amount = leftover_before_discount * (discount_value / 100.0)
     else:
-        discount_amount = min(discount_value, recalculated_total)
-    recalculated_total -= discount_amount
-    if recalculated_total < 0:
-        recalculated_total = 0
+        discount_amount = min(leftover_before_discount, discount_value)
 
-    # 7a) Calculate discount factor for commission (services vs. products)
-    if total_services_price + total_products_price > 0:
-        discount_on_services = discount_amount * (total_services_price / (total_services_price + total_products_price))
-    else:
-        discount_on_services = 0
-    if total_services_price > 0:
-        discount_factor = (total_services_price - discount_on_services) / total_services_price
-    else:
-        discount_factor = 1
+    leftover_after_discount = leftover_before_discount - discount_amount
+    service_order.cash_paid = leftover_after_discount
+    service_order.final_amount = leftover_after_discount
 
-    # 8) Save final amount in order
-    service_order.final_amount = recalculated_total
-    service_order.discount_type = discount_type
-    service_order.discount_value = discount_value
     service_order.save()
 
-    leftover = recalculated_total
-
-    # 9) Deduct loyalty if applicable (skip for onCredit orders)
-    if new_status != 'onCredit' and customer and loyalty_points_needed > 0:
-        if customer.loyalty_points >= loyalty_points_needed:
-            customer.loyalty_points -= loyalty_points_needed
-            LoyaltyTransaction.objects.create(
-                customer=customer,
-                points=-loyalty_points_needed,
-                transaction_type='redeem',
-                description=f"Redeemed {len(redeem_service_ids)} service(s) with loyalty",
-                branch=service_order.branch,
-            )
-        else:
-            messages.warning(request, "Not enough points to redeem selected services.")
-
-    # If payment method is loyalty, further deduct leftover from loyalty
-    if customer and payment_method == 'loyalty':
-        points_to_use = min(customer.loyalty_points, leftover)
-        leftover -= points_to_use
-        customer.loyalty_points -= points_to_use
-        if points_to_use > 0:
-            LoyaltyTransaction.objects.create(
-                customer=customer,
-                points=-points_to_use,
-                transaction_type='redeem',
-                description=f"Final payment coverage for {service_order.service_order_number}",
-                branch=service_order.branch,
-            )
-        customer.save()
-
-    # 10) If onCredit, create Arrears and commission expense
-    from .models import Expense, Arrears
+    # 7) If onCredit => leftover is uncollected => Arrears; if completed => leftover is actual cash
+    final_cash_paid = 0.0
     if new_status == 'onCredit':
+        final_cash_paid = 0.0
         if not hasattr(service_order, 'arrears'):
             Arrears.objects.create(
                 service_order=service_order,
                 branch=service_order.branch,
-                amount_owed=leftover
-            )
-        total_commission = Commission.objects.filter(
-            service_rendered__order=service_order
-        ).aggregate(sum=Sum('amount'))['sum'] or 0
-        Expense.objects.create(
-            branch=service_order.branch,
-            description=f"Commission expense for onCredit {service_order.service_order_number}",
-            amount=total_commission,
-            user=user
-        )
-    # 11) If completed, create Revenue (or record commission expense for loyalty/subscription payments)
-    elif new_status == 'completed':
-        from .models import Revenue
-        if payment_method in ['cash', 'momo', 'subscription-cash', 'subscription-momo', 'loyalty-cash']:
-            if leftover > 0:
-                if not Revenue.objects.filter(service_rendered=service_order).exists():
-                    Revenue.objects.create(
-                        service_rendered=service_order,
-                        branch=service_order.branch,
-                        amount=leftover,
-                        final_amount=leftover,
-                        user=user
-                    )
-        elif payment_method == 'loyalty':
-            total_commission = Commission.objects.filter(
-                service_rendered__order=service_order
-            ).aggregate(sum=Sum('amount'))['sum'] or 0
-            Expense.objects.create(
-                branch=service_order.branch,
-                description=f"Loyalty coverage commission expense for {service_order.service_order_number}",
-                amount=total_commission,
-                user=user
-            )
-        elif payment_method == 'subscription':
-            total_commission = Commission.objects.filter(
-                service_rendered__order=service_order
-            ).aggregate(sum=Sum('amount'))['sum'] or 0
-            Expense.objects.create(
-                branch=service_order.branch,
-                description=f"Subscription coverage commission expense for {service_order.service_order_number}",
-                amount=total_commission,
-                user=user
-            )
-
-    # 12) Earn loyalty if completed
-    if new_status == 'completed' and customer:
-        for sr in services_rendered:
-            pts = sr.service.loyalty_points_earned
-            if pts > 0:
-                LoyaltyTransaction.objects.create(
-                    customer=customer,
-                    points=pts,
-                    transaction_type='gain',
-                    description=f"Points earned for {sr.service.service_type}",
-                    branch=service_order.branch,
-                )
-                customer.loyalty_points += pts
-        customer.save()
-
-    # 13) Recalculate commission on services based on final discount.
-    # Remove old commission records and reallocate commission using discount_factor.
-    for sr in services_rendered:
-        Commission.objects.filter(service_rendered=sr).delete()
-        if sr.id not in redeem_service_ids and sr.id not in subscription_covered_ids:
-            effective_price = get_sr_price(sr) * discount_factor
-            commission_amount = (effective_price * sr.service.commission_rate) / 100
-            sr.commission_amount = commission_amount
-            sr.save()
-            assigned_workers = sr.workers.all()
-            if assigned_workers.exists() and commission_amount > 0:
-                commission_per_worker = commission_amount / assigned_workers.count()
-                for w in assigned_workers:
-                    Commission.objects.create(
-                        worker=w,
-                        service_rendered=sr,
-                        amount=commission_per_worker,
-                        date=timezone.now().date()
-                    )
-
-    # 14) Optional: Send SMS with receipt details.
-    if customer and phone_number:
-        service_lines = []
-        for sr in services_rendered:
-            price_used = get_sr_price(sr)
-            service_lines.append(f"{sr.service.service_type} - GHS {price_used:.2f}")
-        product_lines = []
-        for prod in service_order.products_purchased.all():
-            product_lines.append(f"{prod.product.name} x{prod.quantity} => GHS {prod.total_price:.2f}")
-        receipt_url = request.build_absolute_uri(reverse('service_receipt', args=[service_order.id]))
-        feedback_url = request.build_absolute_uri(reverse('service_feedback', args=[service_order.id]))
-        if new_status == 'onCredit':
-            # Use final_amount from the order and indicate pending payment.
-            message = (
-                f"Hello {customer.user.first_name}, your service for {service_order.vehicle.car_plate} "
-                f"with amount of GHS {service_order.final_amount:.2f} has been completed."
-                f"Details: {receipt_url}"
+                amount_owed=leftover_after_discount
             )
         else:
-            message = (
-                f"Hello {customer.user.first_name}, your payment of GHS {service_order.final_amount:.2f} "
-                f"for {service_order.vehicle.car_plate} has been received. Thank you! Leave feedback: {feedback_url}"
+            service_order.arrears.amount_owed = leftover_after_discount
+            service_order.arrears.is_paid = False
+            service_order.arrears.date_paid = None
+            service_order.arrears.save()
+    elif new_status == 'completed':
+        final_cash_paid = leftover_after_discount
+        # Remove old arrears if any
+        if hasattr(service_order, 'arrears'):
+            service_order.arrears.delete()
+
+    # 8) Store summary usage on the order
+    service_order.discount_type = discount_type
+    service_order.discount_value = discount_value
+    service_order.final_amount = leftover_after_discount
+    service_order.cash_paid = final_cash_paid
+    service_order.subscription_amount_used = total_covered_by_subscription
+    service_order.loyalty_points_used = total_loyalty_used
+    service_order.loyalty_points_amount_deduction = total_covered_by_loyalty
+    service_order.save()
+
+    # 9) Deduct from subscription & create usage trails
+    # if has_active_subscription:
+    #     total_sub_used = sum(item['covered_sub'] for item in coverage_list)
+    #     if total_sub_used > 0:
+    #         cust_sub.used_amount += total_sub_used
+    #         cust_sub.sub_amount_remaining -= total_sub_used
+    #         cust_sub.save()
+    #
+    #         from .models import CustomerSubscriptionTrail
+    #         for item in coverage_list:
+    #             if item['covered_sub'] > 0:
+    #                 CustomerSubscriptionTrail.objects.create(
+    #                     subscription=cust_sub,
+    #                     amount_used=item['covered_sub'],
+    #                     remaining_balance=cust_sub.sub_amount_remaining,
+    #                     date_used=timezone.now(),
+    #                     customer=customer,
+    #                     order=service_order
+    #                 )
+
+    # 11) If completed => create commissions & revenue. If onCredit => no revenue
+    if new_status == 'completed':
+        # Remove old commissions if toggling from older states
+        for sr in services_rendered:
+            sr.remove_commission()
+
+        # Decide discount factor for commissions if you want it to reflect total coverage
+        discount_factor = 1.0
+        if original_total > 0:
+            covered_portion = (
+                    (service_order.subscription_amount_used or 0)
+                    + (service_order.loyalty_points_amount_deduction or 0)
+                    + final_cash_paid
             )
-        send_sms(customer.user.phone_number, message)
-        print(message)
+            discount_factor = covered_portion / original_total
+
+        # Allocate commission
+        for sr in services_rendered:
+            sr.allocate_commission(discount_factor=discount_factor)
+
+        # Create revenue entries for each service
+        # for item in coverage_list:
+        #     sr = item['sr']
+        #     service_final_price = item['original_cost']
+        #     Revenue.objects.create(
+        #         service_rendered=service_order,
+        #         branch=service_order.branch,
+        #         amount=service_final_price,
+        #         final_amount=service_final_price,
+        #         user=user,
+        #         date=timezone.now().date()
+        #     )
+        Revenue.objects.create(
+            service_rendered=service_order,
+            branch=service_order.branch,
+            amount=service_order.total_amount,
+            final_amount=service_order.final_amount,
+            user=user,
+            date=timezone.now().date()
+        )
+
+    elif new_status == 'onCredit':
+        for sr in services_rendered:
+            sr.remove_commission()
+            # Decide discount factor for commissions if you want it to reflect total coverage
+        discount_factor = 1.0
+        if original_total > 0:
+            covered_portion = (
+                    (service_order.subscription_amount_used or 0)
+                    + (service_order.loyalty_points_amount_deduction or 0)
+                    + final_cash_paid
+            )
+            discount_factor = covered_portion / original_total
+
+        # Allocate commission
+        for sr in services_rendered:
+            sr.allocate_commission(discount_factor=discount_factor)
+
+    # 12) Award loyalty points if completed
+    if new_status == 'completed' and customer:
+        total_earned = sum(sr.service.loyalty_points_earned for sr in services_rendered)
+        if total_earned > 0:
+            customer.loyalty_points += total_earned
+            customer.save()
+
+            LoyaltyTransaction.objects.create(
+                customer=customer,
+                points=total_earned,
+                transaction_type='gain',
+                description=f"Loyalty earned for {service_order.service_order_number}",
+                branch=service_order.branch,
+                order=service_order
+            )
 
     messages.success(request, f"Service updated to {new_status}.")
+
     if new_status in ['completed', 'onCredit']:
         return redirect('service_receipt', pk=service_order.pk)
+
     return redirect('index')
 
 
-
 def service_receipt(request, pk):
+    from .models import ServiceRenderedOrder, CustomerSubscriptionTrail, LoyaltyTransaction
+
     service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
-    services_rendered = service_order.rendered.all()
-    products_purchased = service_order.products_purchased.all()
+    services_rendered = service_order.rendered.select_related('service').all()
 
-    def get_sr_price(sr):
-        return sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
+    # Sum up final for display
+    def get_price(sr):
+        return sr.negotiated_price if sr.negotiated_price else sr.service.price
 
-    total_services_price = sum(get_sr_price(sr) for sr in services_rendered)
-    total_products_price = sum(p.total_price for p in products_purchased)
+    total_services_price = sum(get_price(sr) for sr in services_rendered)
+    # total_products_price = sum(p.total_price for p in products_purchased)
     final_amount = service_order.final_amount or 0
+
+    # If you want to show subscription usage and loyalty transactions specifically for this order:
+    subscription_trails = CustomerSubscriptionTrail.objects.filter(order=service_order)
+    loyalty_transactions = LoyaltyTransaction.objects.filter(order=service_order)
 
     context = {
         'service_order': service_order,
         'services_rendered': services_rendered,
-        'products_purchased': products_purchased,
         'total_services_price': total_services_price,
-        'total_products_price': total_products_price,
         'final_amount': final_amount,
+        'subscription_trails': subscription_trails,
+        'loyalty_transactions': loyalty_transactions,
     }
     return render(request, 'layouts/workers/service_receipt.html', context)
 
@@ -1130,8 +1254,6 @@ def service_feedback_page(request, pk):
     return render(request, "layouts/service_feedback_page.html", context)
 
 
-
-
 def thank_you_feedback(request, pk):
     """
     Simple 'thank you' page after customer provides feedback.
@@ -1408,7 +1530,6 @@ def service_history(request):
     return render(request, 'layouts/workers/service_history.html', context)
 
 
-
 # ----------------------------------------------------------------
 #                       CUSTOMER VIEWS
 # ----------------------------------------------------------------
@@ -1416,28 +1537,77 @@ def service_history(request):
 @login_required(login_url='login')
 def customer_dashboard(request):
     """
-    Dashboard for a customer user: shows recent services, active subscription,
-    loyalty points, transactions, and their vehicles.
+    Dashboard for a customer user:
+    - Shows recent service orders (latest 10) and full list in a modal.
+    - Active subscription details (if any).
+    - Recent subscription trails (latest 10) with a "View All" modal.
+    - Recent loyalty transactions (latest 10) with a "View All" modal.
+    - Recent subscription renewal trails (latest 10) with a "View All" modal.
+    - Registered vehicles (latest 10) with a "View All" modal.
+    - Any arrears.
+    - Also provides a scanned URL for quick logging of services.
     """
     customer = get_object_or_404(Customer, user=request.user)
+
     services_rendered = ServiceRenderedOrder.objects.filter(customer=customer).order_by('-date')[:5]
+    all_services_rendered = ServiceRenderedOrder.objects.filter(customer=customer).order_by('-date')
+
     active_subscription = CustomerSubscription.objects.filter(
         customer=customer,
-        end_date__gte=timezone.now()
+        end_date__gte=timezone.now().date()
     ).first()
-    loyalty_points = customer.loyalty_points
+
+    subscription_trails = CustomerSubscriptionTrail.objects.filter(customer=customer).order_by('-date_used')[:5]
+    all_subscription_trails = CustomerSubscriptionTrail.objects.filter(customer=customer).order_by('-date_used')
+
     loyalty_transactions = LoyaltyTransaction.objects.filter(customer=customer).order_by('-date')[:5]
-    vehicles = CustomerVehicle.objects.filter(customer=customer)
+    all_loyalty_transactions = LoyaltyTransaction.objects.filter(customer=customer).order_by('-date')
+
+    renewal_trails = CustomerSubscriptionRenewalTrail.objects.filter(customer=customer).order_by('-date_renewed')[:5]
+    all_renewal_trails = CustomerSubscriptionRenewalTrail.objects.filter(customer=customer).order_by('-date_renewed')
+
+    vehicles = CustomerVehicle.objects.filter(customer=customer)[:10]
+    all_vehicles = CustomerVehicle.objects.filter(customer=customer)
+
+    arrears = Arrears.objects.filter(service_order__customer=customer).order_by('-date_created')
+
+    scanned_url = request.build_absolute_uri(reverse('log_service_scanned', args=[customer.id]))
 
     context = {
         'customer': customer,
         'services_rendered': services_rendered,
+        'all_services_rendered': all_services_rendered,
         'active_subscription': active_subscription,
-        'loyalty_points': loyalty_points,
+        'subscription_trails': subscription_trails,
+        'all_subscription_trails': all_subscription_trails,
         'loyalty_transactions': loyalty_transactions,
+        'all_loyalty_transactions': all_loyalty_transactions,
+        'renewal_trails': renewal_trails,
+        'all_renewal_trails': all_renewal_trails,
         'vehicles': vehicles,
+        'all_vehicles': all_vehicles,
+        'arrears': arrears,
+        'scanned_url': scanned_url,
+        'current_year': timezone.now().year,
+        'loyalty_points': customer.loyalty_points,
     }
     return render(request, 'layouts/customers/customer_index.html', context)
+
+
+@login_required(login_url='login')
+def customer_profile(request):
+    user = request.user
+    if request.method == 'POST':
+        form = CustomerProfileForm(request.POST, instance=user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Profile updated successfully.")
+            return redirect('customer_profile')
+        else:
+            messages.error(request, "Please correct the errors below.")
+    else:
+        form = CustomerProfileForm(instance=user)
+    return render(request, 'layouts/customers/customer_profile.html', {'form': form})
 
 
 @login_required(login_url='login')
@@ -1447,7 +1617,7 @@ def customer_service_history(request):
     """
     user = get_object_or_404(CustomUser, id=request.user.id)
     customer = get_object_or_404(Customer, user=user)
-    services_rendered = ServiceRenderedOrder.objects.filter(customer=customer).order_by('-date')[:20]
+    services_rendered = ServiceRenderedOrder.objects.filter(customer=customer)
 
     return render(
         request,
@@ -2000,16 +2170,31 @@ def manage_customers(request):
 @staff_member_required
 def customer_detail_admin(request, customer_id):
     """
-    Admin view to see details of a specific customer, including vehicles and service orders.
+    Admin view to see details of a specific customer, including vehicles,
+    service orders, loyalty transactions, subscription trails, and the latest renewal trail.
+    Also provides options to enroll/renew the customer on a subscription.
     """
     customer = get_object_or_404(Customer, id=customer_id)
     vehicles = CustomerVehicle.objects.filter(customer=customer)
     service_orders = ServiceRenderedOrder.objects.filter(customer=customer).order_by('-date')
 
+    # Get loyalty transactions sorted from latest to oldest
+    loyalty_transactions = customer.loyalty_transactions.all().order_by('-date')
+    # Get subscription trails for this customer, latest first
+    from .models import CustomerSubscriptionTrail, CustomerSubscriptionRenewalTrail
+    subscription_trails = CustomerSubscriptionTrail.objects.filter(customer=customer).order_by('-date_used')
+    # Get the latest subscription renewal trail (if any)
+    latest_renewal = CustomerSubscriptionRenewalTrail.objects.filter(customer=customer).order_by('-date_renewed').first()
+    latest_subscription = CustomerSubscription.objects.filter(customer=customer).order_by('-start_date').first()
+
     context = {
         'customer': customer,
         'vehicles': vehicles,
         'service_orders': service_orders,
+        'loyalty_transactions': loyalty_transactions,
+        'subscription_trails': subscription_trails,
+        'latest_renewal': latest_renewal,
+        'latest_subscription': latest_subscription,
     }
     return render(request, 'layouts/admin/customer_detail_admin.html', context)
 
@@ -2618,7 +2803,7 @@ def commission_breakdown(request):
     commissions = Commission.objects.filter(
         worker=worker,
         date=date_obj
-    ).select_related('service_rendered__service', 'service_rendered__order__vehicle')
+    ).select_related('service_rendered__service', 'service_rendered__order__vehicle').reverse()
 
     data = []
     for c in commissions:
@@ -4009,7 +4194,7 @@ def customer_page_add_vehicle_to_customer(request, customer_id):
         except VehicleGroup.DoesNotExist:
             return JsonResponse({'success': False, 'error': 'Invalid vehicle group'}, status=400)
 
-        new_vehicle = CustomerVehicle.objects.create(
+        new_vehicle = Vehicle.objects.create(
             customer=customer,
             vehicle_group=group,
             car_make=car_make,
@@ -4140,3 +4325,214 @@ def edit_customer(request, customer_id):
     else:
         form = CustomerEditForm(instance=customer)
     return render(request, 'layouts/edit_customer.html', {'form': form, 'customer': customer})
+
+
+@staff_member_required
+@transaction.atomic
+def enroll_subscription(request, customer_id):
+    """
+    Enrolls a customer in a new subscription.
+    GET: Display a form with a dropdown of available subscriptions.
+         When a subscription is selected, its services are shown via JS.
+    POST: Create a new CustomerSubscription for the customer.
+    """
+    customer = get_object_or_404(Customer, id=customer_id)
+    subscriptions = Subscription.objects.all()
+
+    # Build a dictionary mapping subscription id to its services (id, service_type, price)
+    sub_services = {}
+    for sub in subscriptions:
+        sub_services[sub.id] = list(sub.services.all().values('id', 'service_type', 'price'))
+
+    # Convert the dictionary to a JSON string.
+    sub_services_json = json.dumps(sub_services)
+
+    if request.method == 'POST':
+        sub_id = request.POST.get('subscription')
+        if not sub_id:
+            error = "Please select a subscription."
+            context = {
+                'customer': customer,
+                'subscriptions': subscriptions,
+                'sub_services_json': sub_services_json,
+                'error': error,
+            }
+            return render(request, 'layouts/admin/enroll_subscription.html', context)
+        try:
+            subscription = Subscription.objects.get(id=sub_id)
+        except Subscription.DoesNotExist:
+            error = "Invalid subscription selected."
+            context = {
+                'customer': customer,
+                'subscriptions': subscriptions,
+                'sub_services_json': sub_services_json,
+                'error': error,
+            }
+            return render(request, 'layouts/admin/enroll_subscription.html', context)
+        # Create a new CustomerSubscription
+        start_date = timezone.now().date()
+        end_date = start_date + timezone.timedelta(days=subscription.duration_in_days)
+        CustomerSubscription.objects.create(
+            customer=customer,
+            subscription=subscription,
+            start_date=start_date,
+            end_date=end_date,
+            branch=customer.branch,
+            used_amount=0,
+            sub_amount_remaining=subscription.amount
+        )
+        return redirect('customer_detail_admin', customer_id=customer.id)
+
+    return render(request, 'layouts/admin/enroll_subscription.html', {
+        'customer': customer,
+        'subscriptions': subscriptions,
+        'sub_services_json': sub_services_json,
+    })
+
+
+@staff_member_required
+@transaction.atomic
+def renew_subscription(request, customer_id):
+    """
+    Renews the customer's latest subscription.
+
+    GET: Display the latest subscription details with a "Renew" button.
+    POST: Reset used_amount to 0, add the subscription's amount to the remaining balance,
+          and create a renewal trail record.
+    """
+    customer = get_object_or_404(Customer, id=customer_id)
+    # Get the latest subscription; adjust ordering as needed.
+    latest_sub = CustomerSubscription.objects.filter(customer=customer).order_by('-start_date').first()
+    if not latest_sub:
+        from django.contrib import messages
+        messages.error(request, "Customer has no subscription to renew.")
+        return redirect('customer_detail_admin', customer_id=customer.id)
+
+    if request.method == 'POST':
+        renewal_amount = latest_sub.subscription.amount
+        # Reset used amount and add the new amount to the remaining balance.
+        latest_sub.used_amount = 0
+        latest_sub.sub_amount_remaining += renewal_amount
+        latest_sub.last_rollover = timezone.now()
+        latest_sub.save()
+
+        # Create a renewal trail record.
+        CustomerSubscriptionRenewalTrail.objects.create(
+            subscription=latest_sub,
+            amount_for_renewal=renewal_amount,
+            customer=customer
+        )
+
+        from django.contrib import messages
+        messages.success(request, "Subscription renewed successfully!")
+        return redirect('customer_detail_admin', customer_id=customer.id)
+
+    return render(request, 'layouts/admin/renew_subscription.html', {
+        'customer': customer,
+        'subscription': latest_sub,
+    })
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def log_service_scanned(request, customer_id):
+    """
+    A specialized flow for scanning a QR code that identifies a customer (customer_id).
+    We skip selecting the customer because it's known from the URL.
+    The worker picks the vehicle, services, workers, etc., then we create an order in 'pending' status.
+    Finally, redirect to confirm_service_rendered.
+    """
+    user = request.user
+    try:
+        worker = Worker.objects.get(user=user)
+    except Worker.DoesNotExist:
+        messages.error(request, "You are not authorized to log services.")
+        return redirect('index')
+
+    customer = get_object_or_404(Customer, id=customer_id)
+
+    if request.method == 'POST':
+        form = LogServiceScannedForm(branch=worker.branch, customer=customer, data=request.POST)
+        if form.is_valid():
+            # We don't pick a customer from the form; we already have 'customer'
+            vehicle = form.cleaned_data['vehicle']
+            selected_services = form.cleaned_data['service']
+            selected_workers = form.cleaned_data['workers']
+            # If you want product logic, handle it similarly:
+            selected_products = form.cleaned_data.get('products', [])
+            product_quantities = request.POST.getlist('product_quantity')  # etc.
+
+            # Sum up services at standard (non-negotiated) price
+            total_services = sum(svc.price for svc in selected_services)
+            total = total_services
+
+            # Create the ServiceRenderedOrder with status 'pending'
+            new_order = ServiceRenderedOrder.objects.create(
+                customer=customer,
+                user=request.user,
+                total_amount=total,
+                final_amount=total,
+                vehicle=vehicle,
+                branch=worker.branch,
+                status='pending'
+            )
+            new_order.workers.set(selected_workers)
+
+            # Create ServiceRendered entries
+            for svc in selected_services:
+                sr = ServiceRendered.objects.create(
+                    service=svc,
+                    order=new_order,
+                    negotiated_price=svc.price,  # handle negotiation at confirmation
+                    payment_type="Cash"
+                )
+                sr.workers.set(selected_workers)
+
+            messages.success(request, "Service logged successfully (status=pending).")
+            return redirect('confirm_service_rendered', pk=new_order.pk)
+        else:
+            messages.error(request, "Form is invalid. Please correct any errors.")
+    else:
+        form = LogServiceScannedForm(branch=worker.branch, customer=customer)
+
+    # additional context for your template
+    products = Product.objects.filter(branch=worker.branch)
+    context = {
+        'form': form,
+        'customer': customer,
+        'products': products,
+    }
+    return render(request, 'layouts/workers/log_service_scanned.html', context)
+
+
+@staff_member_required
+def generate_subscription_card(request, subscription_id):
+    import qrcode
+    from io import BytesIO
+    from base64 import b64encode
+    subscription = get_object_or_404(CustomerSubscription, id=subscription_id)
+    customer = subscription.customer
+    scanned_url = request.build_absolute_uri(reverse('log_service_scanned', args=[customer.id]))
+    is_active = subscription.is_active()
+
+    # Generate QR code image
+    qr = QRCode(version=1, box_size=5, border=2)
+    qr.add_data(scanned_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    # Convert to base64
+    buffer = BytesIO()
+    img.save(buffer, format='PNG')
+    qr_base64 = b64encode(buffer.getvalue()).decode('utf-8')
+
+    context = {
+        'subscription': subscription,
+        'customer': customer,
+        'is_active': is_active,
+        'status_text': "Active" if is_active else "Expired",
+        'qr_base64': qr_base64,
+        'scanned_url': scanned_url
+    }
+    return render(request, 'layouts/admin/subscription_card.html', context)
+

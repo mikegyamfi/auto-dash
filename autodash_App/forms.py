@@ -458,6 +458,94 @@ class CustomerEditForm(forms.ModelForm):
         return customer
 
 
+class LogServiceScannedForm(forms.Form):
+    vehicle = forms.ModelChoiceField(
+        queryset=CustomerVehicle.objects.none(),
+        widget=forms.Select(attrs={'class': 'form-control', 'id': 'vehicle-select-scanned'}),
+        empty_label="Select Vehicle",
+        required=False
+    )
+    service = forms.ModelMultipleChoiceField(
+        queryset=Service.objects.none(),
+        widget=forms.SelectMultiple(attrs={
+            'class': 'form-control',
+            'placeholder': 'Select services',
+            'id': 'service-select-scanned',
+        }),
+    )
+    workers = forms.ModelMultipleChoiceField(
+        queryset=None,
+        label="Select Workers",
+        widget=forms.SelectMultiple(attrs={
+            'class': 'form-control',
+            'placeholder': 'Select Workers',
+        }),
+    )
+    negotiated_prices = forms.CharField(widget=forms.HiddenInput(), required=False)
+
+    def __init__(self, branch, customer, *args, **kwargs):
+        """
+        branch: worker.branch
+        customer: The Customer object (already known from scanned link).
+        """
+        super().__init__(*args, **kwargs)
+
+        # Workers are from the same branch as the scanning worker
+        self.fields['workers'].queryset = Worker.objects.filter(branch=branch)
+
+        # Vehicles only belong to this specific customer
+        self.fields['vehicle'].queryset = CustomerVehicle.objects.filter(customer=customer)
+
+        # If there's a "vehicle" in data or initial, limit the services
+        if 'vehicle' in self.data:
+            try:
+                vehicle_id = int(self.data.get('vehicle'))
+                vehicle_obj = CustomerVehicle.objects.get(id=vehicle_id)
+                vehicle_group = vehicle_obj.vehicle_group
+                self.fields['service'].queryset = Service.objects.filter(vehicle_group=vehicle_group, active=True)
+            except (ValueError, TypeError, CustomerVehicle.DoesNotExist):
+                pass
+        elif self.initial.get('vehicle'):
+            try:
+                vehicle_obj = CustomerVehicle.objects.get(id=self.initial['vehicle'])
+                vehicle_group = vehicle_obj.vehicle_group
+                self.fields['service'].queryset = Service.objects.filter(vehicle_group=vehicle_group, active=True)
+            except (ValueError, TypeError, CustomerVehicle.DoesNotExist):
+                pass
+        else:
+            self.fields['service'].queryset = Service.objects.none()
+
+    def clean_service(self):
+        services = self.cleaned_data.get('service')
+        if not services:
+            raise forms.ValidationError("Please select at least one service.")
+        return services
+
+    def clean_negotiated_prices(self):
+        data = self.cleaned_data.get('negotiated_prices') or "{}"
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            parsed = {}
+        return parsed
+
+
+class CustomerProfileForm(forms.ModelForm):
+    class Meta:
+        model = CustomUser
+        fields = ['first_name', 'last_name', 'phone_number', 'email', 'address']
+        widgets = {
+            'first_name': forms.TextInput(attrs={'class': 'form-control'}),
+            'last_name': forms.TextInput(attrs={'class': 'form-control'}),
+            'phone_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control'}),
+            'address': forms.TextInput(attrs={'class': 'form-control'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['email'].required = False
+        self.fields['address'].required = False
 
 
 

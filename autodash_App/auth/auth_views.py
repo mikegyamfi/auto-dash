@@ -53,12 +53,14 @@ def login_page(request):
             user = authenticate(request, username=name, password=password)
             print(user)
             if user:
+                print("user is available")
                 if not user.approved:
                     messages.warning(request, "You are not yet approved")
                     return redirect('login')
                 login(request, user)
                 messages.success(request, 'Log in Successful')
                 if user.role == 'customer':
+                    print("user role is customer")
                     return redirect('customer_dashboard')
                 return redirect('index')
             else:

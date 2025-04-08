@@ -1,42 +1,73 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
 <!-- Layout wrapper -->
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Menu -->
     {% include 'inc/side_nav.html' %}
-    <!-- / Menu -->
-
-    <!-- Layout container -->
     <div class="layout-page">
-      <!-- Navbar -->
       {% include 'inc/header.html' %}
-      <!-- / Navbar -->
-
       <!-- Content wrapper -->
       <div class="content-wrapper">
-        <!-- Content -->
+        <!-- Main Container -->
         <div class="container-xxl flex-grow-1 container-p-y">
           <h4 class="fw-bold py-3 mb-4">Customer Details</h4>
 
-          <div class="card mb-4">
-            <div class="card-body">
-              <p><strong>Name:</strong> {{ customer.user.first_name }} {{ customer.user.last_name }}</p>
-              <p><strong>Email:</strong> {{ customer.user.email }}</p>
-              <p><strong>Phone Number:</strong> {{ customer.user.phone_number }}</p>
-              <p><strong>Loyalty Points:</strong> {{ customer.loyalty_points }}</p>
+          <!-- Top Row: Customer Info & Latest Subscription -->
+          <div class="row">
+            <!-- Customer Basic Info Card (col-lg-6) -->
+            <div class="col-lg-6 mb-4">
+              <div class="card h-100">
+                <div class="card-body">
+                  <p><strong>Name:</strong> {{ customer.user.first_name }} {{ customer.user.last_name }}</p>
+                  <p><strong>Customer Type:</strong> {{ customer.customer_group }}</p>
+                  <p><strong>Phone Number:</strong> {{ customer.user.phone_number }}</p>
+                  <p><strong>Loyalty Points:</strong> {{ customer.loyalty_points }}</p>
+                </div>
+              </div>
+            </div>
+            <!-- Latest Subscription Card (col-lg-6) -->
+            <div class="col-lg-6 mb-4">
+              {% if latest_subscription %}
+                {% if latest_subscription.is_active and latest_subscription.sub_amount_remaining != 0.0 %}
+                  <!-- Active subscription: Gold style -->
+                  <div class="card h-100" style="background: linear-gradient(135deg, #af9926, #ffb300); color: #333; border: none; border-radius: 15px;">
+                {% else %}
+                  <!-- Expired subscription: Dull black style -->
+                  <div class="card h-100" style="background: #333; color: #ccc; border: none; border-radius: 15px;">
+                {% endif %}
+                    <div class="card-body d-flex flex-column justify-content-between">
+                      <div>
+                        <h5 class="card-title">{{ latest_subscription.subscription.name }}</h5>
+                        <p class="card-text"><strong>Valid Until:</strong> {{ latest_subscription.end_date|date:"Y-m-d" }}</p>
+                        <p class="card-text"><strong>Subscription Amount Remaining:</strong> GHS {{ latest_subscription.sub_amount_remaining }}</p>
+                        <p class="card-text"><strong>Subscription Price:</strong> GHS {{ latest_subscription.subscription.amount|floatformat:2 }}</p>
+                        {% if latest_subscription.is_active and latest_subscription.sub_amount_remaining != 0.0 %}
+                        <a class="btn btn-outline-light" href="{% url 'generate_subscription_card' subscription_id=latest_subscription.id %}">Generate Card</a>
+                        {%endif%}
+                      </div>
+                    </div>
+                  </div>
+              {% else %}
+                <div class="card h-100">
+                  <div class="card-body">
+                    <p>No active subscription found.</p>
+                    <a href="{% url 'enrol_customer_in_subscription' customer.id %}" class="btn btn-success btn-sm">Enroll Now</a>
+                  </div>
+                </div>
+              {% endif %}
             </div>
           </div>
 
-          <!-- Vehicles -->
+          <!-- Vehicles Card -->
           <div class="card mb-4">
             <div class="card-header">
               <h5 class="card-title m-0">Vehicles</h5>
             </div>
             <div class="card-body">
               {% if vehicles %}
-              <ul>
+              <ul class="list-unstyled mb-0">
                 {% for vehicle in vehicles %}
                 <li>{{ vehicle.car_make }} - {{ vehicle.car_plate }} ({{ vehicle.car_color }})</li>
                 {% endfor %}
@@ -47,10 +78,11 @@
             </div>
           </div>
 
-          <!-- Service Orders -->
-          <div class="card">
-            <div class="card-header">
+          <!-- Service Orders Card -->
+          <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
               <h5 class="card-title m-0">Service Orders</h5>
+              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#serviceOrdersModal">View All</button>
             </div>
             <div class="card-body">
               {% if service_orders %}
@@ -62,16 +94,18 @@
                     <th>Branch</th>
                     <th>Total Amount</th>
                     <th>Final Amount</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for order in service_orders %}
+                  {% for order in service_orders|slice:":5" %}
                   <tr>
                     <td>{{ order.date|date:"Y-m-d H:i" }}</td>
                     <td>{{ order.service_order_number }}</td>
                     <td>{{ order.branch.name }}</td>
                     <td>{{ order.total_amount|floatformat:2 }}</td>
                     <td>{{ order.final_amount|floatformat:2 }}</td>
+                    <td>{{ order.status}}</td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -81,12 +115,90 @@
               {% endif %}
             </div>
           </div>
-        </div>
-        <!-- / Content -->
 
-        <!-- Footer -->
+          <!-- Two-Column Row for Loyalty Transactions and Subscription Trails -->
+          <div class="row">
+            <!-- Loyalty Transactions Card -->
+            <div class="col-lg-6 mb-4">
+              <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="card-title m-0">Recent Loyalty Transactions</h5>
+                  <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#loyaltyModal">View All</button>
+                </div>
+                <div class="card-body">
+                  {% if loyalty_transactions %}
+                  <ul class="list-unstyled mb-0">
+                    {% for lt in loyalty_transactions|slice:":5" %}
+                    <li>
+                      <strong>{{ lt.get_transaction_type_display }}:</strong> {{ lt.points }} points on {{lt.order.vehicle.car_name}}<br>
+                      <small class="text-muted">{{ lt.date|date:"Y-m-d H:i" }}</small>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                  {% else %}
+                  <p>No loyalty transactions found.</p>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            <!-- Subscription Trails Card -->
+            <div class="col-lg-6 mb-4">
+              <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="card-title m-0">Subscription Trails</h5>
+                  <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#subscriptionTrailsModal">View All</button>
+                </div>
+                <div class="card-body">
+                  {% if subscription_trails %}
+                  <ul class="list-unstyled mb-0">
+                    {% for st in subscription_trails|slice:":5" %}
+                    <li>
+                      Used: GHS {{ st.amount_used|floatformat:2 }} on {{ st.date_used|date:"Y-m-d H:i" }} for
+                      {{st.order.vehicle.car_name}}<br>
+                      <small>Remaining: GHS {{ st.remaining_balance|floatformat:2 }}</small>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                  {% else %}
+                  <p>No subscription trails found.</p>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Latest Subscription Renewal Card -->
+          <div class="card mb-4 col-lg-6">
+            <div class="card-header">
+              <h5 class="card-title m-0">Latest Subscription Renewal</h5>
+            </div>
+            <div class="card-body">
+              {% if latest_renewal %}
+              <p>
+                <strong>Renewed On:</strong> {{ latest_renewal.date_renewed|date:"Y-m-d H:i" }}<br>
+                <strong>Renewal Amount:</strong> GHS {{ latest_renewal.amount_for_renewal|floatformat:2 }}<br>
+                <strong>Subscription:</strong> {{ latest_renewal.subscription.subscription.name }}
+              </p>
+              {% else %}
+              <p>No renewal record found.</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Enroll/Renew Subscription Actions Card -->
+          <div class="card mb-4 col-lg-6">
+            <div class="card-body d-flex flex-column justify-content-center">
+              <div class="d-grid gap-2">
+                <a href="{% url 'enrol_customer_in_subscription' customer.id %}" class="btn btn-success">Enroll in Subscription</a>
+                <a href="{% url 'renew_customer_subscription' customer.id %}" class="btn btn-info">Renew Subscription</a>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <!-- / Main Container -->
+
         {% include 'inc/footer.html' %}
-        <!-- / Footer -->
         <div class="content-backdrop fade"></div>
       </div>
       <!-- / Content wrapper -->
@@ -95,8 +207,133 @@
   </div>
   <!-- / Layout container -->
 
-  <!-- Overlay -->
-  <div class="layout-overlay layout-menu-toggle"></div>
+  <!-- Service Orders Modal -->
+  <div class="modal fade" id="serviceOrdersModal" tabindex="-1" aria-labelledby="serviceOrdersModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="serviceOrdersModalLabel">All Service Orders</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          {% if service_orders %}
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Order Number</th>
+                <th>Branch</th>
+                <th>Total Amount</th>
+                <th>Final Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for order in service_orders %}
+              <tr>
+                <td>{{ order.date|date:"Y-m-d H:i" }}</td>
+                <td>{{ order.service_order_number }}</td>
+                <td>{{ order.branch.name }}</td>
+                <td>{{ order.total_amount|floatformat:2 }}</td>
+                <td>{{ order.final_amount|floatformat:2 }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p>No service orders found.</p>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- / Service Orders Modal -->
+
+  <!-- Loyalty Transactions Modal -->
+  <div class="modal fade" id="loyaltyModal" tabindex="-1" aria-labelledby="loyaltyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="loyaltyModalLabel">All Loyalty Transactions</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          {% if loyalty_transactions %}
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Points</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for lt in loyalty_transactions %}
+              <tr>
+                <td>{{ lt.date|date:"Y-m-d H:i" }}</td>
+                <td>{{ lt.get_transaction_type_display }}</td>
+                <td>{{ lt.points }}</td>
+                <td>{{ lt.description }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p>No loyalty transactions found.</p>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- / Loyalty Transactions Modal -->
+
+  <!-- Subscription Trails Modal -->
+  <div class="modal fade" id="subscriptionTrailsModal" tabindex="-1" aria-labelledby="subscriptionTrailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="subscriptionTrailsModalLabel">All Subscription Trails</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          {% if subscription_trails %}
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date Used</th>
+                <th>Amount Used (GHS)</th>
+                <th>Remaining Balance (GHS)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for st in subscription_trails %}
+              <tr>
+                <td>{{ st.date_used|date:"Y-m-d H:i" }}</td>
+                <td>{{ st.amount_used|floatformat:2 }}</td>
+                <td>{{ st.remaining_balance|floatformat:2 }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p>No subscription trails found.</p>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- / Subscription Trails Modal -->
+
+</div>
 </div>
 <!-- / Layout wrapper -->
 {% endblock %}

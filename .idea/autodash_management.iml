@@ -16,8 +16,9 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/auto_dash_env" />
+      <excludeFolder url="file://$MODULE_DIR$/auto_env" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.13 (auto-dash)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.13 (auto-dash) (2)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

@@ -48,7 +48,8 @@ class WorkerCategory(models.Model):
 
 
 class Worker(models.Model):
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='worker_profile', null=True, blank=True)
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='worker_profile', null=True,
+                                blank=True)
     worker_category = models.ForeignKey('WorkerCategory', on_delete=models.SET_NULL, null=True, blank=True)
     gh_card_number = models.CharField(max_length=20, null=True, blank=True)
     gh_card_photo = models.ImageField(upload_to='gh_card_photos/', null=True, blank=True)
@@ -237,6 +238,9 @@ class CustomerVehicle(models.Model):
             return f"{self.customer.user.first_name} - {self.car_make}({self.car_color}) - {self.car_plate}"
         return f"{self.car_make}({self.car_color}) - {self.car_plate}"
 
+    def car_name(self):
+        return f"{self.car_make}({self.car_color}) - {self.car_plate}"
+
 
 class Subscription(models.Model):
     name = models.CharField(max_length=100)
@@ -257,6 +261,14 @@ class CustomerSubscription(models.Model):
     end_date = models.DateField()
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='subscriptions', null=True, blank=True)
 
+    used_amount = models.FloatField(default=0.0, null=True, blank=True)  # track how much has been used
+    sub_amount_remaining = models.FloatField(default=0.0, null=True, blank=True)
+    last_rollover = models.DateTimeField(null=True, blank=True)
+    last_used = models.DateTimeField(null=True, blank=True)
+    latest_renewal_date = models.DateTimeField(null=True, blank=True)
+
+    # or if you prefer you can compute on the fly from usage logs
+
     def save(self, *args, **kwargs):
         if not self.end_date:
             self.end_date = self.start_date + timezone.timedelta(days=self.subscription.duration_in_days)
@@ -264,6 +276,43 @@ class CustomerSubscription(models.Model):
 
     def is_active(self):
         return self.end_date >= timezone.now().date()
+
+    @property
+    def remaining_balance(self):
+        return self.subscription.amount - self.used_amount
+
+
+class CustomerSubscriptionTrail(models.Model):
+    subscription = models.ForeignKey(CustomerSubscription, on_delete=models.CASCADE)
+    order = models.ForeignKey('ServiceRenderedOrder', on_delete=models.CASCADE)
+    amount_used = models.FloatField()
+    remaining_balance = models.FloatField()
+    date_used = models.DateTimeField(auto_now_add=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.customer} {self.subscription}"
+
+
+class CustomerSubscriptionRenewalTrail(models.Model):
+    subscription = models.ForeignKey(CustomerSubscription, on_delete=models.CASCADE)
+    date_renewed = models.DateTimeField(auto_now_add=True)
+    amount_for_renewal = models.FloatField()
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.customer} - Renewal for {self.subscription}"
+
+    def renew(self):
+        """
+        Resets the used amount on the associated CustomerSubscription to 0
+        and adds the renewal amount to the remaining balance.
+        """
+        # Reset used amount to zero
+        self.subscription.used_amount = 0
+        # Increase the remaining balance by the renewal amount
+        self.subscription.sub_amount_remaining += self.amount_for_renewal
+        self.subscription.save()
 
 
 class LoyaltyTransaction(models.Model):
@@ -275,6 +324,7 @@ class LoyaltyTransaction(models.Model):
     points = models.IntegerField()
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES)
     description = models.TextField()
+    order = models.ForeignKey('ServiceRenderedOrder', on_delete=models.CASCADE, null=True, blank=True)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='loyalty_transactions', null=True,
                                blank=True)
     date = models.DateTimeField(auto_now_add=True)
@@ -298,7 +348,6 @@ class ServiceRenderedOrder(models.Model):
         ('canceled', 'Canceled'),
         ('onCredit', 'On Credit'),
     ]
-
     service_order_number = models.CharField(max_length=100, null=True, blank=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, null=True, blank=True)
     workers = models.ManyToManyField(Worker, blank=True)
@@ -307,9 +356,11 @@ class ServiceRenderedOrder(models.Model):
     total_amount = models.FloatField()
     amount_paid = models.FloatField(null=True, blank=True)
     final_amount = models.FloatField(null=True, blank=True)
-    discount_type = models.CharField(max_length=10,
-                                     choices=[('percentage', 'Percentage'), ('amount', 'Amount')],
-                                     default='amount')
+    discount_type = models.CharField(
+        max_length=10,
+        choices=[('percentage', 'Percentage'), ('amount', 'Amount')],
+        default='amount'
+    )
     discount_value = models.FloatField(default=0.0)
     customer_feedback = models.TextField(null=True, blank=True)
     customer_rating = models.IntegerField(
@@ -318,27 +369,49 @@ class ServiceRenderedOrder(models.Model):
     )
     payment_method = models.CharField(
         max_length=50,
-        choices=[('loyalty', 'Loyalty Points'), ('subscription', 'Subscription'), ('cash', 'Cash')],
-        null=True, blank=True
+        choices=[
+            ('loyalty', 'Loyalty Points'),
+            ('subscription', 'Subscription'),
+            ('cash', 'Cash')
+        ],
+        null=True,
+        blank=True
     )
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='services_rendered', null=True,
-                               blank=True)
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name='services_rendered',
+        null=True,
+        blank=True
+    )
     date = models.DateTimeField(auto_now_add=True)
     time_in = models.DateTimeField(default=timezone.now)
     time_out = models.DateTimeField(null=True, blank=True)
-    vehicle = models.ForeignKey(CustomerVehicle, on_delete=models.CASCADE, null=True, blank=True)
+    vehicle = models.ForeignKey(
+        CustomerVehicle,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+
+    # NEW FIELDS for usage breakdown
+    subscription_amount_used = models.FloatField(null=True, blank=True, default=0.0)
+    subscription_package_used = models.ForeignKey(CustomerSubscription, on_delete=models.SET_NULL, null=True,
+                                                  blank=True)
+    loyalty_points_used = models.FloatField(null=True, blank=True, default=0.0)
+    loyalty_points_amount_deduction = models.FloatField(null=True,
+                                                        blank=True)  # This shoes the amount that using the loyalty points saved the user which is useful for display on the receipt
+    cash_paid = models.FloatField(null=True, blank=True, default=0.0)
 
     def __str__(self):
-        return f"{self.service_order_number} - {self.customer.user.first_name} {self.customer.user.last_name}"
+        if self.customer:
+            return f"{self.service_order_number} - {self.customer.user.first_name} {self.customer.user.last_name}"
+        return f"{self.service_order_number}"
 
     def save(self, *args, **kwargs):
         # If there's no order number, generate one
         if not self.service_order_number:
             self.service_order_number = generate_unique_order_number()
-
-        # Remove the auto discount logic that re-applies a discount:
-        # We rely on confirm_service to set final_amount properly.
-
         super(ServiceRenderedOrder, self).save(*args, **kwargs)
 
 
@@ -351,6 +424,12 @@ class ServiceRendered(models.Model):
     date = models.DateTimeField(auto_now_add=True)
     commission_amount = models.FloatField(null=True, blank=True)
     negotiated_price = models.FloatField(null=True, blank=True)
+    payment_type = models.CharField(max_length=200, null=True, blank=True, choices=(
+        ("Loyalty Reward", "Loyalty Reward"), ("Subscription", "Subscription"), ("Cash", "Cash")))
+
+
+    def __str_(self):
+        return f"{self.service.service_type} on Vehicle {self.order.vehicle}"
 
     def get_effective_price(self):
         """Return negotiated price if present, else service price."""
@@ -364,7 +443,8 @@ class ServiceRendered(models.Model):
         the negotiated price if set or the service's base price) multiplied by a discount factor.
         Then the commission is computed as (effective_price * commission_rate/100) and split among assigned workers.
         """
-        effective_price = (self.negotiated_price if self.negotiated_price is not None else self.service.price) * discount_factor
+        effective_price = (
+                              self.negotiated_price if self.negotiated_price is not None else self.service.price) * discount_factor
         if self.service.commission_rate:
             self.commission_amount = (effective_price * self.service.commission_rate) / 100
         else:
@@ -398,7 +478,6 @@ class ServiceRendered(models.Model):
         if self.pk is None and self.service.commission_rate and self.commission_amount is None:
             self.commission_amount = self.get_effective_price() * (self.service.commission_rate / 100.0)
         super().save(*args, **kwargs)
-
 
 
 class Commission(models.Model):
@@ -437,7 +516,6 @@ class ProductPurchased(models.Model):
         return f"{self.quantity}x {self.product.name} for Order {self.service_order.service_order_number}"
 
 
-
 class Expense(models.Model):
     expense_choices = (
         ("Statutory", "Statutory"),
@@ -453,6 +531,7 @@ class Expense(models.Model):
     # Optional fields to handle recurring (start_date, end_date, is_recurring, etc.)
     # e.g.
     is_recurring = models.BooleanField(default=False)
+
     # or you can store the frequency: daily, weekly, monthly, etc.
 
     def __str__(self):

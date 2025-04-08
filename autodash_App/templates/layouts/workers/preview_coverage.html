@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container py-4">
+  <h4>Coverage Preview</h4>
+  <p>
+    <strong>Order:</strong> {{ service_order.service_order_number }}<br>
+    <strong>Customer:</strong>
+    {% if service_order.customer %}
+      {{ service_order.customer.user.get_full_name }}
+    {% else %}
+      <em>No Customer Attached</em>
+    {% endif %}
+  </p>
+
+  <table class="table table-bordered">
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th>Original / Negotiated Price</th>
+        <th>Subscription (GHS)</th>
+        <th>Loyalty (GHS)</th>
+        <th>Cash (GHS)</th>
+        <th>Payment Type</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in coverage_list %}
+      <tr>
+        <td>{{ item.sr.service.service_type }}</td>
+        <td>{{ item.original_cost|floatformat:2 }}</td>
+        <td>{{ item.covered_sub|floatformat:2 }}</td>
+        <td>{{ item.covered_loyalty|floatformat:2 }}</td>
+        <td>{{ item.covered_cash|floatformat:2 }}</td>
+        <td>{{ item.payment_type }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Cash Before Discount:</strong>
+    GHS {{ leftover_before_discount|floatformat:2 }}<br>
+    {% if discount_type == 'percentage' %}
+      <strong>Discount:</strong>
+      {{ discount_value|floatformat:2 }}%
+    {% else %}
+      <strong>Discount:</strong>
+      GHS {{ discount_value|floatformat:2 }}
+    {% endif %}
+    <br>
+    <strong>Cash After Discount:</strong>
+    GHS {{ leftover_after_discount|floatformat:2 }}
+  </p>
+
+  <form method="post" action="{% url 'finalize_coverage' service_order.pk %}">
+    {% csrf_token %}
+    <!-- Optionally store discount + negotiable prices in hidden fields or re-calc in next step -->
+    <input type="hidden" name="discount_type" value="{{ discount_type }}">
+    <input type="hidden" name="discount_value" value="{{ discount_value }}">
+
+    <button type="submit" class="btn btn-success">Confirm Coverage</button>
+    <a href="{% url 'confirm_service_rendered' service_order.pk %}" class="btn btn-secondary">
+      Go Back / Edit
+    </a>
+  </form>
+</div>
+{% endblock content %}

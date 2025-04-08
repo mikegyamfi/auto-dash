@@ -2,127 +2,195 @@
 {% load static %}
 
 {% block content %}
-<div class="container my-4" style="max-width: 800px;">
-  <div class="receipt-container bg-light p-4 rounded">
+<div class="container py-4" style="max-width: 800px;">
 
-    <!-- Company Letterhead -->
-    <div class="text-center mb-4">
-      <img src="{% static 'assets/img/Autodash logo.png' %}" alt="AutoDash Logo" style="max-width: 150px; margin-bottom: 10px;">
-      <h4 class="mb-0"><a href="{% url 'log_service' %}">AutoDash Car Care & Detailers</a></h4>
-      <p class="mb-0">Teshie Fert. Road / Teshie Gornor Sch. / Ridge Towers, Home Service, Accra</p>
-      <p class="mb-0">024 398 3422</p>
+  <!-- Header: Company Info & Letterhead -->
+  <div class="row mb-3 text-center">
+    <div class="col">
+      <img src="{% static 'assets/img/Autodash logo.png' %}" alt="AutoDash Logo" style="max-width: 150px;">
+      <h4 class="mt-3 mb-0"><a href="{% url 'index' %}">AutoDash Car Care & Detailers</a></h4>
+      <p class="mb-1">Teshie Fert. Road / Teshie Gornor Sch. / Ridge Towers,<br>Home Service, Accra</p>
+      <p class="fw-bold">Tel: 024 398 3422</p>
+      <hr>
     </div>
+  </div>
 
-    <hr class="mb-4">
-
-    <!-- Branch and Date Information -->
-    <div class="text-center mb-3">
-      <small class="text-muted">{{ service_order.branch.name }} Branch</small><br>
-      <small>Date: {{ service_order.date|date:"M j, Y H:i" }}</small>
+  <!-- INVOICE TITLE -->
+  <div class="row mb-4">
+    <div class="col text-center">
+      <h5 class="text-uppercase fw-bold">Invoice</h5>
     </div>
+  </div>
 
-    <!-- Order Info -->
-    <div class="mb-3">
-      <p>
-        <strong>Order #:</strong> {{ service_order.service_order_number }} <br>
-        <strong>Customer:</strong> {{ service_order.customer.user.get_full_name }} <br>
-        <strong>Vehicle:</strong> {{ service_order.vehicle }}
+  <!-- Date & Basic Info -->
+  <div class="row mb-2">
+    <div class="col-6">
+      <p class="mb-0">
+        <strong>Date:</strong>
+        {{ service_order.date|date:"M j, Y H:i" }}
+      </p>
+      <p class="mb-0">
+        <strong>Order #:</strong> {{ service_order.service_order_number }}
       </p>
     </div>
-
-    <!-- Services Table -->
-    <h6>Services</h6>
-    <table class="table table-borderless mb-3">
-      <thead>
-        <tr>
-          <th>Service</th>
-          <th class="text-end">Price</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for sr in services_rendered %}
-        <tr>
-          <td>{{ sr.service.service_type }}</td>
-          <td class="text-end">
-            GHS
-            {% if sr.negotiated_price %}
-              {{ sr.negotiated_price|floatformat:2 }}
-            {% else %}
-              {{ sr.service.price|floatformat:2 }}
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-    <!-- Products Table (if any) -->
-    {% if products_purchased %}
-      <h6>Products</h6>
-      <table class="table table-borderless mb-3">
-        <thead>
-          <tr>
-            <th>Product</th>
-            <th class="text-end">Qty</th>
-            <th class="text-end">Subtotal</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for prod_item in products_purchased %}
-          <tr>
-            <td>{{ prod_item.product.name }}</td>
-            <td class="text-end">{{ prod_item.quantity }}</td>
-            <td class="text-end">
-              GHS {{ prod_item.total_price|floatformat:2 }}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endif %}
-
-    <!-- Totals and Discount Section -->
-    <div class="mt-3 border-top pt-2">
-      <p>
-        <strong>Total Services Price:</strong>
-        GHS {{ total_services_price|floatformat:2 }} <br>
-        <strong>Total Products Price:</strong>
-        GHS {{ total_products_price|floatformat:2 }}
+    <div class="col-6 text-end">
+      <p class="mb-0">
+        <strong>Branch:</strong>
+        {{ service_order.branch.name }}
       </p>
+    </div>
+  </div>
 
-      {% if service_order.status == 'completed' %}
-        <span class="badge bg-success mb-2">Paid</span>
+  <!-- Customer & Vehicle -->
+  <div class="row mb-4">
+    <div class="col-6">
+      {% if service_order.customer %}
+        <p class="mb-1"><strong>Customer:</strong> {{ service_order.customer.user.get_full_name }}</p>
       {% else %}
-        <span class="badge bg-warning mb-2">Pending Payment</span>
+        <p><strong>No Customer Attached</strong></p>
       {% endif %}
-
-      <!-- Show the discount if any was applied -->
-      {% if service_order.discount_value and service_order.discount_value > 0 %}
-        <p>
-          <strong>Discount Applied:</strong>
-          {% if service_order.discount_type == 'percentage' %}
-            {{ service_order.discount_value|floatformat:2 }}%
-          {% else %}
-            GHS {{ service_order.discount_value|floatformat:2 }}
+    </div>
+    <div class="col-6 text-end">
+      {% if service_order.vehicle %}
+        <p class="mb-1"><strong>Vehicle:</strong>
+          {{ service_order.vehicle.car_make }}
+          {% if service_order.vehicle.car_color %}
+            ({{ service_order.vehicle.car_color }})
           {% endif %}
+          - {{ service_order.vehicle.car_plate }}
+        </p>
+      {% else %}
+        <p class="mb-1"><strong>Vehicle:</strong> Not Available</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Services Table -->
+  <table class="table table-bordered align-middle mb-4">
+    <thead class="table-light">
+      <tr>
+        <th>Service</th>
+        <th class="text-end">Price (GHS)</th>
+        <th class="text-center">Payment Type</th>
+        <th class="text-center">Loyalty Earned</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sr in services_rendered %}
+      <tr>
+        <td>{{ sr.service.service_type }}</td>
+        <td class="text-end">
+          {% if sr.negotiated_price %}
+            {{ sr.negotiated_price|floatformat:2 }}
+          {% else %}
+            {{ sr.service.price|floatformat:2 }}
+          {% endif %}
+        </td>
+        <td class="text-center">
+          {{ sr.payment_type|default:"Cash" }}
+        </td>
+        <td class="text-center">
+          {{ sr.service.loyalty_points_earned|default:"0" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+
+  <!-- Calculation Summary -->
+  <div class="row">
+    <div class="col-12">
+      <p class="mb-1">
+        <strong>Total Services Price:</strong>
+        GHS {{ total_services_price|floatformat:2 }}
+      </p>
+
+      {% if service_order.discount_value and service_order.discount_value > 0 %}
+        {% if service_order.discount_type == 'percentage' %}
+          <p class="mb-1"><strong>Discount:</strong> {{ service_order.discount_value }}%</p>
+        {% else %}
+          <p class="mb-1"><strong>Discount:</strong> GHS {{ service_order.discount_value|floatformat:2 }}</p>
+        {% endif %}
+      {% endif %}
+      {% if service_order.subscription_amount_used %}
+        <p class="mb-1">
+          <strong>Subscription Used:</strong>
+          {{ service_order.subscription_package_used.subscription}}
+        </p>
+        <p class="mb-1">
+          <strong>Subscription Saved You:</strong>
+          GHS {{ service_order.subscription_amount_used|floatformat:2 }}
         </p>
       {% endif %}
-
-      <h5>
-        Final Amount: GHS {{ final_amount|floatformat:2 }}
-      </h5>
+      {% if service_order.loyalty_points_used %}
+        <p class="mb-1">
+          <strong>Loyalty Saved you:</strong>
+          GHS {{ service_order.loyalty_points_amount_deduction|floatformat:2 }}
+        </p>
+      {% endif %}
+      {% if service_order.cash_paid %}
+        <p class="mb-1">
+          <strong>Cash To be Paid:</strong>
+          GHS {{ service_order.cash_paid|floatformat:2 }}
+        </p>
+      {% endif %}
+      <p class="mb-1">
+        <strong>Final Amount to be Paid:</strong>
+        GHS {{ final_amount|floatformat:2 }}
+      </p>
+      <p class="mb-1">
+        <strong>Order Status:</strong>
+        {{ service_order.status}}
+      </p>
     </div>
+  </div>
 
-    <!-- Footer -->
-    <div class="text-center mt-4">
-      <small class="text-muted">Thank you for choosing AutoDash!</small>
+  <!-- Optional Subscription & Loyalty Trails -->
+  {% if subscription_trails %}
+    <div class="mt-3 p-2" style="border: 1px solid #ccc; border-radius: 5px;">
+      <h6 class="fw-bold">Subscription Usage for this Order</h6>
+      <ul class="mb-0">
+        {% for st in subscription_trails %}
+          <li>
+            Used GHS {{ st.amount_used|floatformat:2 }}
+          </li>
+        <li>Subscription Amount Remaining: GHS {{ st.remaining_balance|floatformat:2 }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if loyalty_transactions %}
+    <div class="mt-3 p-2" style="border: 1px solid #ccc; border-radius: 5px;">
+      <h6 class="fw-bold">Loyalty Transactions for this Order</h6>
+      <ul class="mb-0">
+        {% for lt in loyalty_transactions %}
+          <li>
+            <strong>{{ lt.get_transaction_type_display }}:</strong> {{ lt.points }} points
+            <small class="text-muted">({{ lt.date|date:"M j, Y H:i" }})</small><br>
+            <em>{{ lt.description }}</em>
+          </li>
+        <hr>
+        {% endfor %}
+        <p class="mb-1 mt-0">
+          <strong>Loyalty Points Balance:</strong> {{ service_order.customer.loyalty_points|default:"0" }}
+        </p>
+      </ul>
+    </div>
+  {% endif %}
+
+  <!-- Thank You Footer -->
+  <div class="row mt-4">
+    <div class="col text-center">
+      <p class="fw-bold">Thank you for choosing AutoDash!</p>
     </div>
   </div>
 
   <!-- Print Button -->
   <div class="text-end mt-3">
     <button class="btn btn-secondary" onclick="window.print()">
-      <i class="fa fa-print me-1"></i> Print Receipt
+      <i class="fa fa-print me-1"></i> Print
     </button>
   </div>
 </div>

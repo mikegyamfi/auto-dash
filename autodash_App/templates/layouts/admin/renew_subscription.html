@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    <!-- Sidebar -->
+    {% include 'inc/side_nav.html' %}
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Main Container -->
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Renew Subscription for {{ customer.user.get_full_name }}</h4>
+          {% if subscription %}
+            {% if subscription.is_active %}
+              <!-- Active subscription: Gold style -->
+              <div class="card mb-4" style="background: linear-gradient(135deg, #ffd700, #ffb300); color: #333; border: none; border-radius: 15px;">
+            {% else %}
+              <!-- Expired subscription: Dull black style -->
+              <div class="card mb-4" style="background: #333; color: #ccc; border: none; border-radius: 15px;">
+            {% endif %}
+                <div class="card-body d-flex justify-content-between align-items-center">
+                  <div>
+                    <h5 class="card-title">{{ subscription.subscription.name }}</h5>
+                    <p class="card-text"><strong>Valid Until:</strong> {{ subscription.end_date|date:"Y-m-d" }}</p>
+                    <p class="card-text"><strong>Total Amount:</strong> GHS {{ subscription.subscription.amount|floatformat:2 }}</p>
+                    <p class="card-text"><strong>Remaining Balance:</strong> GHS {{ subscription.sub_amount_remaining|floatformat:2 }}</p>
+                  </div>
+                  <div>
+                    <!-- Fake QR code; replace with actual URL if needed -->
+                    <img src="{% static 'assets/img/placeholder_qr.png' %}" alt="QR Code" style="width: 80px; height: 80px;">
+                  </div>
+                </div>
+              </div>
+            <form method="post">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-primary" onclick="return confirm('Are you sure you want to renew this subscription?');">Renew Subscription</button>
+              <a href="{% url 'customer_detail_admin' customer.id %}" class="btn btn-secondary">Cancel</a>
+            </form>
+          {% else %}
+            <div class="alert alert-warning">
+              <p>No subscription found for renewal.</p>
+              <a href="{% url 'enrol_customer_in_subscription' customer.id %}" class="btn btn-success">Enroll in a Subscription</a>
+            </div>
+          {% endif %}
+        </div>
+        <!-- / Main Container -->
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+      <!-- / Content wrapper -->
+    </div>
+    <!-- / Layout page -->
+  </div>
+  <!-- / Layout container -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock %}

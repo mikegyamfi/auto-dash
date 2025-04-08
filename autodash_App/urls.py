@@ -9,6 +9,7 @@ from autodash_App.views import standalone_product_receipt, worker_commissions, e
 urlpatterns = [
                   path('', views.home, name='index'),
                   path('log_service', views.log_service, name='log_service'),
+                  path('log_scanned_service/<int:customer_id>', views.log_service_scanned, name='log_service_scanned'),
                   path('check-customer-status/<int:customer_id>/', views.check_customer_status,
                        name='check_customer_status'),
                   path('elevated/select_branch/', views.home, name='select_branch'),  # Admin branch selection
@@ -53,6 +54,8 @@ urlpatterns = [
                   path('elevated/customers/', views.manage_customers, name='manage_customers'),
                   path('elevated/customers/<int:customer_id>/', views.customer_detail_admin,
                        name='customer_detail_admin'),
+                  path('elevated/enrol_customer_in_subscription/<int:customer_id>', views.enroll_subscription, name='enrol_customer_in_subscription'),
+                  path('elevated/renew_customer_subscription/<int:customer_id>', views.renew_subscription, name='renew_customer_subscription'),
                   path('elevated/vehicle-groups/', views.vehicle_groups, name='vehicle_groups'),
                   path('elevated/dashboard_analytics/', views.analytics_dashboard, name='admin_analytics'),
                   path('admin_dashboard/get_branch_comparison_data/', views.get_branch_comparison_data,
@@ -68,6 +71,7 @@ urlpatterns = [
 
                   # ===================================================== Customer URLS ===============================================================
                   path('customer/dashboard/', views.customer_dashboard, name='customer_dashboard'),
+                  path('customer/my_profile', views.customer_profile, name='customer_profile'),
                   path('customer-service-history/', views.customer_service_history, name='customer_service_history'),
                   path('login', auth_views.login_page, name='login'),
                   path('logout', auth_views.logout_page, name='logout'),
@@ -116,11 +120,16 @@ urlpatterns = [
                   path('service/<int:pk>/details/',
                        views.service_order_details,
                        name='service_order_details'),
+
                   path('service/<int:pk>/receipt/', views.service_receipt, name='service_receipt'),
                   path('vehicles/', views.vehicle_list, name='vehicle_list'),
                   path('vehicles/edit/<int:pk>/', views.edit_vehicle, name='edit_vehicle'),
                   path('customer/edit/<int:customer_id>/', views.edit_customer, name='edit_customer'),
+                  path('generate_customer_subscription_card/<int:subscription_id>', views.generate_subscription_card, name='generate_subscription_card'),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+
+
