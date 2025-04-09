@@ -7,6 +7,23 @@
   .amount.decreased { color: green; }
   .coverage-table { margin-bottom: 1rem; }
   .coverage-table th, .coverage-table td { text-align: center; vertical-align: middle; }
+  @media print {
+      body, p, table, h4, h5, h6, strong, small {
+          font-size: 10px !important;
+      }
+      .container-p-y {
+          padding-top: 5px !important;
+          padding-bottom: 5px !important;
+      }
+      .mb-4, .mt-4, .mb-1 {
+          margin-bottom: 5px !important;
+          margin-top: 5px !important;
+      }
+      table {
+          width: 100% !important;
+          font-size: 9px !important;
+      }
+  }
 </style>
 {% endblock style %}
 
@@ -19,8 +36,9 @@
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
           <h4 class="fw-bold py-3 mb-4">Confirm Logged Service</h4>
-
-          <!-- Coverage Breakdown Section -->
+<form id="log-service-form" method="POST">
+                {% csrf_token %}
+          <!-- Estimated Coverage Breakdown Section -->
           <div class="card mb-4">
             <div class="card-header">
               <h5>Estimated Coverage Breakdown</h5>
@@ -33,19 +51,25 @@
                     <th>Service</th>
                     <th>Effective Price (GHS)</th>
                     <th>Subscription Cover (GHS)</th>
-                    <th>Loyalty Cover (GHS)</th>
+                    <th>Use Loyalty?</th>
                     <th>Cash Due (GHS)</th>
                     <th>Payment Type</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for item in covered_details %}
-                  <tr>
+                  <tr data-effective="{{ item.effective_price }}" data-subcover="{{ item.sub_cover }}" data-service-id="{{ item.service_id }}">
                     <td>{{ item.service_name }}</td>
                     <td>{{ item.effective_price|floatformat:2 }}</td>
                     <td>{{ item.sub_cover|floatformat:2 }}</td>
-                    <td>{{ item.loyalty_cover|floatformat:2 }}</td>
-                    <td>{{ item.cash_due|floatformat:2 }}</td>
+                    <td>
+                      {% if item.loyalty_eligible %}
+                        <input type="checkbox" name="use_loyalty_{{ item.service_id }}" class="use-loyalty-checkbox" checked>
+                      {% else %}
+                        N/A
+                      {% endif %}
+                    </td>
+                    <td class="cash-due-cell">{{ item.cash_due|floatformat:2 }}</td>
                     <td>{{ item.payment_type }}</td>
                   </tr>
                   {% endfor %}
@@ -53,7 +77,7 @@
               </table>
               <p class="mt-2">
                 <strong>Total Estimated Cash Due:</strong>
-                GHS <span class="amount">{{ total_cash_est|floatformat:2 }}</span>
+                GHS <span class="amount" id="total-cash-est">{{ total_cash_est|floatformat:2 }}</span>
               </p>
               {% else %}
                 <p>No services available to simulate coverage.</p>
@@ -65,8 +89,7 @@
           <div class="card">
             <div class="card-body">
               <!-- Main Form -->
-              <form id="log-service-form" method="POST">
-                {% csrf_token %}
+              
                 <!-- Customer & Subscription Info -->
                 {% if service_order.customer %}
                   <div class="row mb-3">
@@ -74,10 +97,10 @@
                       <h6>Vehicle: {{ service_order.vehicle }}</h6>
                       <p>Loyalty Points: {{ loyalty_points }}</p>
                       {% if subscription_active and cust_sub %}
-                        <p class={% if cust_sub.sub_amount_remaining == 0.0 %}"text-danger"{%else%}"text-success"{% endif%}>
+                        <p class="{% if cust_sub.sub_amount_remaining == 0.0 %}text-danger{% else %}text-success{% endif %}">
                           Subscription: {{ cust_sub.subscription.name }} <br>
-                          Subscription Amount Remaining: GHS {{ cust_sub.sub_amount_remaining }} <br>
-                          Valid until: {{ cust_sub.end_date|date:'Y-m-d' }}
+                          Remaining: GHS {{ cust_sub.sub_amount_remaining|floatformat:2 }} <br>
+                          Valid until: {{ cust_sub.end_date|date:"Y-m-d" }}
                         </p>
                       {% else %}
                         <p class="text-danger">No Active Subscription</p>
@@ -181,7 +204,7 @@
                     GHS <span id="approx-total">{{ service_order.total_amount|floatformat:2 }}</span>
                   </p>
                   <small class="text-muted">
-                    (This total is recalculated as you update negotiated prices and discount. It excludes loyalty and subscriptions)
+                    (This total recalculates as you update negotiated prices, discount, and loyalty selections.)
                   </small>
                 </div>
 
@@ -191,10 +214,11 @@
                   <a href="{% url 'discard_order' pk=service_order.id %}" class="btn btn-danger">Discard</a>
                 </div>
               </form>
-              <!-- /Main Form -->
             </div>
           </div>
         </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
       </div>
     </div>
   </div>
@@ -213,37 +237,35 @@ document.addEventListener('DOMContentLoaded', function() {
   toggleOnCreditNote();
   statusSelect.addEventListener('change', toggleOnCreditNote);
 
-  // Calculate approximate total for discount based on all services
+  // Recalculate approximate total based on effective price, subscription cover, and loyalty selections.
   const discountTypeSelect = document.getElementById('discount_type');
   const discountValueInput = document.getElementById('discount_value');
   const approxTotalSpan = document.getElementById('approx-total');
 
   function recalcApprox() {
-    let sumPrices = 0;
-    // Loop through each service row using the default price input.
-    const defaultInputs = document.querySelectorAll('.default-price-input');
-    defaultInputs.forEach(defaultInp => {
-      const srId = defaultInp.getAttribute('data-sr-id');
-      // Check if a negotiable input exists for this service.
-      const negotiableInput = document.querySelector(`.negotiable-price-input[data-sr-id="${srId}"]`);
-      let price = 0;
-      if (negotiableInput) {
-        price = parseFloat(negotiableInput.value) || 0;
-      } else {
-        price = parseFloat(defaultInp.value) || 0;
+    let totalCashDue = 0;
+    // Iterate over each row in the coverage breakdown table
+    const rows = document.querySelectorAll('.coverage-table tbody tr');
+    rows.forEach(row => {
+      const effective = parseFloat(row.getAttribute('data-effective')) || 0;
+      const subCover = parseFloat(row.getAttribute('data-subcover')) || 0;
+      const loyaltyCheckbox = row.querySelector('.use-loyalty-checkbox');
+      let cashDue = effective - subCover;
+      if (loyaltyCheckbox && loyaltyCheckbox.checked) {
+          cashDue = 0;
       }
-      sumPrices += price;
+      totalCashDue += cashDue;
     });
-
+    // Apply discount on the total cash due.
     let discVal = parseFloat(discountValueInput.value) || 0;
     let discAmt = 0;
     if (discountTypeSelect.value === 'percentage') {
       discVal = Math.min(discVal, 100);
-      discAmt = sumPrices * (discVal / 100);
+      discAmt = totalCashDue * (discVal / 100);
     } else {
-      discAmt = Math.min(discVal, sumPrices);
+      discAmt = Math.min(discVal, totalCashDue);
     }
-    let finalApprox = sumPrices - discAmt;
+    let finalApprox = totalCashDue - discAmt;
     if (finalApprox < 0) finalApprox = 0;
     approxTotalSpan.textContent = finalApprox.toFixed(2);
   }
@@ -252,6 +274,9 @@ document.addEventListener('DOMContentLoaded', function() {
   discountValueInput.addEventListener('input', recalcApprox);
   const negotiableInputs = document.querySelectorAll('.negotiable-price-input');
   negotiableInputs.forEach(el => el.addEventListener('input', recalcApprox));
+  const loyaltyCheckboxes = document.querySelectorAll('.use-loyalty-checkbox');
+  loyaltyCheckboxes.forEach(box => box.addEventListener('change', recalcApprox));
+  
   recalcApprox();
 });
 </script>

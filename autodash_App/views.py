@@ -469,15 +469,17 @@ from django.urls import reverse
 def confirm_service(request, pk):
     """
     GET:
-      1. Retrieve the service order and related info (services, subscription, loyalty, etc.).
-      2. Render the confirmation page so a worker can edit negotiable prices,
-         choose a discount, and set the final status.
-         Also, display a detailed estimated coverage breakdown per service.
+      1. Retrieve the service order and related info.
+      2. Simulate a detailed estimated coverage breakdown per service.
+         For each service, subscription cover is automatically applied,
+         but loyalty cover is optional. A checkbox is shown per service if loyalty is eligible.
 
     POST:
-      1. (Existing logic:) Use the negotiable prices from the form.
-         Apply coverage (Subscription → Loyalty → Cash), discount, commission, revenue, etc.
-         (No changes to POST logic.)
+      1. Uses negotiable prices from the form.
+      2. Applies coverage: Subscription (auto) → then, for each service,
+         checks if the loyalty checkbox is set to use loyalty cover.
+      3. Applies discount only on the leftover cash portion.
+      4. Then processes commission, revenue, and loyalty transactions as before.
     """
     from .models import (
         Worker, ServiceRenderedOrder, ServiceRendered, CustomerSubscription,
@@ -496,6 +498,7 @@ def confirm_service(request, pk):
     if customer:
         try:
             latest_sub = CustomerSubscription.objects.filter(customer=customer).latest('end_date')
+            # Only consider subscription active if it is not expired and has remaining balance.
             if latest_sub.is_active() and latest_sub.sub_amount_remaining > 0:
                 subscription_active = True
                 cust_sub = latest_sub
@@ -505,22 +508,20 @@ def confirm_service(request, pk):
 
     if request.method == 'GET':
         # --------------------- SIMULATE COVERAGE BREAKDOWN FOR EACH SERVICE ---------------------
-        # We use simulated variables so that changes here do not affect DB values.
         covered_details = []
         sim_sub_remaining = cust_sub.remaining_balance if cust_sub else 0.0
         sim_loyalty = loyalty_points
         total_cash_est = 0.0
 
         for sr in services_rendered:
-            # Effective price: negotiated_price if present, else base price
             effective_price = sr.negotiated_price if sr.negotiated_price is not None else sr.service.price
             sub_cover = 0.0
-            loyalty_cover = 0.0
+            # Do not automatically apply loyalty cover—mark service as eligible instead.
+            loyalty_cover = 0.0  # simulation displays 0 until worker opts-in using checkbox.
             payment_type = "Cash"
             remaining_cost = effective_price
             qualifies_subscription = False
 
-            # Check if service qualifies for subscription coverage:
             if subscription_active and service_order.vehicle:
                 if (sr.service in cust_sub.subscription.services.all() and
                         service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
@@ -531,26 +532,6 @@ def confirm_service(request, pk):
                 remaining_cost -= sub_cover
                 sim_sub_remaining -= sub_cover
 
-            # Check loyalty coverage.
-            # (Here we assume that if the customer's loyalty points meet or exceed the service's required points,
-            # the service is fully covered by loyalty for its remaining cost.)
-            if remaining_cost > 0 and customer:
-                if sim_loyalty >= sr.service.loyalty_points_required:
-                    loyalty_cover = remaining_cost
-                    remaining_cost = 0
-                    sim_loyalty -= sr.service.loyalty_points_required
-                # Otherwise, if not enough points, we assume no coverage (or you may choose partial coverage).
-
-            # Decide on payment_type string based on what covered the cost.
-            if sub_cover > 0 and loyalty_cover > 0:
-                payment_type = "Subscription + Loyalty"
-            elif sub_cover > 0:
-                payment_type = "Subscription" if remaining_cost == 0 else "Subscription + Cash"
-            elif loyalty_cover > 0:
-                payment_type = "Loyalty" if remaining_cost == 0 else "Loyalty + Cash"
-            else:
-                payment_type = "Cash"
-
             cash_due = remaining_cost
             total_cash_est += cash_due
 
@@ -558,9 +539,12 @@ def confirm_service(request, pk):
                 'service_name': sr.service.service_type,
                 'effective_price': effective_price,
                 'sub_cover': sub_cover,
-                'loyalty_cover': loyalty_cover,
+                'loyalty_cover': 0.0,  # remains 0; will be applied if checkbox is selected in the form
                 'cash_due': cash_due,
                 'payment_type': payment_type,
+                'loyalty_eligible': (
+                            customer and sr.service.loyalty_points_required > 0 and customer.loyalty_points >= sr.service.loyalty_points_required),
+                'service_id': sr.id,
             })
 
         available_products = Product.objects.filter(branch=worker.branch)
@@ -571,8 +555,8 @@ def confirm_service(request, pk):
             'available_products': available_products,
             'subscription_active': subscription_active,
             'cust_sub': cust_sub,
-            'covered_details': covered_details,  # new breakdown info for template display
-            'total_cash_est': total_cash_est,  # total estimated cash due
+            'covered_details': covered_details,  # breakdown info for display
+            'total_cash_est': total_cash_est,  # total estimated cash due (before discount)
         }
         return render(request, 'layouts/workers/confirm_service_order.html', context)
 
@@ -581,16 +565,11 @@ def confirm_service(request, pk):
     total_covered_by_loyalty = 0
     total_covered_by_subscription = 0
 
-    # 1) Handle negotiable prices + compute total
+    # 1) Handle negotiable prices + compute total services price
     total_services_price = 0.0
-    loyalty_used = 0.0
     for sr in services_rendered:
-        # If service is negotiable, get the new price from POST
         if sr.service.category and sr.service.category.negotiable:
-            print(sr.id)
             raw_value = request.POST.get(f"negotiated_price_{sr.id}")
-
-            print(raw_value)
             try:
                 nego_price = float(raw_value)
             except (ValueError, TypeError):
@@ -601,19 +580,12 @@ def confirm_service(request, pk):
                     f"Please provide a valid negotiated price for {sr.service.service_type}"
                 )
                 return redirect('confirm_service_rendered', pk=service_order.pk)
-
             sr.negotiated_price = nego_price
             sr.save()
-
-        # Sum negotiated or base
         effective_price = float(sr.get_effective_price())
         total_services_price += effective_price
 
-    # 2) Sum product prices
-    # total_products_price = sum(p.total_price for p in service_order.products_purchased.all())
     original_total = total_services_price
-
-    # Update the order's total
     service_order.total_amount = original_total
     service_order.save()
 
@@ -621,115 +593,99 @@ def confirm_service(request, pk):
     service_order.status = new_status
     service_order.save()
 
-    if new_status == 'canceled':
-        messages.info(request, 'Service order cancelled.')
+    if new_status in ['canceled', 'pending']:
+        messages.info(request, f"Service order {new_status}.")
         return redirect('service_history')
 
-    if new_status == "pending":
-        messages.info(request, 'Service order pending.')
-        return redirect('service_history')
-
-    # 3) If reverting from completed/onCredit to pending/canceled, remove existing commissions
+    # 3) If reverting from completed/onCredit to pending/canceled, remove commissions
     if old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
         for sr in services_rendered:
             sr.remove_commission()
 
-    # 4) We'll reassign commissions if new_status is completed/onCredit at the end
+    # 4) Reassign commissions later if status is completed/onCredit
 
-    # 5) Coverage per service: subscription -> loyalty -> leftover is cash
-    coverage_list = []
-
+    # 5) Coverage per service: apply subscription cover automatically,
+    # then decide on loyalty cover based on the user’s checkbox selections.
     has_active_subscription = subscription_active
-    print(has_active_subscription)
     total_loyalty_used = 0
+
+    outside_covered_by_subscription = 0.0
+    outside_covered_by_loyalty = 0.0
 
     for sr in services_rendered:
         service_cost = sr.get_effective_price()
         original_cost = service_cost
         covered_by_subscription = 0.0
         covered_by_loyalty = 0.0
-        covered_by_cash = 0.0
         payment_type = "Cash"
 
-        # (a) Subscription coverage (fully or partially)
+        # (a) Apply subscription coverage automatically (if eligible)
         if has_active_subscription:
-            if (
-                    sr.service in cust_sub.subscription.services.all()
-                    and service_order.vehicle
-                    and service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
-            ):
-                print(f"yes this {sr.service} is in this subscription")
+            if (sr.service in cust_sub.subscription.services.all() and
+                    service_order.vehicle and
+                    service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
                 if cust_sub.sub_amount_remaining >= service_cost:
-                    covered_by_subscription += service_cost
-                    print(covered_by_subscription)
-                    payment_type = "Subscription"
-
+                    covered_by_subscription = service_cost
                     cust_sub.used_amount += service_cost
                     cust_sub.sub_amount_remaining -= service_cost
-                    cust_sub.save()
-
-                    CustomerSubscriptionTrail.objects.create(
-                        subscription=cust_sub,
-                        amount_used=service_cost,
-                        remaining_balance=cust_sub.sub_amount_remaining,
-                        date_used=timezone.now(),
-                        customer=customer,
-                        order=service_order
-                    )
-                    service_order.subscription_package_used = cust_sub
-                    total_covered_by_subscription += service_cost
                     service_cost = 0
+                    payment_type = "Subscription"
+                    total_covered_by_subscription += covered_by_subscription
                 else:
-                    if cust_sub.sub_amount_remaining == 0:
-                        pass
-                    else:
-                        # partial coverage
+                    if cust_sub.sub_amount_remaining > 0:
                         covered_by_subscription = cust_sub.sub_amount_remaining
-                        total_covered_by_subscription += cust_sub.sub_amount_remaining
-                        CustomerSubscriptionTrail.objects.create(
-                            subscription=cust_sub,
-                            amount_used=cust_sub.sub_amount_remaining,
-                            remaining_balance=0,
-                            date_used=timezone.now(),
-                            customer=customer,
-                            order=service_order
-                        )
-                        service_order.subscription_package_used = cust_sub.subscription
                         service_cost -= cust_sub.sub_amount_remaining
+                        total_covered_by_subscription += cust_sub.sub_amount_remaining
+                        cust_sub.used_amount += cust_sub.sub_amount_remaining
                         cust_sub.sub_amount_remaining = 0
-                        cust_sub.save()
-                        payment_type = "Subscription"  # might add more coverage next
+                        payment_type = "Subscription"  # partial; cash will cover remainder
+                service_order.subscription_package_used = cust_sub
+                service_order.save()
+                cust_sub.save()
+                # Create a usage trail
+                from .models import CustomerSubscriptionTrail
+                CustomerSubscriptionTrail.objects.create(
+                    subscription=cust_sub,
+                    amount_used=covered_by_subscription,
+                    remaining_balance=cust_sub.sub_amount_remaining,
+                    date_used=timezone.now(),
+                    customer=customer,
+                    order=service_order
+                )
 
-        # (b) Loyalty coverage (fully or partially)
-        if service_cost > 0 and customer and customer.loyalty_points > 0:
+        # (b) For loyalty coverage, check if the checkbox for this service was selected.
+        # Service is eligible if loyalty points required > 0 and the customer had enough points initially.
+        use_loyalty = request.POST.get(f"use_loyalty_{sr.id}", None)
+        print(use_loyalty)
+        if service_cost > 0 and customer and use_loyalty:
+            # If loyalty is opted in, apply full coverage of the remaining cost.
             if customer.loyalty_points >= sr.service.loyalty_points_required:
-                covered_by_loyalty = service_cost
-                total_covered_by_loyalty += service_cost
-
-                customer.loyalty_points = customer.loyalty_points - sr.service.loyalty_points_required
-                customer.save()
+                print(service_cost, "dkjndknsan")
+                print(covered_by_loyalty)
+                covered_by_loyalty += service_cost
+                outside_covered_by_loyalty += service_cost
+                print(covered_by_loyalty)
                 total_loyalty_used += sr.service.loyalty_points_required
-                print(customer.loyalty_points)
+                # Deduct the fixed required points from the customer (assume 1 point = 1 GHS equivalency)
+                customer.loyalty_points -= sr.service.loyalty_points_required
+                customer.save()
                 service_cost = 0
                 payment_type = "Subscription + Loyalty" if covered_by_subscription > 0 else "Loyalty"
-
-                LoyaltyTransaction.objects.create(
+                models.LoyaltyTransaction.objects.create(
                     customer=customer,
-                    points=int(total_loyalty_used),
+                    points=-int(sr.service.loyalty_points_required),
                     transaction_type='redeem',
-                    description=f"Loyalty redeemed for {sr.service}",
+                    description=f"Loyalty redeemed for {sr.service.service_type}",
                     branch=service_order.branch,
                     order=service_order
                 )
-            else:
-                pass
-
-        # (c) Leftover is cash if completed (or onCredit, see below)
-        if service_cost > 0:
-            covered_by_cash = total_services_price - (total_covered_by_loyalty + total_covered_by_subscription)
-            print("service cost covered by cash", covered_by_cash)
-            service_order.cash_paid = covered_by_cash
+            service_order.loyalty_points_amount_deduction = outside_covered_by_loyalty  # assuming a 1:1 ratio
             service_order.save()
+        # (c) Whatever remains is paid as cash.
+        cash_due = service_cost
+        # Update payment type string if part of cost is cash.
+        if cash_due > 0:
+            print("entered cash due")
             if covered_by_subscription > 0 and covered_by_loyalty > 0:
                 payment_type = "Subscription + Loyalty + Cash"
             elif covered_by_subscription > 0:
@@ -738,46 +694,48 @@ def confirm_service(request, pk):
                 payment_type = "Loyalty + Cash"
             else:
                 payment_type = "Cash"
-
-        # If you store the payment_type in ServiceRendered, update it
+            service_order.cash_paid = cash_due  # this will be updated repeatedly; the final value is the leftover of the last service,
+            # however, we recalc the total cash later.
         sr.payment_type = payment_type
         sr.save()
 
-    # 6) Apply discount only on the leftover cash portion
-    print(total_covered_by_loyalty)
-    print(total_covered_by_subscription)
-
-    print(coverage_list)
-    service_order.loyalty_points_amount_deduction = total_covered_by_loyalty
-    service_order.save()
-    print(covered_by_cash, "outside")
-    leftover_before_discount = covered_by_cash
+    # 6) Apply discount on the total cash portion.
+    # For simplicity we consider the cash portion to be original_total minus subscription and loyalty amounts.
+    total_cash_covered = (total_covered_by_subscription) + (outside_covered_by_loyalty if total_loyalty_used else 0)
+    leftover_before_discount = original_total - total_cash_covered
+    print(leftover_before_discount)
     discount_type = request.POST.get('discount_type', 'amount')
     discount_value_str = request.POST.get('discount_value', '0')
-
     try:
         discount_value = float(discount_value_str)
     except ValueError:
         discount_value = 0.0
     discount_value = max(discount_value, 0.0)
-
     if discount_type == 'percentage':
         discount_value = min(discount_value, 100)
         discount_amount = leftover_before_discount * (discount_value / 100.0)
     else:
         discount_amount = min(leftover_before_discount, discount_value)
-
     leftover_after_discount = leftover_before_discount - discount_amount
+
+    print(leftover_after_discount)
+
     service_order.cash_paid = leftover_after_discount
     service_order.final_amount = leftover_after_discount
-
+    service_order.discount_type = discount_type
+    service_order.discount_value = discount_value
+    service_order.subscription_amount_used = total_covered_by_subscription
+    service_order.loyalty_points_used = total_loyalty_used
     service_order.save()
 
-    # 7) If onCredit => leftover is uncollected => Arrears; if completed => leftover is actual cash
+    print(leftover_after_discount)
+
+    # 7) If onCredit => update arrears; if completed => remove old arrears
     final_cash_paid = 0.0
     if new_status == 'onCredit':
         final_cash_paid = 0.0
         if not hasattr(service_order, 'arrears'):
+            from .models import Arrears
             Arrears.objects.create(
                 service_order=service_order,
                 branch=service_order.branch,
@@ -790,105 +748,38 @@ def confirm_service(request, pk):
             service_order.arrears.save()
     elif new_status == 'completed':
         final_cash_paid = leftover_after_discount
-        # Remove old arrears if any
         if hasattr(service_order, 'arrears'):
             service_order.arrears.delete()
 
-    # 8) Store summary usage on the order
-    service_order.discount_type = discount_type
-    service_order.discount_value = discount_value
-    service_order.final_amount = leftover_after_discount
-    service_order.cash_paid = final_cash_paid
-    service_order.subscription_amount_used = total_covered_by_subscription
-    service_order.loyalty_points_used = total_loyalty_used
-    service_order.loyalty_points_amount_deduction = total_covered_by_loyalty
-    service_order.save()
-
-    # 9) Deduct from subscription & create usage trails
-    # if has_active_subscription:
-    #     total_sub_used = sum(item['covered_sub'] for item in coverage_list)
-    #     if total_sub_used > 0:
-    #         cust_sub.used_amount += total_sub_used
-    #         cust_sub.sub_amount_remaining -= total_sub_used
-    #         cust_sub.save()
-    #
-    #         from .models import CustomerSubscriptionTrail
-    #         for item in coverage_list:
-    #             if item['covered_sub'] > 0:
-    #                 CustomerSubscriptionTrail.objects.create(
-    #                     subscription=cust_sub,
-    #                     amount_used=item['covered_sub'],
-    #                     remaining_balance=cust_sub.sub_amount_remaining,
-    #                     date_used=timezone.now(),
-    #                     customer=customer,
-    #                     order=service_order
-    #                 )
-
-    # 11) If completed => create commissions & revenue. If onCredit => no revenue
-    if new_status == 'completed':
-        # Remove old commissions if toggling from older states
+    # 8) Allocate commissions and create revenue if order is completed or onCredit
+    if new_status in ['completed', 'onCredit']:
         for sr in services_rendered:
             sr.remove_commission()
-
-        # Decide discount factor for commissions if you want it to reflect total coverage
         discount_factor = 1.0
         if original_total > 0:
-            covered_portion = (
-                    (service_order.subscription_amount_used or 0)
-                    + (service_order.loyalty_points_amount_deduction or 0)
-                    + final_cash_paid
-            )
+            covered_portion = (service_order.subscription_amount_used or 0) + (
+                        service_order.loyalty_points_amount_deduction or 0) + final_cash_paid
             discount_factor = covered_portion / original_total
-
-        # Allocate commission
         for sr in services_rendered:
             sr.allocate_commission(discount_factor=discount_factor)
-
-        # Create revenue entries for each service
-        # for item in coverage_list:
-        #     sr = item['sr']
-        #     service_final_price = item['original_cost']
-        #     Revenue.objects.create(
-        #         service_rendered=service_order,
-        #         branch=service_order.branch,
-        #         amount=service_final_price,
-        #         final_amount=service_final_price,
-        #         user=user,
-        #         date=timezone.now().date()
-        #     )
+        # Revenue creation (simplified)
+        from .models import Revenue
         Revenue.objects.create(
             service_rendered=service_order,
             branch=service_order.branch,
-            amount=service_order.total_amount,
+            amount=original_total,
             final_amount=service_order.final_amount,
             user=user,
             date=timezone.now().date()
         )
 
-    elif new_status == 'onCredit':
-        for sr in services_rendered:
-            sr.remove_commission()
-            # Decide discount factor for commissions if you want it to reflect total coverage
-        discount_factor = 1.0
-        if original_total > 0:
-            covered_portion = (
-                    (service_order.subscription_amount_used or 0)
-                    + (service_order.loyalty_points_amount_deduction or 0)
-                    + final_cash_paid
-            )
-            discount_factor = covered_portion / original_total
-
-        # Allocate commission
-        for sr in services_rendered:
-            sr.allocate_commission(discount_factor=discount_factor)
-
-    # 12) Award loyalty points if completed
+    # 9) Award loyalty points if completed (gain points based on services rendered)
     if new_status == 'completed' and customer:
         total_earned = sum(sr.service.loyalty_points_earned for sr in services_rendered)
         if total_earned > 0:
             customer.loyalty_points += total_earned
             customer.save()
-
+            from .models import LoyaltyTransaction
             LoyaltyTransaction.objects.create(
                 customer=customer,
                 points=total_earned,
@@ -899,10 +790,8 @@ def confirm_service(request, pk):
             )
 
     messages.success(request, f"Service updated to {new_status}.")
-
     if new_status in ['completed', 'onCredit']:
         return redirect('service_receipt', pk=service_order.pk)
-
     return redirect('index')
 
 
@@ -2184,7 +2073,8 @@ def customer_detail_admin(request, customer_id):
     from .models import CustomerSubscriptionTrail, CustomerSubscriptionRenewalTrail
     subscription_trails = CustomerSubscriptionTrail.objects.filter(customer=customer).order_by('-date_used')
     # Get the latest subscription renewal trail (if any)
-    latest_renewal = CustomerSubscriptionRenewalTrail.objects.filter(customer=customer).order_by('-date_renewed').first()
+    latest_renewal = CustomerSubscriptionRenewalTrail.objects.filter(customer=customer).order_by(
+        '-date_renewed').first()
     latest_subscription = CustomerSubscription.objects.filter(customer=customer).order_by('-start_date').first()
 
     context = {
@@ -4194,7 +4084,7 @@ def customer_page_add_vehicle_to_customer(request, customer_id):
         except VehicleGroup.DoesNotExist:
             return JsonResponse({'success': False, 'error': 'Invalid vehicle group'}, status=400)
 
-        new_vehicle = Vehicle.objects.create(
+        new_vehicle = CustomerVehicle.objects.create(
             customer=customer,
             vehicle_group=group,
             car_make=car_make,
@@ -4535,4 +4425,3 @@ def generate_subscription_card(request, subscription_id):
         'scanned_url': scanned_url
     }
     return render(request, 'layouts/admin/subscription_card.html', context)
-
