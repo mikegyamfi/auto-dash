@@ -176,8 +176,9 @@
                     <table class="table">
                       <thead>
                         <tr>
+                            <th>Date</th>
                           <th>Order #</th>
-                          <th>Date</th>
+                            <th>Vehicle</th>
                           <th>Status</th>
                           <th>Total (GHS)</th>
                         </tr>
@@ -185,8 +186,9 @@
                       <tbody>
                         {% for order in services_rendered %}
                           <tr>
+                          <td>{{ order.date|date:"Y-m-d" }}</td>
                             <td>{{ order.service_order_number }}</td>
-                            <td>{{ order.date|date:"Y-m-d" }}</td>
+                              <td>{{ order.vehicle.car_name }}</td>
                             <td>{{ order.get_status_display }}</td>
                             <td>{{ order.total_amount|floatformat:2 }}</td>
                           </tr>
