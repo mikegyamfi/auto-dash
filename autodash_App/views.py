@@ -524,7 +524,7 @@ def confirm_service(request, pk):
 
             if subscription_active and service_order.vehicle:
                 if (sr.service in cust_sub.subscription.services.all() and
-                        service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
+                        service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()) and sr.get_effective_price() >= cust_sub.remaining_balance:
                     qualifies_subscription = True
 
             if qualifies_subscription:
@@ -543,7 +543,7 @@ def confirm_service(request, pk):
                 'cash_due': cash_due,
                 'payment_type': payment_type,
                 'loyalty_eligible': (
-                            customer and sr.service.loyalty_points_required > 0 and customer.loyalty_points >= sr.service.loyalty_points_required),
+                        customer and 0 < sr.service.loyalty_points_required <= customer.loyalty_points),
                 'service_id': sr.id,
             })
 
@@ -625,37 +625,53 @@ def confirm_service(request, pk):
                     service_order.vehicle and
                     service_order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()):
                 if cust_sub.sub_amount_remaining >= service_cost:
+                    print("used the full sub")
                     covered_by_subscription = service_cost
                     cust_sub.used_amount += service_cost
                     cust_sub.sub_amount_remaining -= service_cost
                     service_cost = 0
                     payment_type = "Subscription"
                     total_covered_by_subscription += covered_by_subscription
+                    sr.payment_type = "Subscription"
+                    sr.save()
+                    service_order.subscription_package_used = cust_sub
+                    service_order.save()
+                    cust_sub.save()
+                    from .models import CustomerSubscriptionTrail
+                    CustomerSubscriptionTrail.objects.create(
+                        subscription=cust_sub,
+                        amount_used=covered_by_subscription,
+                        remaining_balance=cust_sub.sub_amount_remaining,
+                        date_used=timezone.now(),
+                        customer=customer,
+                        order=service_order
+                    )
+                    continue
                 else:
-                    if cust_sub.sub_amount_remaining > 0:
-                        covered_by_subscription = cust_sub.sub_amount_remaining
-                        service_cost -= cust_sub.sub_amount_remaining
-                        total_covered_by_subscription += cust_sub.sub_amount_remaining
-                        cust_sub.used_amount += cust_sub.sub_amount_remaining
-                        cust_sub.sub_amount_remaining = 0
-                        payment_type = "Subscription"  # partial; cash will cover remainder
-                service_order.subscription_package_used = cust_sub
-                service_order.save()
-                cust_sub.save()
-                # Create a usage trail
-                from .models import CustomerSubscriptionTrail
-                CustomerSubscriptionTrail.objects.create(
-                    subscription=cust_sub,
-                    amount_used=covered_by_subscription,
-                    remaining_balance=cust_sub.sub_amount_remaining,
-                    date_used=timezone.now(),
-                    customer=customer,
-                    order=service_order
-                )
+                    ...
+                    # if cust_sub.sub_amount_remaining > 0:
+                    #     covered_by_subscription = cust_sub.sub_amount_remaining
+                    #     service_cost -= cust_sub.sub_amount_remaining
+                    #     total_covered_by_subscription += cust_sub.sub_amount_remaining
+                    #     cust_sub.used_amount += cust_sub.sub_amount_remaining
+                    #     cust_sub.sub_amount_remaining = 0
+                    #     payment_type = "Subscription"  # partial; cash will cover remainder
+                    #
+                    # # Create a usage trail
+                    # from .models import CustomerSubscriptionTrail
+                    # CustomerSubscriptionTrail.objects.create(
+                    #     subscription=cust_sub,
+                    #     amount_used=covered_by_subscription,
+                    #     remaining_balance=cust_sub.sub_amount_remaining,
+                    #     date_used=timezone.now(),
+                    #     customer=customer,
+                    #     order=service_order
+                    # )
 
         # (b) For loyalty coverage, check if the checkbox for this service was selected.
         # Service is eligible if loyalty points required > 0 and the customer had enough points initially.
         use_loyalty = request.POST.get(f"use_loyalty_{sr.id}", None)
+        print(sr.id)
         print(use_loyalty)
         if service_cost > 0 and customer and use_loyalty:
             # If loyalty is opted in, apply full coverage of the remaining cost.
@@ -671,6 +687,8 @@ def confirm_service(request, pk):
                 customer.save()
                 service_cost = 0
                 payment_type = "Subscription + Loyalty" if covered_by_subscription > 0 else "Loyalty"
+                sr.payment_type = payment_type
+                sr.save()
                 models.LoyaltyTransaction.objects.create(
                     customer=customer,
                     points=-int(sr.service.loyalty_points_required),
@@ -687,8 +705,10 @@ def confirm_service(request, pk):
         if cash_due > 0:
             print("entered cash due")
             if covered_by_subscription > 0 and covered_by_loyalty > 0:
+                print("subscription and loyalty there")
                 payment_type = "Subscription + Loyalty + Cash"
             elif covered_by_subscription > 0:
+                print("subscription")
                 payment_type = "Subscription + Cash"
             elif covered_by_loyalty > 0:
                 payment_type = "Loyalty + Cash"

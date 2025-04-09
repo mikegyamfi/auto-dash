@@ -64,7 +64,7 @@
                     <td>{{ item.sub_cover|floatformat:2 }}</td>
                     <td>
                       {% if item.loyalty_eligible %}
-                        <input type="checkbox" name="use_loyalty_{{ item.service_id }}" class="use-loyalty-checkbox" checked>
+                        <input type="checkbox" name="use_loyalty_{{ item.service_id }}" class="use-loyalty-checkbox">
                       {% else %}
                         N/A
                       {% endif %}
