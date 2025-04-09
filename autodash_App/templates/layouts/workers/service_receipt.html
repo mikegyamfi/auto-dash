@@ -1,6 +1,38 @@
 {% extends 'base.html' %}
 {% load static %}
 
+{% block extra_head %}
+<!-- Add print-specific CSS styles -->
+<style>
+  @media print {
+    /* Reduce overall font sizes */
+    body, p, table, h4, h5, h6, strong, small {
+      font-size: 8px !important;
+    }
+    /* Reduce vertical padding on the container */
+    .container-p-y {
+      padding-top: 5px !important;
+      padding-bottom: 5px !important;
+    }
+    /* Adjust spacing classes */
+    .mb-4, .mt-4, .mb-1 {
+      margin-bottom: 5px !important;
+      margin-top: 5px !important;
+    }
+    /* Ensure table fits within the page and use a smaller font */
+    table {
+      width: 100% !important;
+      font-size: 7px !important;
+    }
+    /* Optional: reduce image sizes if needed */
+    img {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+  }
+</style>
+{% endblock extra_head %}
+
 {% block content %}
 <div class="container py-4" style="max-width: 800px;">
 
@@ -9,14 +41,15 @@
     <div class="col">
       <img src="{% static 'assets/img/Autodash logo.png' %}" alt="AutoDash Logo" style="max-width: 150px;">
       <h4 class="mt-3 mb-0"><a href="{% url 'index' %}">AutoDash Car Care & Detailers</a></h4>
-      <p class="mb-1">Teshie Fert. Road / Teshie Gornor Sch. / Ridge Towers,<br>Home Service, Accra</p>
-      <p class="fw-bold">Tel: 024 398 3422</p>
-      <hr>
+      <p class="mb-0">
+        Teshie Fert. Road / Teshie Gornor Sch. / Ridge Towers,<br>Home Service, Accra
+      </p>
+      <p class="mb-0">Tel: 024 398 3422</p>
     </div>
   </div>
 
   <!-- INVOICE TITLE -->
-  <div class="row mb-4">
+  <div class="row mb-2 mt-0">
     <div class="col text-center">
       <h5 class="text-uppercase fw-bold">Invoice</h5>
     </div>
@@ -97,7 +130,6 @@
     </tbody>
   </table>
 
-
   <!-- Calculation Summary -->
   <div class="row">
     <div class="col-12">
@@ -116,7 +148,7 @@
       {% if service_order.subscription_amount_used %}
         <p class="mb-1">
           <strong>Subscription Used:</strong>
-          {{ service_order.subscription_package_used.subscription}}
+          {{ service_order.subscription_package_used.subscription }}
         </p>
         <p class="mb-1">
           <strong>Subscription Saved You:</strong>
@@ -141,7 +173,7 @@
       </p>
       <p class="mb-1">
         <strong>Order Status:</strong>
-        {{ service_order.status}}
+        {{ service_order.status }}
       </p>
     </div>
   </div>
@@ -155,7 +187,7 @@
           <li>
             Used GHS {{ st.amount_used|floatformat:2 }}
           </li>
-        <li>Subscription Amount Remaining: GHS {{ st.remaining_balance|floatformat:2 }}</li>
+          <li>Subscription Amount Remaining: GHS {{ st.remaining_balance|floatformat:2 }}</li>
         {% endfor %}
       </ul>
     </div>
@@ -171,7 +203,7 @@
             <small class="text-muted">({{ lt.date|date:"M j, Y H:i" }})</small><br>
             <em>{{ lt.description }}</em>
           </li>
-        <hr>
+          <hr>
         {% endfor %}
         <p class="mb-1 mt-0">
           <strong>Loyalty Points Balance:</strong> {{ service_order.customer.loyalty_points|default:"0" }}
@@ -194,4 +226,26 @@
     </button>
   </div>
 </div>
-{% endblock %}
+{% endblock content %}
+
+{% block scripts %}
+<style>
+@media print {
+  body, p, table, h4, h5, h6, strong, small {
+    font-size: 9px !important;
+  }
+  .container-p-y {
+    padding-top: 5px !important;
+    padding-bottom: 5px !important;
+  }
+  .mb-4, .mt-4, .mb-1 {
+    margin-bottom: 5px !important;
+    margin-top: 5px !important;
+  }
+  table {
+    width: 100% !important;
+    font-size: 9px !important;
+  }
+}
+</style>
+{% endblock scripts %}
