@@ -514,8 +514,7 @@ def confirm_service(request, pk):
 
             loyalty_eligible = bool(
                 customer and
-                sr.service.loyalty_points_required > 0 and
-                loyalty_pts >= sr.service.loyalty_points_required
+                0 < sr.service.loyalty_points_required <= loyalty_pts
             )
 
             covered_details.append({
@@ -714,6 +713,25 @@ def confirm_service(request, pk):
                 branch=order.branch,
                 order=order
             )
+
+    if customer and customer.user.phone_number:
+        try:
+            if new_status == 'completed':
+                send_sms(
+                    customer.user.phone_number,
+                    f"Hello, your payment amount  of GHS {order.total_amount} for"
+                    f"{order.vehicle.car_plate} has been received. Thank you! leave feedback - https://management.autodashgh.com/feedback/{order.id}"
+                )
+            elif new_status == 'onCredit':
+                send_sms(
+                    customer.user.phone_number,
+                    f"Hello your credit service"
+                    f"{order.service_order_number} has been completed. Get more details: https://management.autodashgh.com/service/{order.id}/receipt/ "
+                )
+        except Exception as e:
+            print(e)
+            # swallow any SMS errors
+            pass
 
     messages.success(request, f"Service updated to {new_status}.")
     return redirect('service_receipt', pk=order.pk)
