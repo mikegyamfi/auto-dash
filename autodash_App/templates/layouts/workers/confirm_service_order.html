@@ -29,255 +29,194 @@
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
-  <div class="layout-container">
+  <div class="layout-container px-4">
     {% include 'inc/side_nav.html' %}
     <div class="layout-page">
       {% include 'inc/header.html' %}
-      <div class="content-wrapper">
-        <div class="container-xxl flex-grow-1 container-p-y">
-          <h4 class="fw-bold py-3 mb-4">Confirm Logged Service</h4>
-<form id="log-service-form" method="POST">
-                {% csrf_token %}
-          <!-- Estimated Coverage Breakdown Section -->
+      <div class="content-wrapper container-p-y">
+
+        <h4 class="fw-bold py-3 mb-4">Confirm Logged Service</h4>
+
+        <form method="POST">
+          {% csrf_token %}
+          <!-- Vehicle & Customer Card -->
           <div class="card mb-4">
-            <div class="card-header">
-              <h5>Estimated Coverage Breakdown</h5>
+            <div class="card-body d-flex justify-content-between align-items-center">
+              <div>
+                <h6>Vehicle:</h6>
+                <p>{{ order.vehicle }}</p>
+                  <hr>
+                <h6>Workers</h6>
+                  {% for worker in order.workers.all %}
+                      <li>{{ worker }}</li>
+                  {% endfor %}
+              </div>
+              <div>
+                <p>Loyalty Points: {{ loyalty_points }}</p>
+                {% if subscription_active %}
+                  <p class="{% if has_sub_remaining %}text-success{% else %}text-danger{% endif %}">
+                    <strong>{{ sub_name }}</strong><br>
+                    Remaining: GHS {{ cust_sub_remaining|floatformat:2 }}<br>
+                    Valid until: {{ sub_expires|date:"Y-m-d" }}
+                  </p>
+                {% else %}
+                  <p class="text-danger"><strong>No Active Subscription</strong></p>
+                {% endif %}
+              </div>
+              <div>
+                <label for="status">Order Status</label>
+                <select name="status" id="status" class="form-select">
+                  <option value="completed" {% if order.status == 'completed' %}selected{% endif %}>Completed</option>
+                  <option value="pending"   {% if order.status == 'pending'   %}selected{% endif %}>Pending</option>
+                  <option value="canceled"  {% if order.status == 'canceled'  %}selected{% endif %}>Canceled</option>
+                  <option value="onCredit"  {% if order.status == 'onCredit'  %}selected{% endif %}>On Credit</option>
+                </select>
+                <small id="on-credit-note" class="text-danger" style="display:none;">
+                  On-Credit → No immediate payment.
+                </small>
+              </div>
             </div>
+          </div>
+
+          <!-- Coverage & Negotiation Table -->
+          <div class="card mb-4">
+            <div class="card-header"><h5>Coverage & Negotiation</h5></div>
             <div class="card-body">
-              {% if covered_details %}
               <table class="table table-bordered coverage-table">
                 <thead class="table-light">
                   <tr>
-                    <th>Service</th>
-                    <th>Effective Price (GHS)</th>
-                    <th>Subscription Cover (GHS)</th>
-                    <th>Use Loyalty?</th>
-                    <th>Cash Due (GHS)</th>
-                    <th>Payment Type</th>
+                    <th>Service</th><th>Category</th><th>Default</th>
+                    <th>Negotiated</th><th>Sub Cover</th>
+                    <th>Use Loyalty?</th><th>Cash Due</th><th>Payment Type</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for item in covered_details %}
-                  <tr data-effective="{{ item.effective_price }}" data-subcover="{{ item.sub_cover }}" data-service-id="{{ item.service_id }}">
-                    <td>{{ item.service_name }}</td>
-                    <td>{{ item.effective_price|floatformat:2 }}</td>
-                    <td>{{ item.sub_cover|floatformat:2 }}</td>
+                {% for c in covered_details %}
+                  <tr data-default="{{ c.default_price }}" data-sub="{{ c.sub_cover }}">
+                    <td>{{ c.service_name }}</td>
+                    <td>{{ c.category }}</td>
+                    <td>GHS {{ c.default_price|floatformat:2 }}</td>
                     <td>
-                      {% if item.loyalty_eligible %}
-                        <input type="checkbox" name="use_loyalty_{{ item.service_id }}" class="use-loyalty-checkbox">
+                      {% if c.negotiable %}
+                        <input type="number" step="0.01" min="0"
+                               name="negotiated_{{ c.service_id }}"
+                               class="form-control form-control-sm negotiable-price"
+                               value="{{ c.negotiated_price|floatformat:2 }}">
                       {% else %}
-                        N/A
+                        GHS {{ c.negotiated_price|floatformat:2 }}
                       {% endif %}
                     </td>
-                    <td class="cash-due-cell">{{ item.cash_due|floatformat:2 }}</td>
-                    <td>{{ item.payment_type }}</td>
+                    <td>GHS {{ c.sub_cover|floatformat:2 }}</td>
+                    <td class="text-center">
+                      {% if c.loyalty_eligible %}
+                        <input type="checkbox" name="use_loyalty_{{ c.service_id }}" class="form-check-input loyalty-box">
+                      {% else %}
+                        &mdash;
+                      {% endif %}
+                    </td>
+                    <td class="cash-cell">GHS {{ c.cash_due|floatformat:2 }}</td>
+                    <td class="type-cell">Cash</td>
                   </tr>
-                  {% endfor %}
+                {% endfor %}
                 </tbody>
               </table>
-              <p class="mt-2">
-                <strong>Total Estimated Cash Due:</strong>
-                GHS <span class="amount" id="total-cash-est">{{ total_cash_est|floatformat:2 }}</span>
+
+              <!-- Discount Controls -->
+              <div class="row g-3 align-items-center mb-3">
+                <div class="col-auto">
+                  <label for="discount_type">Discount</label>
+                </div>
+                <div class="col-auto">
+                  <select id="discount_type" name="discount_type" class="form-select">
+                    <option value="percentage" {% if order.discount_type == 'percentage' %}selected{% endif %}>%</option>
+                    <option value="amount"     {% if order.discount_type == 'amount'     %}selected{% endif %}>GHS</option>
+                  </select>
+                </div>
+                <div class="col-auto">
+                  <input type="number" step="0.01" min="0"
+                         id="discount_value" name="discount_value"
+                         class="form-control" value="{{ order.discount_value|default:0 }}">
+                </div>
+              </div>
+
+              <p>
+                <strong>Approx. Total Due:</strong>
+                GHS <span id="approx_total">{{ total_cash_est|floatformat:2 }}</span>
               </p>
-              {% else %}
-                <p>No services available to simulate coverage.</p>
-              {% endif %}
             </div>
           </div>
-          <!-- End Coverage Breakdown Section -->
 
-          <div class="card">
-            <div class="card-body">
-              <!-- Main Form -->
-              
-                <!-- Customer & Subscription Info -->
-                {% if service_order.customer %}
-                  <div class="row mb-3">
-                    <div class="col-md-8">
-                      <h6>Vehicle: {{ service_order.vehicle }}</h6>
-                      <p>Loyalty Points: {{ loyalty_points }}</p>
-                      {% if subscription_active and cust_sub %}
-                        <p class="{% if cust_sub.sub_amount_remaining == 0.0 %}text-danger{% else %}text-success{% endif %}">
-                          Subscription: {{ cust_sub.subscription.name }} <br>
-                          Remaining: GHS {{ cust_sub.sub_amount_remaining|floatformat:2 }} <br>
-                          Valid until: {{ cust_sub.end_date|date:"Y-m-d" }}
-                        </p>
-                      {% else %}
-                        <p class="text-danger">No Active Subscription</p>
-                      {% endif %}
-                    </div>
-                    <div class="col-md-4">
-                      <label for="status" class="form-label">Service Order Status</label>
-                      <select name="status" id="status" class="form-control">
-                        <option value="completed" {% if service_order.status == 'completed' %}selected{% endif %}>Completed</option>
-                        <option value="pending" {% if service_order.status == 'pending' %}selected{% endif %}>Pending</option>
-                        <option value="canceled" {% if service_order.status == 'canceled' %}selected{% endif %}>Canceled</option>
-                        <option value="onCredit" {% if service_order.status == 'onCredit' %}selected{% endif %}>On Credit</option>
-                      </select>
-                      <small id="on-credit-note" class="form-text text-danger" style="display:none;">
-                        On-Credit => No immediate payment, business covers cost.
-                      </small>
-                    </div>
-                  </div>
-                {% else %}
-                  <div class="row mb-3">
-                    <div class="col-md-12">
-                      <p><strong>No Customer Attached</strong></p>
-                    </div>
-                    <div class="col-md-4">
-                      <label for="status" class="form-label">Service Order Status</label>
-                      <select name="status" id="status" class="form-control">
-                        <option value="completed" {% if service_order.status == 'completed' %}selected{% endif %}>Completed</option>
-                        <option value="pending" {% if service_order.status == 'pending' %}selected{% endif %}>Pending</option>
-                        <option value="canceled" {% if service_order.status == 'canceled' %}selected{% endif %}>Canceled</option>
-                        <option value="onCredit" {% if service_order.status == 'onCredit' %}selected{% endif %}>On Credit</option>
-                      </select>
-                      <small id="on-credit-note" class="form-text text-danger" style="display:none;">
-                        On-Credit => No immediate payment, business covers cost.
-                      </small>
-                    </div>
-                  </div>
-                {% endif %}
-                <!-- /Customer & Subscription Info -->
-
-                <!-- Services Table -->
-                <h5>Services Rendered</h5>
-                <table class="table table-bordered table-responsive mb-3">
-                  <thead class="table-light">
-                    <tr>
-                      <th>Service</th>
-                      <th>Category</th>
-                      <th>Default Price</th>
-                      <th>Negotiated Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for sr in services_rendered %}
-                    <tr>
-                      <td>{{ sr.service.service_type }}</td>
-                      <td>
-                        {% if sr.service.category %}
-                          {{ sr.service.category.name }}
-                        {% else %}
-                          ---
-                        {% endif %}
-                      </td>
-                      <!-- Default Price -->
-                      <td>
-                        GHS {{ sr.service.price|floatformat:2 }}
-                        <input type="hidden" class="default-price-input" data-sr-id="{{ sr.id }}" value="{{ sr.service.price|floatformat:2 }}">
-                      </td>
-                      <!-- Negotiated Price -->
-                      <td>
-                        {% if sr.service.category and sr.service.category.negotiable %}
-                          <input type="number" step="0.01" min="0" name="negotiated_price_{{ sr.id }}" class="form-control form-control-sm negotiable-price-input" data-sr-id="{{ sr.id }}" value="{{ sr.get_effective_price }}">
-                        {% else %}
-                          GHS {{ sr.service.price|floatformat:2 }}
-                        {% endif %}
-                      </td>
-                    </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-                <!-- /Services Table -->
-
-                <!-- Payment + Discount Section -->
-                <div class="row my-4">
-                  <div class="col-md-6">
-                    <label for="discount_type" class="form-label">Discount Type</label>
-                    <select class="form-control" name="discount_type" id="discount_type">
-                      <option value="percentage" {% if service_order.discount_type == 'percentage' %}selected{% endif %}>Percentage (%)</option>
-                      <option value="amount" {% if service_order.discount_type == 'amount' %}selected{% endif %}>Amount (GHS)</option>
-                    </select>
-                  </div>
-                  <div class="col-md-6">
-                    <label for="discount_value" class="form-label">Discount Value</label>
-                    <input type="number" class="form-control" name="discount_value" id="discount_value" min="0" step="0.01" value="{{ service_order.discount_value|default:0 }}">
-                  </div>
-                </div>
-                <!-- /Payment + Discount -->
-
-                <!-- Approximate Total Summary -->
-                <div class="mb-3">
-                  <p class="mb-0">
-                    <strong>Services Total:</strong>
-                    GHS <span id="approx-total">{{ service_order.total_amount|floatformat:2 }}</span>
-                  </p>
-                  <small class="text-muted">
-                    (This total recalculates as you update negotiated prices, discount, and loyalty selections.)
-                  </small>
-                </div>
-
-                <!-- Action Buttons -->
-                <div class="d-flex justify-content-end gap-2">
-                  <button type="submit" class="btn btn-primary">Confirm</button>
-                  <a href="{% url 'discard_order' pk=service_order.id %}" class="btn btn-danger">Discard</a>
-                </div>
-              </form>
-            </div>
+          <!-- Actions -->
+          <div class="d-flex justify-content-end gap-2 mb-4">
+            <button type="submit" class="btn btn-primary">Confirm</button>
+            <a href="{% url 'discard_order' order.id %}" class="btn btn-outline-danger">Discard</a>
           </div>
-        </div>
+        </form>
+
         {% include 'inc/footer.html' %}
-        <div class="content-backdrop fade"></div>
       </div>
     </div>
   </div>
 </div>
-{% endblock content %}
+{% endblock %}
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  // Toggle "On Credit" note
-  const statusSelect = document.getElementById('status');
-  const onCreditNote = document.getElementById('on-credit-note');
-  function toggleOnCreditNote() {
-    onCreditNote.style.display = (statusSelect.value === 'onCredit') ? 'block' : 'none';
+document.addEventListener('DOMContentLoaded', () => {
+  const status      = document.getElementById('status'),
+        note        = document.getElementById('on-credit-note'),
+        discType    = document.getElementById('discount_type'),
+        discVal     = document.getElementById('discount_value'),
+        approxEl    = document.getElementById('approx_total'),
+        rows        = document.querySelectorAll('tr[data-default]');
+
+  function toggleNote() {
+    note.style.display = status.value==='onCredit' ? 'block' : 'none';
   }
-  toggleOnCreditNote();
-  statusSelect.addEventListener('change', toggleOnCreditNote);
+  status.addEventListener('change', toggleNote);
+  toggleNote();
 
-  // Recalculate approximate total based on effective price, subscription cover, and loyalty selections.
-  const discountTypeSelect = document.getElementById('discount_type');
-  const discountValueInput = document.getElementById('discount_value');
-  const approxTotalSpan = document.getElementById('approx-total');
-
-  function recalcApprox() {
-    let totalCashDue = 0;
-    // Iterate over each row in the coverage breakdown table
-    const rows = document.querySelectorAll('.coverage-table tbody tr');
+  function recalc() {
+    let total = 0;
     rows.forEach(row => {
-      const effective = parseFloat(row.getAttribute('data-effective')) || 0;
-      const subCover = parseFloat(row.getAttribute('data-subcover')) || 0;
-      const loyaltyCheckbox = row.querySelector('.use-loyalty-checkbox');
-      let cashDue = effective - subCover;
-      if (loyaltyCheckbox && loyaltyCheckbox.checked) {
-          cashDue = 0;
+      const defP  = parseFloat(row.dataset.default) || 0,
+            subC  = parseFloat(row.dataset.sub)     || 0,
+            negoI = row.querySelector('.negotiable-price'),
+            loyB  = row.querySelector('.loyalty-box'),
+            negoP = negoI ? parseFloat(negoI.value)||0 : defP;
+
+      let cash = negoP - subC,
+          type = 'Cash';
+
+      if (subC>0) type = 'Subscription';
+      if (loyB && loyB.checked) {
+        cash = 0;
+        type = subC>0 ? 'Subscription + Loyalty' : 'Loyalty';
       }
-      totalCashDue += cashDue;
+      if (cash>0 && type!=='Cash') type += ' + Cash';
+
+      row.querySelector('.cash-cell').textContent = 'GHS '+cash.toFixed(2);
+      row.querySelector('.type-cell').textContent = type;
+      total += cash;
     });
-    // Apply discount on the total cash due.
-    let discVal = parseFloat(discountValueInput.value) || 0;
-    let discAmt = 0;
-    if (discountTypeSelect.value === 'percentage') {
-      discVal = Math.min(discVal, 100);
-      discAmt = totalCashDue * (discVal / 100);
+
+    let dv = parseFloat(discVal.value)||0, disc=0;
+    if (discType.value==='percentage') {
+      dv = Math.min(dv,100);
+      disc = total*(dv/100);
     } else {
-      discAmt = Math.min(discVal, totalCashDue);
+      disc = Math.min(dv,total);
     }
-    let finalApprox = totalCashDue - discAmt;
-    if (finalApprox < 0) finalApprox = 0;
-    approxTotalSpan.textContent = finalApprox.toFixed(2);
+    const finalTot = Math.max(0, total-disc);
+    approxEl.textContent = finalTot.toFixed(2);
   }
 
-  discountTypeSelect.addEventListener('change', recalcApprox);
-  discountValueInput.addEventListener('input', recalcApprox);
-  const negotiableInputs = document.querySelectorAll('.negotiable-price-input');
-  negotiableInputs.forEach(el => el.addEventListener('input', recalcApprox));
-  const loyaltyCheckboxes = document.querySelectorAll('.use-loyalty-checkbox');
-  loyaltyCheckboxes.forEach(box => box.addEventListener('change', recalcApprox));
-  
-  recalcApprox();
+  document.querySelectorAll('.negotiable-price, .loyalty-box').forEach(el=>
+    el.addEventListener('input', recalc));
+  discType.addEventListener('change', recalc);
+  discVal.addEventListener('input', recalc);
+
+  recalc();
 });
 </script>
-{% endblock scripts %}
+{% endblock %}

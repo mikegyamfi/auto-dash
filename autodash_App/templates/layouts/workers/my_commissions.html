@@ -1,22 +1,33 @@
 {% extends 'base.html' %}
+{% load static %}
+
+{% block style %}
+<style>
+  /* Add any custom overrides here */
+  .table-responsive { overflow-x: auto; }
+</style>
+{% endblock style %}
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
+
     {% include 'inc/side_nav.html' %}
+
     <div class="layout-page">
       {% include 'inc/header.html' %}
+
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
 
-          <h4 class="fw-bold py-3">My Commissions</h4>
+          <h4 class="fw-bold py-3 mb-4">My Commissions</h4>
 
           <!-- Days Filter -->
           <form method="get" class="row row-cols-lg-auto g-3 align-items-end mb-4">
             <div class="col-12">
               <label for="days" class="form-label">Select Range (Days)</label>
               <select name="days" id="days" class="form-select">
-                <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 days</option>
+                <option value="7"  {% if days == 7  %}selected{% endif %}>Last 7 days</option>
                 <option value="15" {% if days == 15 %}selected{% endif %}>Last 15 days</option>
                 <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 days</option>
               </select>
@@ -26,114 +37,98 @@
             </div>
           </form>
 
+          <!-- Commission Table -->
+          <div class="card mb-4">
+            <div class="card-body table-responsive">
+              <table class="table table-bordered">
+                <thead class="table-light">
+                  <tr>
+                    <th>Date</th>
+                    <th># Services</th>
+                    <th># Vehicles</th>
+                    <th>Total Commission (GHS)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in daily_rows %}
+                  <tr>
+                    <td>{{ row.date|date:"Y-m-d" }}</td>
+                    <td>{{ row.num_services }}</td>
+                    <td>{{ row.num_vehicles }}</td>
+                    <td>
+                      <a href="#"
+                         class="commission-breakdown-link"
+                         data-worker-id="{{ worker.id }}"
+                         data-date="{{ row.date|date:'Y-m-d' }}">
+                        {{ row.total_commission|floatformat:2 }}
+                      </a>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <!-- Chart Section -->
           <div class="card mb-4">
             <div class="card-body">
               <h5 class="card-title">Daily Commission Trend (Last {{ days }} Days)</h5>
-              <canvas id="commissionChart" style="max-height: 400px;"></canvas>
-            </div>
-          </div>
-
-          <!-- Table of daily data -->
-          <div class="card">
-            <div class="card-body">
-              <h5 class="card-title">
-                Detailed Commission Over Last {{ days }} Days
-              </h5>
-              <div class="table-responsive">
-                <table class="table table-bordered">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Service(s)</th>
-                      <th>Total Commission (GHS)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% if daily_rows %}
-                      {% for row in daily_rows %}
-                        <tr>
-                          <td>{{ row.date|date:"Y-m-d" }}</td>
-                          <td>{{ row.services }}</td>
-                          <td>{{ row.total|floatformat:2 }}</td>
-                        </tr>
-                      {% endfor %}
-                    {% else %}
-                      <tr>
-                        <td colspan="3" class="text-center">
-                          No commission data found.
-                        </td>
-                      </tr>
-                    {% endif %}
-                  </tbody>
-                </table>
-              </div>
+              <canvas id="commissionChart" style="height:300px;"></canvas>
             </div>
           </div>
 
         </div>
+
         {% include 'inc/footer.html' %}
         <div class="content-backdrop fade"></div>
       </div>
     </div>
   </div>
-  <div class="layout-overlay layout-menu-toggle"></div>
 </div>
-{% endblock %}
+{% endblock content %}
 
 {% block scripts %}
-<!-- Include Chart.js from a CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  const chartLabels = JSON.parse('{{ chart_labels_json|safe }}');
-  const chartValues = JSON.parse('{{ chart_values_json|safe }}');
+document.addEventListener('DOMContentLoaded', () => {
+  const labels = JSON.parse('{{ chart_labels_json|safe }}');
+  const data   = JSON.parse('{{ chart_values_json|safe }}');
+  const ctx    = document.getElementById('commissionChart').getContext('2d');
 
-  const ctx = document.getElementById('commissionChart').getContext('2d');
-  const commissionChart = new Chart(ctx, {
+  new Chart(ctx, {
     type: 'line',
     data: {
-      labels: chartLabels,
-      datasets: [
-        {
-          label: 'Daily Commission (GHS)',
-          data: chartValues,
-          borderColor: 'blue',
-          backgroundColor: 'rgba(0, 0, 255, 0.1)',
-          fill: true,
-          tension: 0.1
-        }
-      ]
+      labels,
+      datasets: [{
+        label: 'Daily Commission (GHS)',
+        data,
+        tension: 0.1,
+      }]
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false,
       scales: {
         y: {
           beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Commission Amount (GHS)'
-          }
+          title: { display: true, text: 'GHS' }
         },
         x: {
-          title: {
-            display: true,
-            text: 'Date'
-          }
-        }
-      },
-      plugins: {
-        legend: {
-          position: 'top'
-        },
-        title: {
-          display: true,
-          text: 'Daily Commission'
+          title: { display: true, text: 'Date' }
         }
       }
     }
   });
+
+  // Breakdown link listener
+  document.querySelectorAll('.commission-breakdown-link').forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      const workerId = link.dataset.workerId;
+      const dateVal  = link.dataset.date;
+      // TODO: AJAX fetch / show modal with breakdown
+    });
+  });
 });
 </script>
-{% endblock %}
+{% endblock scripts %}

@@ -6,6 +6,8 @@ from django.db.models import Sum
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+from autodash_App.commission_util import allocate_commission
+
 
 # -------------Your existing imports and models (CustomUser, Branch, etc.)-------------
 # Keep them as they are, just showing partial for brevity
@@ -437,30 +439,8 @@ class ServiceRendered(models.Model):
             return self.negotiated_price
         return self.service.price
 
-    def allocate_commission(self, discount_factor=1.0):
-        """
-        Calculates commission based on the effective service price (which is either
-        the negotiated price if set or the service's base price) multiplied by a discount factor.
-        Then the commission is computed as (effective_price * commission_rate/100) and split among assigned workers.
-        """
-        effective_price = (
-                              self.negotiated_price if self.negotiated_price is not None else self.service.price) * discount_factor
-        if self.service.commission_rate:
-            self.commission_amount = (effective_price * self.service.commission_rate) / 100
-        else:
-            self.commission_amount = 0.0
-        self.save()
-
-        assigned_workers = self.workers.filter(worker_category__service_provider=True)
-        if assigned_workers.exists() and self.commission_amount:
-            commission_per_worker = self.commission_amount / assigned_workers.count()
-            for worker in assigned_workers:
-                Commission.objects.create(
-                    worker=worker,
-                    service_rendered=self,
-                    amount=commission_per_worker,
-                    date=timezone.now().date()
-                )
+    def allocate_commission(self, discount_factor=1):
+        allocate_commission(self, discount_factor=discount_factor)
 
     def remove_commission(self):
         Commission.objects.filter(service_rendered=self).delete()

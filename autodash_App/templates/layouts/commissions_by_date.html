@@ -190,7 +190,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const li = document.createElement('li');
                 li.classList.add('list-group-item');
                 // Show service + vehicle + commission
-                li.textContent = `${item.service} [${item.vehicle}] => GHS ${item.amount.toFixed(2)}`;
+                li.textContent = `${item.service} [${item.vehicle}] => GHS ${item.amount.toFixed(2)} (${item.order_number})`;
                 breakdownList.appendChild(li);
               });
             }
