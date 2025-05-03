@@ -3,17 +3,11 @@
 
 {% block style %}
 <style>
-  .insights-table th {
-    background-color: #e9f2fd;
-    color: #1f3b63;
-    font-weight: 600;
-  }
-  .insights-table td {
-    vertical-align: middle;
-  }
-  .badge-under   { background-color: #d4edda; color: #155724; }
-  .badge-target  { background-color: #fff3cd; color: #856404; }
-  .badge-over    { background-color: #f8d7da; color: #721c24; }
+  .insights-table th { background-color: #e9f2fd; color: #1f3b63; font-weight:600; }
+  .insights-table td { vertical-align: middle; }
+  .badge-under  { background-color: #d4edda; color: #155724; }
+  .badge-target { background-color: #fff3cd; color: #856404; }
+  .badge-over   { background-color: #f8d7da; color: #721c24; }
 </style>
 {% endblock style %}
 
@@ -26,63 +20,60 @@
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
 
-          <h4 class="fw-bold py-3 mb-4">Daily Budget Insights</h4>
+          <h4 class="fw-bold py-3 mb-4">Daily Budget Insights{% if not show_branch_selector %} – {{ request.user.worker_profile.branch.name }}{% endif %}</h4>
 
-          <!-- Date Filter -->
+          {% if show_branch_selector %}
+          <form method="get" class="row mb-3">
+            <div class="col-md-4">
+              <label for="branch" class="form-label">Branch</label>
+              <select id="branch" name="branch" class="form-select" onchange="this.form.submit()">
+                {% for b in branches %}
+                  <option value="{{ b.id }}"
+                    {% if b.id|stringformat:"s" == selected_branch_id|stringformat:"s" %}selected{% endif %}>
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </form>
+          {% endif %}
+
           <form method="get" class="row g-3 mb-4 align-items-end">
+            {# carry branch through GET #}
+            {% if show_branch_selector %}
+              <input type="hidden" name="branch" value="{{ selected_branch_id }}">
+            {% endif %}
             <div class="col-md-3">
               <label for="start_date" class="form-label">Start Date</label>
-              <input
-                type="date"
-                id="start_date"
-                name="start_date"
-                class="form-control"
-                value="{{ start_date|date:'Y-m-d' }}"
-              />
+              <input type="date" id="start_date" name="start_date"
+                     class="form-control" value="{{ start_date|date:'Y-m-d' }}">
             </div>
             <div class="col-md-3">
               <label for="end_date" class="form-label">End Date</label>
-              <input
-                type="date"
-                id="end_date"
-                name="end_date"
-                class="form-control"
-                value="{{ end_date|date:'Y-m-d' }}"
-              />
+              <input type="date" id="end_date" name="end_date"
+                     class="form-control" value="{{ end_date|date:'Y-m-d' }}">
             </div>
             <div class="col-md-2">
               <button type="submit" class="btn btn-primary w-100">Apply</button>
             </div>
           </form>
 
-          <!-- Table of Insights -->
           <div class="card mb-4">
             <div class="card-body">
               <h5 class="card-title mb-3">Budget vs. Expenses</h5>
               <div class="table-responsive">
                 <table class="table table-bordered insights-table">
-                  <thead class="table-light">
-                    <tr>
-                      <th>Date</th>
-                      <th>Budget (GHS)</th>
-                      <th>Expense (GHS)</th>
-                      <th>Difference</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
+                  <thead><tr>
+                    <th>Date</th><th>Budget (GHS)</th><th>Expense (GHS)</th>
+                    <th>Difference</th><th>Status</th>
+                  </tr></thead>
                   <tbody>
                     {% for row in insights %}
                     <tr>
                       <td>{{ row.date|date:"Y-m-d" }}</td>
                       <td>{{ row.budget|floatformat:2 }}</td>
                       <td>{{ row.expense|floatformat:2 }}</td>
-                      <td
-                        {% if row.difference < 0 %}
-                          class="text-danger"
-                        {% elif row.difference > 0 %}
-                          class="text-success"
-                        {% endif %}
-                      >
+                      <td class="{% if row.difference < 0 %}text-danger{% elif row.difference > 0 %}text-success{% endif %}">
                         {{ row.difference|floatformat:2 }}
                       </td>
                       <td>
@@ -102,7 +93,6 @@
             </div>
           </div>
 
-          <!-- Chart -->
           <div class="card mb-4">
             <div class="card-body">
               <h5 class="card-title mb-3">Budget vs. Expense Trend</h5>
@@ -121,16 +111,15 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', () => {
   const labels   = JSON.parse('{{ labels_json|safe }}');
   const budgets  = JSON.parse('{{ budgets_json|safe }}');
   const expenses = JSON.parse('{{ expenses_json|safe }}');
   const ctx = document.getElementById('budgetChart').getContext('2d');
-
   new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: labels,
+      labels,
       datasets: [
         {
           label: 'Budget',
@@ -150,8 +139,8 @@ document.addEventListener('DOMContentLoaded', function() {
     },
     options: {
       scales: {
-        y: { beginAtZero: true, title: { display: true, text: 'GHS' } },
-        x: { title: { display: true, text: 'Date' } }
+        y: { beginAtZero:true, title:{display:true,text:'GHS'} },
+        x: { title:{display:true,text:'Date'} }
       }
     }
   });

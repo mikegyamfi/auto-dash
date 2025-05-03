@@ -35,7 +35,7 @@ from .models import (
     CustomerSubscription, CustomUser,
     Service, LoyaltyTransaction, VehicleGroup, ProductSale, ProductCategory,
     Subscription, WorkerCategory, CustomerSubscriptionTrail, CustomerSubscriptionRenewalTrail, WeeklyBudget,
-    RecurringExpense, SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor
+    RecurringExpense, SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget
 )
 from .models import (
     DailyExpenseBudget
@@ -4553,52 +4553,67 @@ def _parse_date(val, default):
         return default
 
 
-@login_required
+@staff_member_required
 def daily_budget_insights(request):
-    # 1) figure out branch
-    try:
-        branch = request.user.worker_profile.branch
-    except (AttributeError, Worker.DoesNotExist):
-        branch = None
+    user = request.user
 
-    # 2) parse date range (default to last 7 days)
+    # ————— Branch selection —————
+    if user.is_superuser:
+        branches = Branch.objects.all()
+        branch_id = request.GET.get("branch", "")
+        branch = get_object_or_404(Branch, id=branch_id) if branch_id else (
+            branches.first() if branches.exists() else None)
+        show_branch_selector = True
+    else:
+        branches = None
+        try:
+            branch = user.worker_profile.branch
+            show_branch_selector = False
+        except Worker.DoesNotExist:
+            messages.error(request, "You must belong to a branch to view insights.")
+            return redirect("index")
+
+    if not branch:
+        messages.error(request, "No branch available.")
+        return redirect("index")
+
+    # ————— Date range (default last 7 days) —————
     today = date.today()
     end_date = _parse_date(request.GET.get("end_date"), today)
     start_date = _parse_date(request.GET.get("start_date"), end_date - timedelta(days=6))
     if start_date > end_date:
         start_date, end_date = end_date - timedelta(days=6), end_date
 
-    # 3) build list of calendar dates
+    # ————— Build each day’s insight —————
     days = (end_date - start_date).days + 1
-    dates = [start_date + timedelta(days=i) for i in range(days)]
-
-    insights = []
     labels = []
     budgets_data = []
     expenses_data = []
+    insights = []
 
-    for current in dates:
+    for i in range(days):
+        current = start_date + timedelta(days=i)
         labels.append(current.strftime("%Y-%m-%d"))
 
-        # a) get that weekday’s budget
+        # (a) Weekly budget for that weekday
         wb = WeeklyBudget.objects.filter(branch=branch, weekday=current.weekday()).first()
         budget_amt = wb.budget_amount if wb else 0.0
 
-        # b) sum one-off expenses for that day & branch
-        qs = Expense.objects.filter(date=current)
-        if branch:
-            qs = qs.filter(branch=branch)
-        one_off_sum = qs.aggregate(total=Sum("amount"))["total"] or 0.0
+        # (b) One-off expenses
+        qs = Expense.objects.filter(date=current, branch=branch)
+        one_off = qs.aggregate(total=Sum("amount"))["total"] or 0.0
 
-        # c) add any recurring expenses that apply today
-        rec_sum = 0.0
-        for r in RecurringExpense.objects.filter(branch=branch):
-            if r.applies_today(current):
-                rec_sum += r.amount
+        # (c) Recurring
+        rec_sum = sum(r.amount for r in RecurringExpense.objects.filter(branch=branch) if r.applies_today(current))
 
-        total_exp = one_off_sum + rec_sum
+        total_exp = one_off + rec_sum
         diff = budget_amt - total_exp
-        status = "Under" if diff > 0 else ("Over" if diff < 0 else "On Target")
+        if diff > 0:
+            status = "Under"
+        elif diff < 0:
+            status = "Over"
+        else:
+            status = "On Target"
 
         insights.append({
             "date": current,
@@ -4611,42 +4626,66 @@ def daily_budget_insights(request):
         budgets_data.append(budget_amt)
         expenses_data.append(total_exp)
 
+    # reverse so most recent shows first in table
     insights.reverse()
 
     return render(request, "layouts/budgets/insights.html", {
+        "branches": branches,
+        "show_branch_selector": show_branch_selector,
+        "selected_branch_id": branch.id,
+        "start_date": start_date,
+        "end_date": end_date,
         "insights": insights,
         "labels_json": json.dumps(labels),
         "budgets_json": json.dumps(budgets_data),
         "expenses_json": json.dumps(expenses_data),
-        "start_date": start_date,
-        "end_date": end_date,
     })
 
 
-@login_required
+@staff_member_required
 def set_weekly_budgets(request):
-    # assume every user with a worker profile belongs to one branch
-    try:
-        branch = request.user.worker_profile.branch
-    except Worker.DoesNotExist:
-        messages.error(request, "You must be a branch worker to set budgets.")
+    user = request.user
+
+    # —————— Branch resolution ——————
+    if user.is_superuser:
+        branches = Branch.objects.all()
+        # on GET come from ?branch=...
+        if request.method == "GET":
+            branch_id = request.GET.get("branch")
+        else:
+            # on POST we also expect a hidden "branch" field
+            branch_id = request.POST.get("branch")
+        if branch_id:
+            branch = get_object_or_404(Branch, id=branch_id)
+        else:
+            branch = branches.first() if branches.exists() else None
+    else:
+        # branch‐workers only get their own
+        try:
+            branch = user.worker_profile.branch
+        except Worker.DoesNotExist:
+            messages.error(request, "You must be a branch worker to set budgets.")
+            return redirect("index")
+        branches = None
+
+    if not branch:
+        messages.error(request, "No branch available.")
         return redirect("index")
 
-    # Load or initialize existing budgets
+    # — Load existing budgets into dict {weekday: instance} —
     existing = {wb.weekday: wb for wb in WeeklyBudget.objects.filter(branch=branch)}
 
     if request.method == "POST":
-        # Iterate 0–6 for Monday–Sunday
-        for weekday, dayname in WeeklyBudget.WEEKDAY_CHOICES:
-            key = f"budget_{weekday}"
-            raw = request.POST.get(key, "").strip()
+        # Save all 7 days
+        for weekday, _ in WeeklyBudget.WEEKDAY_CHOICES:
+            raw = request.POST.get(f"budget_{weekday}", "").strip()
             try:
                 amt = float(raw) if raw else 0.0
             except ValueError:
                 amt = 0.0
 
-            wb = existing.get(weekday)
-            if wb:
+            if weekday in existing:
+                wb = existing[weekday]
                 wb.budget_amount = amt
                 wb.save()
             else:
@@ -4655,47 +4694,76 @@ def set_weekly_budgets(request):
                     weekday=weekday,
                     budget_amount=amt
                 )
-        messages.success(request, "Weekly budgets updated.")
+
+        messages.success(request, f"Weekly budgets for {branch.name} updated.")
+        # redirect back to GET so you can see saved values
+        if user.is_superuser:
+            return redirect(f"{request.path}?branch={branch.id}")
         return redirect("set_weekly_budgets")
 
-    # GET → render form with current values
-    initial = {wd: existing.get(wd).budget_amount if wd in existing else 0.0
-               for wd, _ in WeeklyBudget.WEEKDAY_CHOICES}
+    # — GET: prepare initial values (0.0 if missing) —
+    initial = {
+        wd: existing.get(wd).budget_amount if wd in existing else 0.0
+        for wd, _ in WeeklyBudget.WEEKDAY_CHOICES
+    }
 
     return render(request, "layouts/budgets/set_weekly.html", {
         "branch": branch,
+        "branches": branches,
         "weekday_choices": WeeklyBudget.WEEKDAY_CHOICES,
         "initial": initial,
+        "show_branch_selector": user.is_superuser,
+        "selected_branch_id": str(branch.id),
     })
 
 
 @staff_member_required
 def sales_targets_manage(request):
-    """
-    List and edit all branch-level weekly/monthly sales targets in one formset.
-    """
-    # Ensure there's one SalesTarget per branch & frequency
+    # 1) Ensure one SalesTarget per branch×{weekly,monthly}
     for b in Branch.objects.all():
         for freq in (SalesTarget.FREQUENCY_WEEKLY, SalesTarget.FREQUENCY_MONTHLY):
-            SalesTarget.objects.get_or_create(branch=b, frequency=freq, defaults={'target_amount': 0.0})
+            SalesTarget.objects.get_or_create(
+                branch=b,
+                frequency=freq,
+                defaults={'target_amount': 0.0}
+            )
+        # and one DailySalesTarget per branch×weekday
+        for wd, _ in DailySalesTarget.WEEKDAY_CHOICES:
+            DailySalesTarget.objects.get_or_create(
+                branch=b,
+                weekday=wd,
+                defaults={'target_amount': 0.0}
+            )
 
-    TargetFormSet = modelformset_factory(
+    WMFormSet = modelformset_factory(
         SalesTarget,
         fields=('branch', 'frequency', 'target_amount'),
         extra=0
     )
+    DFormSet = modelformset_factory(
+        DailySalesTarget,
+        fields=('branch', 'weekday', 'target_amount'),
+        extra=0
+    )
 
     if request.method == 'POST':
-        formset = TargetFormSet(request.POST, queryset=SalesTarget.objects.all())
-        if formset.is_valid():
-            formset.save()
-            messages.success(request, "Sales targets updated.")
+        wm_fs = WMFormSet(request.POST, prefix='wm', queryset=SalesTarget.objects.all())
+        dt_fs = DFormSet(request.POST, prefix='dt', queryset=DailySalesTarget.objects.all())
+
+        if wm_fs.is_valid() and dt_fs.is_valid():
+            wm_fs.save()
+            dt_fs.save()
+            messages.success(request, "All targets have been updated.")
             return redirect('sales_targets_manage')
+        else:
+            messages.error(request, "Please fix the errors below.")
     else:
-        formset = TargetFormSet(queryset=SalesTarget.objects.all())
+        wm_fs = WMFormSet(prefix='wm', queryset=SalesTarget.objects.all())
+        dt_fs = DFormSet(prefix='dt', queryset=DailySalesTarget.objects.all())
 
     return render(request, 'layouts/admin/sales_targets_manage.html', {
-        'formset': formset
+        'wm_formset': wm_fs,
+        'dt_formset': dt_fs,
     })
 
 
@@ -4726,118 +4794,154 @@ def _shift_months(dt: date, months: int) -> date:
     return date(year, month, 1)
 
 
+def _end_of_month(d):
+    # helper to get last day of month
+    from calendar import monthrange
+    return d.replace(day=monthrange(d.year, d.month)[1])
+
+
+def _shift_months(d, n):
+    # helper: subtract n months
+    month = d.month - n - 1
+    year = d.year + month // 12
+    month = month % 12 + 1
+    return d.replace(year=year, month=month, day=1)
+
+
 @staff_member_required
 def sales_targets_report(request):
-    """
-    Show for each branch:
-      • Revenue this period (week or month)
-      • Target amount
-      • Met? (Revenue ≥ Target)
-      • Over the last 6 periods, how many times each branch has hit target
-    """
-    # 1) frequency: weekly or monthly
+    # ————————————— Weekly/Monthly Section ————————————— #
     freq = request.GET.get('freq', SalesTarget.FREQUENCY_MONTHLY)
-
     today = date.today()
 
-    # 2) Determine current period and revenue queryset
     if freq == SalesTarget.FREQUENCY_WEEKLY:
-        # find this week’s Monday or one specified
-        ws_str = request.GET.get('week_start')
-        if ws_str:
-            week_start = date.fromisoformat(ws_str)
-        else:
+        ws = request.GET.get('week_start')
+        try:
+            week_start = date.fromisoformat(ws) if ws else today - timedelta(days=today.weekday())
+        except ValueError:
             week_start = today - timedelta(days=today.weekday())
         week_end = week_start + timedelta(days=6)
         period_label = f"{week_start:%Y-%m-%d} – {week_end:%Y-%m-%d}"
         rev_qs = Revenue.objects.filter(date__gte=week_start, date__lte=week_end)
     else:
-        # monthly: year_month param or this month
-        ym = request.GET.get('year_month', today.strftime('%Y-%m'))
-        year, mon = map(int, ym.split('-'))
-        start = date(year, mon, 1)
+        ym = request.GET.get('year_month', today.strftime("%Y-%m"))
+        try:
+            y, m = map(int, ym.split('-'))
+            start = date(y, m, 1)
+        except:
+            start = today.replace(day=1)
         end = _end_of_month(start)
         period_label = start.strftime('%B %Y')
         rev_qs = Revenue.objects.filter(date__gte=start, date__lte=end)
 
-    # 3) revenue per branch this period
+    # revenue by branch
     rev_by_branch = (
         rev_qs
         .values('branch__id', 'branch__name')
         .annotate(revenue=Sum('final_amount'))
         .order_by('branch__name')
     )
+    targets = {t.branch_id: t.target_amount for t in SalesTarget.objects.filter(frequency=freq)}
 
-    # 4) load targets for this frequency
-    targets = {
-        t.branch_id: t.target_amount
-        for t in SalesTarget.objects.filter(frequency=freq)
-    }
-
-    # 5) build current‐period rows
     rows = []
-    for branch in Branch.objects.order_by('name'):
-        rev = next((r['revenue'] for r in rev_by_branch if r['branch__id'] == branch.id), 0.0)
-        tgt = targets.get(branch.id, 0.0)
-        rows.append({
-            'branch': branch.name,
+    for b in Branch.objects.order_by('name'):
+        rev = next((x['revenue'] for x in rev_by_branch if x['branch__id'] == b.id), 0)
+        tgt = targets.get(b.id, 0)
+        rows.append({'branch': b.name, 'revenue': rev, 'target': tgt, 'met': rev >= tgt})
+
+    # prepare hit/miss history for last 6 periods
+    labels = []
+    history = []
+    for i in range(5, -1, -1):
+        if freq == SalesTarget.FREQUENCY_WEEKLY:
+            ps = week_start - timedelta(weeks=i)
+            pe = ps + timedelta(days=6)
+            key = ps.strftime('%Y-%m-%d')
+            qs = Revenue.objects.filter(date__gte=ps, date__lte=pe)
+        else:
+            ms = _shift_months(start, i)
+            me = _end_of_month(ms)
+            key = ms.strftime('%Y-%m')
+            qs = Revenue.objects.filter(date__gte=ms, date__lte=me)
+        labels.append(key)
+        by_br = {r['branch__id']: r['total'] for r in qs.values('branch__id').annotate(total=Sum('final_amount'))}
+        hits = []
+        for b in Branch.objects.order_by('name'):
+            amt = by_br.get(b.id, 0)
+            hit = amt >= targets.get(b.id, 0)
+            hits.append(hit)
+        history.append(hits)
+
+    chart_data = [
+        {'label': b.name, 'data': [1 if history[p][i] else 0 for p in range(len(history))]}
+        for i, b in enumerate(Branch.objects.order_by('name'))
+    ]
+
+    # ————————————— Daily Insights Section ————————————— #
+    # branch dropdown for daily only
+    branch_qs = Branch.objects.order_by('name')
+    daily_branch_id = request.GET.get('daily_branch', '')
+    if daily_branch_id:
+        daily_branch = get_object_or_404(Branch, id=daily_branch_id)
+    else:
+        daily_branch = branch_qs.first()  # default
+    # date range for daily
+    ds = request.GET.get('daily_start', '')
+    de = request.GET.get('daily_end', '')
+    try:
+        daily_start = date.fromisoformat(ds) if ds else today - timedelta(days=6)
+    except:
+        daily_start = today - timedelta(days=6)
+    try:
+        daily_end = date.fromisoformat(de) if de else today
+    except:
+        daily_end = today
+    if daily_start > daily_end:
+        daily_start, daily_end = daily_end, daily_start
+
+    days_count = (daily_end - daily_start).days + 1
+    daily_dates = [daily_start + timedelta(days=i) for i in range(days_count)]
+    daily_labels = [d.strftime('%Y-%m-%d') for d in daily_dates]
+
+    # build series for single branch
+    rev_series = []
+    tgt_series = []
+    daily_table = []
+    for d in daily_dates:
+        rev = (Revenue.objects
+               .filter(branch=daily_branch, date=d)
+               .aggregate(total=Sum('final_amount'))['total'] or 0)
+        dst = DailySalesTarget.objects.filter(branch=daily_branch, weekday=d.weekday()).first()
+        tgt = dst.target_amount if dst else 0
+        rev_series.append(float(rev))
+        tgt_series.append(float(tgt))
+        daily_table.append({
+            'date': d.strftime('%Y-%m-%d'),
+            'branch': daily_branch.name,
             'revenue': rev,
             'target': tgt,
             'met': rev >= tgt,
         })
 
-    # 6) history over last 6 periods
-    labels = []
-    history = []  # list of per‐period lists of booleans
-    meet_counts = {b.id: 0 for b in Branch.objects.all()}
+    daily_chart = [{
+        'branch': daily_branch.name,
+        'revenue': rev_series,
+        'target': tgt_series,
+    }]
 
-    for i in range(5, -1, -1):
-        if freq == SalesTarget.FREQUENCY_WEEKLY:
-            period_start = week_start - timedelta(weeks=i)
-            period_end = period_start + timedelta(days=6)
-            key = period_start.strftime('%Y-%m-%d')
-            qs = Revenue.objects.filter(date__gte=period_start, date__lte=period_end)
-        else:
-            # monthly
-            m_start = _shift_months(start, i)
-            m_end = _end_of_month(m_start)
-            key = m_start.strftime('%Y-%m')
-            qs = Revenue.objects.filter(date__gte=m_start, date__lte=m_end)
-
-        labels.append(key)
-
-        # revenue per branch this period
-        by_branch = {
-            e['branch__id']: e['total']
-            for e in qs.values('branch__id').annotate(total=Sum('final_amount'))
-        }
-
-        row_hits = []
-        for branch in Branch.objects.order_by('name'):
-            rev_amt = by_branch.get(branch.id, 0.0)
-            tgt_amt = targets.get(branch.id, 0.0)
-            hit = rev_amt >= tgt_amt
-            if hit:
-                meet_counts[branch.id] += 1
-            row_hits.append(hit)
-
-        history.append(row_hits)
-
-    # prepare data for a heatmap‐style chart: one dataset per branch
-    chart_data = []
-    branches = list(Branch.objects.order_by('name'))
-    for idx, branch in enumerate(branches):
-        chart_data.append({
-            'label': branch.name,
-            'data': [1 if history[p][idx] else 0 for p in range(len(history))],
-        })
-
-    import json
     return render(request, 'layouts/admin/sales_targets_report.html', {
+        # weekly/monthly
         'freq': freq,
         'period_label': period_label,
         'rows': rows,
         'labels': json.dumps(labels),
         'chart_data': json.dumps(chart_data),
-        'meet_counts': meet_counts,
+        # daily
+        'branch_list': branch_qs,
+        'selected_daily_branch': str(daily_branch.id),
+        'daily_start_str': daily_start.isoformat(),
+        'daily_end_str': daily_end.isoformat(),
+        'daily_labels': json.dumps(daily_labels),
+        'daily_chart': json.dumps(daily_chart),
+        'daily_table': daily_table,
     })

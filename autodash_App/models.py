@@ -711,3 +711,36 @@ class SalesTarget(models.Model):
 
     def __str__(self):
         return f"{self.branch.name} – {self.get_frequency_display()} target: GHS {self.target_amount}"
+
+
+class DailySalesTarget(models.Model):
+    WEEKDAY_CHOICES = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
+
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name='daily_sales_targets'
+    )
+    weekday = models.IntegerField(choices=WEEKDAY_CHOICES)
+    target_amount = models.FloatField(default=0.0)
+
+    class Meta:
+        unique_together = ('branch', 'weekday')
+        ordering = ['branch__name','weekday']
+
+    def __str__(self):
+        return f"{self.branch.name} – {self.get_weekday_display()}: GHS {self.target_amount:.2f}"
+
+
+
+
+
+

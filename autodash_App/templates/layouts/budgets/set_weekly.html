@@ -1,18 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
 {% load custom_filters %}
-
-{% block style %}
-<style>
-  .weekly-budget-table th {
-    background-color: #f0f4f8;
-    font-weight: 600;
-  }
-  .weekly-budget-table td {
-    vertical-align: middle;
-  }
-</style>
-{% endblock style %}
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
@@ -25,17 +12,37 @@
 
           <h4 class="fw-bold py-3 mb-4">Set Weekly Budgets</h4>
 
-          <div class="card mb-4">
-            <div class="card-body">
-              <form method="post" class="row g-3">
-                {% csrf_token %}
+          {% if show_branch_selector %}
+          <form method="get" class="row mb-4">
+            <div class="col-md-4">
+              <label for="branch" class="form-label">Branch</label>
+              <select id="branch" name="branch" class="form-select"
+                      onchange="this.form.submit()">
+                {% for b in branches %}
+                  <option value="{{ b.id }}"
+                    {% if b.id|stringformat:"s" == selected_branch_id %}selected{% endif %}>
+                    {{ b.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </form>
+          {% endif %}
 
-                <div class="table-responsive">
-                  <table class="table table-bordered weekly-budget-table">
-                    <thead>
+          <div class="card mb-4 shadow-sm">
+            <div class="card-body">
+
+              <form method="post">
+                {% csrf_token %}
+                {# keep branch so POST knows which branch #}
+                <input type="hidden" name="branch" value="{{ branch.id }}"/>
+
+                <div class="table-responsive mb-3">
+                  <table class="table table-bordered">
+                    <thead class="table-light">
                       <tr>
                         <th>Day of Week</th>
-                        <th>Budget Amount (GHS)</th>
+                        <th class="text-end">Budget (GHS)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -48,8 +55,8 @@
                             name="budget_{{ wd }}"
                             step="0.01"
                             min="0"
-                            class="form-control"
-                            value="{{ initial|default_if_none:0|get_item:wd|floatformat:2 }}"
+                            class="form-control text-end"
+                            value="{{ initial|get_item:wd|floatformat:2 }}"
                           />
                         </td>
                       </tr>
@@ -58,12 +65,13 @@
                   </table>
                 </div>
 
-                <div class="col-12 text-end">
+                <div class="text-end">
                   <button type="submit" class="btn btn-primary">
                     Save Weekly Budgets
                   </button>
                 </div>
               </form>
+
             </div>
           </div>
 
@@ -73,10 +81,4 @@
     </div>
   </div>
 </div>
-{% endblock content %}
-
-{% block scripts %}
-<script>
-// nothing dynamic needed here—just a straight form
-</script>
-{% endblock scripts %}
+{% endblock %}

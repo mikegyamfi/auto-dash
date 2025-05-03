@@ -1,15 +1,6 @@
-{# templates/layouts/admin/sales_targets_manage.html #}
+{# layouts/admin/sales_targets_manage.html #}
 {% extends 'base.html' %}
 {% load static %}
-
-{% block style %}
-<style>
-  /* Reduce top padding */
-  .container-p-y { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
-  .card-header { padding: 0.75rem 1rem; }
-  .actions { text-align: right; margin-top: .5rem; }
-</style>
-{% endblock style %}
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
@@ -19,74 +10,106 @@
       {% include 'inc/header.html' %}
       <div class="content-wrapper container-xxl flex-grow-1 container-p-y">
 
-        <div class="card">
-          <div class="card-header d-flex align-items-center justify-content-between">
-            <h5 class="mb-0">Manage Sales Targets</h5>
-          </div>
-          <div class="card-body">
-            <form method="post" novalidate>
-              {% csrf_token %}
-              {{ formset.management_form }}
+        <h5 class="fw-bold mb-4">Manage Sales Targets</h5>
 
-              <div class="table-responsive">
-                <table class="table table-sm table-striped table-hover align-middle mb-0">
-                  <thead class="table-light">
-                    <tr>
-                      <th class="py-2">Branch</th>
-                      <th class="py-2">Frequency</th>
-                      <th class="py-2 text-end">Target (GHS)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for form in formset %}
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          {{ wm_formset.management_form }}
+          {{ dt_formset.management_form }}
+
+          <div class="row gx-4">
+            <!-- Weekly/Monthly -->
+            <div class="col-md-6">
+              <div class="card mb-4">
+                <div class="card-header"><h6 class="mb-0">Weekly &amp; Monthly</h6></div>
+                <div class="card-body p-0">
+                  <table class="table table-sm table-striped mb-0">
+                    <thead class="table-light">
                       <tr>
-                        {# Primary key of this instance, needed by formset #}
-                        {{ form.id }}
-
-                        {# Keep branch & frequency hidden so they aren't lost #}
+                        <th>Branch</th>
+                        <th>Freq</th>
+                        <th class="text-end">Target (GHS)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for form in wm_formset %}
+                      <tr>
+                        {{ form.id }}              {# hidden PK #}
                         {{ form.branch.as_hidden }}
                         {{ form.frequency.as_hidden }}
-
-                        <td class="py-2">
-                          {{ form.instance.branch.name }}
-                        </td>
-                        <td class="py-2">
-                          {{ form.instance.get_frequency_display }}
-                        </td>
-                        <td class="py-2 text-end">
+                        <td>{{ form.instance.branch.name }}</td>
+                        <td>{{ form.instance.get_frequency_display }}</td>
+                        <td>
                           {% if form.target_amount.errors %}
-                            <div class="text-danger small mb-1">
-                              {{ form.target_amount.errors|striptags }}
-                            </div>
+                            <div class="text-danger small">{{ form.target_amount.errors|striptags }}</div>
                           {% endif %}
                           <input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                            type="number" step="0.01" min="0"
                             name="{{ form.prefix }}-target_amount"
-                            id="id_{{ form.prefix }}-target_amount"
                             value="{{ form.target_amount.value|default_if_none:'' }}"
                             class="form-control form-control-sm text-end"
                           >
                         </td>
                       </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
               </div>
+            </div>
 
-              <div class="actions">
-                <button type="submit" class="btn btn-success btn-sm">
-                  <i class="bx bx-save me-1"></i> Save Targets
-                </button>
+            <!-- Daily -->
+            <div class="col-md-6">
+              <div class="card mb-4">
+                <div class="card-header"><h6 class="mb-0">Daily (Mon–Sun)</h6></div>
+                <div class="card-body p-0">
+                  <table class="table table-sm table-striped mb-0">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Branch</th>
+                        <th>Weekday</th>
+                        <th class="text-end">Target (GHS)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for form in dt_formset %}
+                      <tr>
+                        {{ form.id }}
+                        {{ form.branch.as_hidden }}
+                        {{ form.weekday.as_hidden }}
+                        <td>{{ form.instance.branch.name }}</td>
+                        <td>{{ form.instance.get_weekday_display }}</td>
+                        <td>
+                          {% if form.target_amount.errors %}
+                            <div class="text-danger small">{{ form.target_amount.errors|striptags }}</div>
+                          {% endif %}
+                          <input
+                            type="number" step="0.01" min="0"
+                            name="{{ form.prefix }}-target_amount"
+                            value="{{ form.target_amount.value|default_if_none:'' }}"
+                            class="form-control form-control-sm text-end"
+                          >
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
+
+          <div class="text-end mb-4">
+            <button type="submit" class="btn btn-success">
+              <i class="bx bx-save me-1"></i> Save All Targets
+            </button>
+          </div>
+        </form>
 
       </div>
       {% include 'inc/footer.html' %}
     </div>
   </div>
 </div>
-{% endblock content %}
+{% endblock %}

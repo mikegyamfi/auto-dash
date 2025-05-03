@@ -8,7 +8,7 @@ from .models import (
     ServiceRenderedOrder, ServiceRendered, Commission,
     Expense, DailyExpenseBudget, Revenue, Product,
     ProductCategory, ProductPurchased, ProductSale, RecurringExpense, WeeklyBudget, WorkerReference, WorkerGuarantor,
-    WorkerEmployment, WorkerEducation
+    WorkerEmployment, WorkerEducation, DailySalesTarget
 )
 
 
@@ -411,3 +411,17 @@ class WorkerReferenceAdmin(admin.ModelAdmin):
 class WorkerGuarantorAdmin(admin.ModelAdmin):
     list_display = ('worker', 'full_name', 'mobile_number')
     search_fields = ('worker__user__first_name', 'full_name')
+
+
+@admin.register(DailySalesTarget)
+class DailySalesTargetAdmin(admin.ModelAdmin):
+    list_display = ('branch','get_weekday_display','target_amount')
+    list_editable = ('target_amount',)
+    list_filter = ('branch','weekday')
+
+
+
+
+
+
+
