@@ -1,0 +1,92 @@
+{# templates/layouts/admin/sales_targets_manage.html #}
+{% extends 'base.html' %}
+{% load static %}
+
+{% block style %}
+<style>
+  /* Reduce top padding */
+  .container-p-y { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+  .card-header { padding: 0.75rem 1rem; }
+  .actions { text-align: right; margin-top: .5rem; }
+</style>
+{% endblock style %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper container-xxl flex-grow-1 container-p-y">
+
+        <div class="card">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <h5 class="mb-0">Manage Sales Targets</h5>
+          </div>
+          <div class="card-body">
+            <form method="post" novalidate>
+              {% csrf_token %}
+              {{ formset.management_form }}
+
+              <div class="table-responsive">
+                <table class="table table-sm table-striped table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th class="py-2">Branch</th>
+                      <th class="py-2">Frequency</th>
+                      <th class="py-2 text-end">Target (GHS)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for form in formset %}
+                      <tr>
+                        {# Primary key of this instance, needed by formset #}
+                        {{ form.id }}
+
+                        {# Keep branch & frequency hidden so they aren't lost #}
+                        {{ form.branch.as_hidden }}
+                        {{ form.frequency.as_hidden }}
+
+                        <td class="py-2">
+                          {{ form.instance.branch.name }}
+                        </td>
+                        <td class="py-2">
+                          {{ form.instance.get_frequency_display }}
+                        </td>
+                        <td class="py-2 text-end">
+                          {% if form.target_amount.errors %}
+                            <div class="text-danger small mb-1">
+                              {{ form.target_amount.errors|striptags }}
+                            </div>
+                          {% endif %}
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            name="{{ form.prefix }}-target_amount"
+                            id="id_{{ form.prefix }}-target_amount"
+                            value="{{ form.target_amount.value|default_if_none:'' }}"
+                            class="form-control form-control-sm text-end"
+                          >
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="actions">
+                <button type="submit" class="btn btn-success btn-sm">
+                  <i class="bx bx-save me-1"></i> Save Targets
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+      {% include 'inc/footer.html' %}
+    </div>
+  </div>
+</div>
+{% endblock content %}

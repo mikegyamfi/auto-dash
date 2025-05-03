@@ -7,7 +7,8 @@ from .models import (
     LoyaltyTransaction, Service, ServiceCategory,
     ServiceRenderedOrder, ServiceRendered, Commission,
     Expense, DailyExpenseBudget, Revenue, Product,
-    ProductCategory, ProductPurchased, ProductSale
+    ProductCategory, ProductPurchased, ProductSale, RecurringExpense, WeeklyBudget, WorkerReference, WorkerGuarantor,
+    WorkerEmployment, WorkerEducation
 )
 
 
@@ -62,25 +63,6 @@ class WorkerCategoryAdmin(admin.ModelAdmin):
     list_filter = ('service_provider',)
 
 
-@admin.register(Worker)
-class WorkerAdmin(admin.ModelAdmin):
-    """Admin for Worker model, including reference to worker_category."""
-    list_display = (
-        'user', 'branch', 'worker_category',
-        'position', 'is_gh_card_approved',
-        'is_phone_number_approved', 'is_branch_head'
-    )
-    list_filter = (
-        'branch', 'worker_category',
-        'is_gh_card_approved', 'is_phone_number_approved',
-        'is_branch_head'
-    )
-    search_fields = (
-        'user__username', 'user__first_name',
-        'user__last_name', 'position'
-    )
-
-
 @admin.register(Branch)
 class BranchAdmin(admin.ModelAdmin):
     list_display = (
@@ -133,6 +115,7 @@ class ServiceAdmin(admin.ModelAdmin):
 
     def vehicle_group_name(self, obj):
         return obj.vehicle_group.group_name if obj.vehicle_group else ''
+
     vehicle_group_name.short_description = "Vehicle Group"
 
 
@@ -288,3 +271,143 @@ class ProductSaleAdmin(admin.ModelAdmin):
     )
     search_fields = ('product__name', 'branch__name')
     list_filter = ('branch', 'date_sold')
+
+
+admin.site.register(RecurringExpense)
+admin.site.register(WeeklyBudget)
+
+
+class WorkerEducationInline(admin.StackedInline):
+    model = WorkerEducation
+    extra = 1
+    verbose_name_plural = "Educational Records"
+
+
+class WorkerEmploymentInline(admin.StackedInline):
+    model = WorkerEmployment
+    extra = 1
+    verbose_name_plural = "Employment Records"
+
+
+class WorkerReferenceInline(admin.StackedInline):
+    model = WorkerReference
+    extra = 1
+    verbose_name_plural = "References"
+
+
+class WorkerGuarantorInline(admin.StackedInline):
+    model = WorkerGuarantor
+    extra = 1
+    verbose_name_plural = "Guarantors"
+
+
+#
+# Worker admin, with all inlines
+#
+@admin.register(Worker)
+class WorkerAdmin(admin.ModelAdmin):
+    list_display = (
+        'user',
+        'branch',
+        'position',
+        'is_branch_admin',
+        'is_gh_card_approved',
+    )
+    list_filter = (
+        'branch',
+        'worker_category',
+        'is_branch_admin',
+        'is_gh_card_approved',
+    )
+    search_fields = (
+        'user__first_name',
+        'user__last_name',
+        'user__email',
+        'branch__name',
+    )
+    readonly_fields = (
+        'date_joined',
+        'rating_sum',
+        'rating_count',
+        'daily_commission',
+    )
+    fieldsets = (
+        (None, {
+            'fields': (
+                'user',
+                'branch',
+                'worker_category',
+                'position',
+                'salary',
+                'is_branch_admin',
+            )
+        }),
+        ('Ghana Card', {
+            'fields': (
+                'gh_card_number',
+                'gh_card_photo',
+                'is_gh_card_approved',
+            )
+        }),
+        ('Personal & ID', {
+            'fields': (
+                'date_of_birth',
+                'place_of_birth',
+                'nationality',
+                'home_address',
+                'landmark',
+                'ecowas_id_card_no',
+                'ecowas_id_card_photo',
+                'passport_photo',
+            )
+        }),
+        ('Stats (read-only)', {
+            'fields': (
+                'date_joined',
+                'rating_sum',
+                'rating_count',
+                'daily_commission',
+            )
+        }),
+    )
+    inlines = [
+        WorkerEducationInline,
+        WorkerEmploymentInline,
+        WorkerReferenceInline,
+        WorkerGuarantorInline,
+    ]
+
+
+#
+# Separate admin for each related model
+#
+@admin.register(WorkerEducation)
+class WorkerEducationAdmin(admin.ModelAdmin):
+    list_display = ('worker', 'school_name', 'school_location', 'year_completed')
+    list_filter = ('year_completed',)
+    search_fields = ('worker__user__first_name', 'school_name')
+
+
+@admin.register(WorkerEmployment)
+class WorkerEmploymentAdmin(admin.ModelAdmin):
+    list_display = (
+        'worker',
+        'employer_name',
+        'contact_number',
+        'position',
+        'last_date_of_work',
+    )
+    list_filter = ('position',)
+    search_fields = ('worker__user__first_name', 'employer_name')
+
+
+@admin.register(WorkerReference)
+class WorkerReferenceAdmin(admin.ModelAdmin):
+    list_display = ('worker', 'full_name', 'mobile_number')
+    search_fields = ('worker__user__first_name', 'full_name')
+
+
+@admin.register(WorkerGuarantor)
+class WorkerGuarantorAdmin(admin.ModelAdmin):
+    list_display = ('worker', 'full_name', 'mobile_number')
+    search_fields = ('worker__user__first_name', 'full_name')

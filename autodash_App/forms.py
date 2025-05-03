@@ -61,6 +61,9 @@ class LogServiceForm(forms.Form):
             'placeholder': 'Select Workers',
         }),
     )
+    comments = forms.CharField(widget=forms.Textarea(
+        attrs={'class': 'form-control', 'placeholder': 'Leave notes or comments on the service been logged'}),
+                               required=False)
 
     products = forms.ModelMultipleChoiceField(queryset=Product.objects.all(), widget=forms.CheckboxSelectMultiple,
                                               required=False)
@@ -219,52 +222,60 @@ class ExpenseForm(forms.ModelForm):
 
 
 class EnrollWorkerForm(forms.Form):
-    # CustomUser fields
-    first_name = forms.CharField(
-        max_length=100,
-        widget=forms.TextInput(attrs={'class': 'form-control'})
-    )
-    last_name = forms.CharField(
-        max_length=100,
-        widget=forms.TextInput(attrs={'class': 'form-control'})
-    )
-    email = forms.EmailField(
-        required=False,
-        widget=forms.EmailInput(attrs={'class': 'form-control'})
-    )
-    phone_number = forms.CharField(
-        max_length=15,
-        widget=forms.TextInput(attrs={'class': 'form-control'})
-    )
+    # —————— User Info ——————
+    first_name = forms.CharField(max_length=100, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    last_name = forms.CharField(max_length=100, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    email = forms.EmailField(required=False, widget=forms.EmailInput(attrs={'class': 'form-control'}))
+    phone_number = forms.CharField(max_length=15, widget=forms.TextInput(attrs={'class': 'form-control'}))
 
-    # Worker fields
-    branch = forms.ModelChoiceField(
-        queryset=Branch.objects.all(),
-        widget=forms.Select(attrs={'class': 'form-select'})
-    )
-    position = forms.CharField(
-        max_length=100,
-        required=False,
-        widget=forms.TextInput(attrs={'class': 'form-control'})
-    )
-    salary = forms.FloatField(
-        required=False,
-        min_value=0,
-        widget=forms.NumberInput(attrs={'class': 'form-control'})
-    )
-    gh_card_number = forms.CharField(
-        max_length=20,
-        required=False,
-        widget=forms.TextInput(attrs={'class': 'form-control'})
-    )
-    year_of_admission = forms.IntegerField(
-        required=False,
-        widget=forms.NumberInput(attrs={'class': 'form-control'})
-    )
-    is_branch_head = forms.BooleanField(
-        required=False,
-        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
-    )
+    # —————— Personal & ID ——————
+    date_of_birth = forms.DateField(required=False,
+                                    widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}))
+    place_of_birth = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    nationality = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    home_address = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2, 'class': 'form-control'}))
+    landmark = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    ecowas_id_card_no = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    ecowas_id_card_photo = forms.ImageField(required=False)
+    passport_photo = forms.ImageField(required=False)
+
+    # —————— Education ——————
+    school_name = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    school_location = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    year_completed = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={'class': 'form-control'}))
+
+    # —————— Employment ——————
+    branch = forms.ModelChoiceField(queryset=Branch.objects.all(), widget=forms.Select(attrs={'class': 'form-select'}))
+    employer_name = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    contact_number = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    location = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    position = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    last_date_of_work = forms.DateField(required=False,
+                                        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}))
+    home_office_address = forms.CharField(required=False,
+                                          widget=forms.Textarea(attrs={'rows': 2, 'class': 'form-control'}))
+    reason_for_leaving = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    may_we_contact = forms.BooleanField(required=False, widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
+
+    # —————— Reference ——————
+    ref_full_name = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    ref_mobile_number = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    ref_address = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2, 'class': 'form-control'}))
+
+    # —————— Guarantor ——————
+    gua_full_name = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    gua_mobile_number = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    gua_address = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2, 'class': 'form-control'}))
+
+    # —————— Other worker fields ——————
+    position_job = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}),
+                                   label="Job Title")
+    salary = forms.FloatField(required=False, min_value=0, widget=forms.NumberInput(attrs={'class': 'form-control'}))
+    gh_card_number = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    year_of_admission = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={'class': 'form-control'}))
+    is_branch_admin = forms.BooleanField(required=False,
+                                         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+                                         label="Branch Admin?")
 
 
 REPORT_TYPE_CHOICES = [
@@ -342,7 +353,6 @@ class ReportForm(forms.Form):
             field.widget.attrs['class'] = f'{existing_classes} form-control'.strip()
 
 
-
 class CreateCustomerForm(forms.Form):
     first_name = forms.CharField(
         max_length=100,
@@ -369,16 +379,21 @@ class CreateCustomerForm(forms.Form):
         label="Select Branch",
         widget=forms.Select(attrs={'class': 'form-select'})  # Bootstrap select
     )
-    customer_group = forms.ChoiceField(choices=(("Credit Customer", "Credit Customer"), ("Cash Customer", "Cash Customer")), widget=forms.Select(attrs={'class': 'form-select'}) )
+    customer_group = forms.ChoiceField(
+        choices=(("Credit Customer", "Credit Customer"), ("Cash Customer", "Cash Customer")),
+        widget=forms.Select(attrs={'class': 'form-select'}))
     vehicle_group = forms.ModelChoiceField(
         queryset=VehicleGroup.objects.all(),
         widget=forms.Select(attrs={'class': 'form-select'}),
         required=True,
         label="Vehicle Group"
     )
-    car_make = forms.CharField(max_length=100, required=True, label="Car Make", widget=forms.TextInput(attrs={'class': 'form-control'}))
-    car_plate = forms.CharField(max_length=100, required=True, label="Car Plate", widget=forms.TextInput(attrs={'class': 'form-control'}))
-    car_color = forms.CharField(max_length=100, required=True, label="Car Color", widget=forms.TextInput(attrs={'class': 'form-control'}))
+    car_make = forms.CharField(max_length=100, required=True, label="Car Make",
+                               widget=forms.TextInput(attrs={'class': 'form-control'}))
+    car_plate = forms.CharField(max_length=100, required=True, label="Car Plate",
+                                widget=forms.TextInput(attrs={'class': 'form-control'}))
+    car_color = forms.CharField(max_length=100, required=True, label="Car Color",
+                                widget=forms.TextInput(attrs={'class': 'form-control'}))
 
 
 class CreateVehicleForm(forms.Form):
@@ -481,6 +496,7 @@ class LogServiceScannedForm(forms.Form):
             'placeholder': 'Select Workers',
         }),
     )
+    comments = forms.CharField(widget=forms.Textarea, required=False)
     negotiated_prices = forms.CharField(widget=forms.HiddenInput(), required=False)
 
     def __init__(self, branch, customer, *args, **kwargs):
@@ -546,14 +562,3 @@ class CustomerProfileForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['email'].required = False
         self.fields['address'].required = False
-
-
-
-
-
-
-
-
-
-
-

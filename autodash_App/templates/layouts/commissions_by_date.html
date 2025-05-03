@@ -29,6 +29,7 @@
                 value="{{ selected_date|date:'Y-m-d' }}"
               >
             </div>
+          {% if not hide_branch_selector %}
             <div class="col-md-3">
               <label for="branch" class="form-label">Branch (optional)</label>
               <select name="branch" id="branch" class="form-control">
@@ -43,7 +44,8 @@
                 {% endfor %}
               </select>
             </div>
-            <!-- Worker Filter -->
+            {% endif %}
+              <!-- Worker Filter -->
             <div class="col-md-3">
               <label for="worker" class="form-label">Worker (optional)</label>
               <select name="worker" id="worker" class="form-control">
@@ -190,7 +192,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const li = document.createElement('li');
                 li.classList.add('list-group-item');
                 // Show service + vehicle + commission
-                li.textContent = `${item.service} [${item.vehicle}] => GHS ${item.amount.toFixed(2)} (${item.order_number})`;
+                li.textContent = `${item.service} [${item.vehicle}] => GHS ${item.amount.toFixed(2)}`;
                 breakdownList.appendChild(li);
               });
             }

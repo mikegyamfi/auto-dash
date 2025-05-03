@@ -8,11 +8,13 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
+from django.contrib.sites.shortcuts import get_current_site
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models.functions import TruncDate
+from django.forms import modelformset_factory
 from django.http import (
-    JsonResponse
+    JsonResponse, HttpResponseForbidden
 )
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
@@ -22,6 +24,7 @@ from django.utils.html import json_script
 from django.utils.http import urlsafe_base64_encode
 from qrcode import QRCode
 
+from decorators import staff_or_branch_admin_required
 from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
@@ -31,12 +34,52 @@ from .helper import send_sms
 from .models import (
     CustomerSubscription, CustomUser,
     Service, LoyaltyTransaction, VehicleGroup, ProductSale, ProductCategory,
-    Subscription, WorkerCategory, CustomerSubscriptionTrail, CustomerSubscriptionRenewalTrail
+    Subscription, WorkerCategory, CustomerSubscriptionTrail, CustomerSubscriptionRenewalTrail, WeeklyBudget,
+    RecurringExpense, SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor
 )
 from .models import (
     DailyExpenseBudget
 )
 from .subscription import assert_unique_active_subscription
+
+
+def _get_admin_branch(request):
+    """
+    Returns the Branch this “admin” should be scoped to, or None if they
+    still need to pick one (i.e. real staff with no ?branch_id).
+    - A true superuser/is_staff can pick via ?branch_id or ?branch.
+    - A branch-admin (Worker.is_branch_admin) always gets their own branch.
+    """
+    user = CustomUser.objects.get(id=request.user.id)
+
+    # 1) Non-staff branch-admins see only their branch
+    try:
+        worker = user.worker_profile
+    except (AttributeError, Worker.DoesNotExist):
+        worker = None
+
+    if worker and worker.is_branch_admin and not user.is_staff and not user.is_superuser:
+        return worker.branch
+
+    # 2) Staff/superuser can choose via GET param
+    branch_id = request.GET.get('branch_id') or request.GET.get('branch')
+    if branch_id:
+        return get_object_or_404(Branch, id=branch_id)
+
+    # 3) No branch yet
+    return None
+
+
+def _get_user_branch(request):
+    """Return the branch for a branch-admin, otherwise None."""
+    user = CustomUser.objects.get(id=request.user.id)
+    try:
+        worker = user.worker_profile
+    except (AttributeError, Worker.DoesNotExist):
+        return None
+    if worker.is_branch_admin and not user.is_staff and not user.is_superuser:
+        return worker.branch
+    return None
 
 
 def get_admin_date_range(date_str, month_str, year_str):
@@ -52,9 +95,9 @@ def get_admin_date_range(date_str, month_str, year_str):
     if date_str:
         try:
             parsed_day = datetime.strptime(date_str, '%Y-%m-%d').date()
-            return (parsed_day, parsed_day)
+            return parsed_day, parsed_day
         except ValueError:
-            return (now, now)
+            return now, now
 
     # 2) month + year
     elif month_str and year_str:
@@ -67,13 +110,13 @@ def get_admin_date_range(date_str, month_str, year_str):
                 end_d = date(y + 1, 1, 1) - timedelta(days=1)
             else:
                 end_d = date(y, m + 1, 1) - timedelta(days=1)
-            return (start_d, end_d)
+            return start_d, end_d
         except ValueError:
-            return (now, now)
+            return now, now
 
     # 3) default => today
     else:
-        return (now, now)
+        return now, now
 
 
 @login_required(login_url='login')
@@ -412,6 +455,7 @@ def log_service(request):
             vehicle = form.cleaned_data['vehicle']
             selected_services = form.cleaned_data['service']
             selected_workers = form.cleaned_data['workers']
+            comments = form.cleaned_data['comments']
             selected_products = form.cleaned_data.get('products', [])
             product_quantities = request.POST.getlist('product_quantity')
 
@@ -431,7 +475,8 @@ def log_service(request):
                 final_amount=total,
                 vehicle=vehicle,
                 branch=worker.branch,
-                status='pending'
+                status='pending',
+                comments=comments
             )
             new_order.workers.set(selected_workers)
 
@@ -1864,35 +1909,44 @@ def get_vehicles_data(request):
     return JsonResponse(data)
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def manage_workers(request):
     """
-    Allows an admin to view and manage all workers or filter by branch and category.
+    Allows staff to filter by branch/category.
+    Branch-admins see only their branch, no dropdown.
     """
-    branch_id = request.GET.get('branch', '')
+    # 1) check if this is a branch-admin
+    branch_admin_branch = _get_user_branch(request)
+
+    # 2) staff vs branch-admin: determine which branch to filter
+    if branch_admin_branch:
+        # branch-admin: ignore any GET, force their branch
+        selected_branch = branch_admin_branch
+    else:
+        # staff: read from GET or default to None => all branches
+        branch_id = request.GET.get('branch')
+        selected_branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
     category_id = request.GET.get('category', '')
 
-    workers = Worker.objects.all()
-
-    # If branch filter is selected
-    if branch_id:
-        workers = workers.filter(branch_id=branch_id)
-
-    # If category filter is selected
+    # 4) build queryset
+    qs = Worker.objects.select_related('user', 'branch', 'worker_category').all()
+    if selected_branch:
+        qs = qs.filter(branch=selected_branch)
     if category_id:
-        workers = workers.filter(worker_category_id=category_id)
+        qs = qs.filter(worker_category_id=category_id)
 
     branches = Branch.objects.all()
     categories = WorkerCategory.objects.all()
 
-    context = {
-        'workers': workers,
+    return render(request, 'layouts/admin/manage_workers.html', {
+        'workers': qs,
         'branches': branches,
-        'categories': categories,  # pass categories to template
-        'selected_branch': branch_id,  # remember which branch is chosen
-        'selected_category': category_id,  # remember which category is chosen
-    }
-    return render(request, 'layouts/admin/manage_workers.html', context)
+        'categories': categories,
+        'selected_branch': selected_branch.id if selected_branch else '',
+        'selected_category': category_id or '',
+        # hide dropdown if branch-admin
+        'hide_branch_selector': bool(branch_admin_branch),
+    })
 
 
 # views.py
@@ -1906,63 +1960,166 @@ def approve_worker(request, worker_id):
     return redirect('manage_workers')
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def worker_detail(request, worker_id):
     """
-    Admin view to see details of a specific worker, with optional unapproval or delete actions.
+    Admin/branch-admin view to see & edit a specific worker,
+    plus approve/unapprove/delete actions.
     """
     worker = get_object_or_404(Worker, id=worker_id)
-    if request.method == 'POST':
-        action = request.POST.get('action')
-        if action == 'unapprove':
-            worker.is_gh_card_approved = False
-            worker.save()
-            messages.success(request, 'Worker has been unapproved.')
-            return redirect('worker_detail', worker_id=worker.id)
-        elif action == 'delete':
-            worker.user.delete()
-            messages.success(request, 'Worker has been deleted.')
-            return redirect('manage_workers')
 
-    context = {'worker': worker}
+    # Branch-admin may only view their own branch
+    if (not request.user.is_superuser
+            and hasattr(request.user, 'worker_profile')
+            and request.user.worker_profile.is_branch_admin
+            and worker.branch != request.user.worker_profile.branch):
+        return HttpResponseForbidden("You may only manage workers in your branch.")
+
+    # Only superusers or staff can actually save changes or take actions
+    can_edit = request.user.is_superuser or request.user.is_staff
+
+    if request.method == 'POST' and can_edit:
+        # 1) SAVE any form edits
+        if 'save' in request.POST:
+            # -- User fields --
+            first = request.POST.get('first_name', '').strip()
+            last = request.POST.get('last_name', '').strip()
+            email = request.POST.get('email', '').strip()
+            phone = request.POST.get('phone_number', '').strip()
+
+            # phone uniqueness check
+            if phone != worker.user.phone_number and CustomUser.objects.filter(phone_number=phone).exists():
+                messages.error(request, "That phone number is already in use.")
+            else:
+                u = worker.user
+                u.first_name = first
+                u.last_name = last
+                u.email = email
+                u.phone_number = phone
+                u.save()
+
+                # -- Worker fields --
+                cat_id = request.POST.get('worker_category')
+                worker.worker_category = WorkerCategory.objects.get(id=cat_id) if cat_id else None
+
+                if request.user.is_superuser:
+                    br_id = request.POST.get('branch')
+                    if br_id:
+                        worker.branch = Branch.objects.get(id=br_id)
+
+                worker.position = request.POST.get('position', '').strip()
+                worker.salary = request.POST.get('salary') or 0
+                worker.gh_card_number = request.POST.get('gh_card_number', '').strip()
+                worker.is_branch_admin = bool(request.POST.get('is_branch_admin'))
+                if 'gh_card_photo' in request.FILES:
+                    worker.gh_card_photo = request.FILES['gh_card_photo']
+                worker.save()
+
+                messages.success(request, "Worker details updated.")
+                return redirect('worker_detail', worker_id=worker.id)
+
+        # 2) ACTION buttons
+        else:
+            action = request.POST.get('action')
+            if action == 'approve_gh':
+                worker.is_gh_card_approved = True
+                worker.save()
+                messages.success(request, "GH Card approved.")
+            elif action == 'unapprove_gh':
+                worker.is_gh_card_approved = False
+                worker.save()
+                messages.success(request, "GH Card un‐approved.")
+            elif action == 'approve_phone':
+                worker.is_phone_number_approved = True
+                worker.save()
+                messages.success(request, "Phone number approved.")
+            elif action == 'unapprove_phone':
+                worker.is_phone_number_approved = False
+                worker.save()
+                messages.success(request, "Phone number un‐approved.")
+            elif action == 'approve_user':
+                worker.user.approved = True
+                worker.user.save()
+                messages.success(request, "Worker account approved.")
+            elif action == 'delete':
+                worker.user.delete()
+                messages.success(request, "Worker deleted.")
+                return redirect('manage_workers')
+
+        return redirect('worker_detail', worker_id=worker.id)
+
+    # GET => render form/view
+    context = {
+        'worker': worker,
+        'branches': Branch.objects.all(),
+        'categories': WorkerCategory.objects.all(),
+        'can_edit': can_edit,
+    }
     return render(request, 'layouts/admin/worker_detail.html', context)
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def manage_customers(request):
     """
-    Admin view to:
-      - Filter customers by branch,
+    Admin & branch-admin view to:
+      - Filter customers by branch (staff/superuser only),
+      - Branch-admins see only their own branch,
       - Reassign a customer's branch,
       - Send an SMS to the customer.
     """
-    # 1) Branch filter from GET
-    branch_id = request.GET.get('branch', '')
-    if branch_id:
-        customers_qs = Customer.objects.filter(branch_id=branch_id)
+    user = request.user
+
+    # Is this a branch-admin (worker.is_branch_admin)?
+    branch_admin = False
+    if not (user.is_staff or user.is_superuser):
+        try:
+            worker = Worker.objects.get(user=user)
+            branch_admin = worker.is_branch_admin
+        except Worker.DoesNotExist:
+            return HttpResponseForbidden("You are not authorized to view this page.")
+
+    # 1) Determine base queryset & branch selector visibility
+    if user.is_staff or user.is_superuser:
+        # full admin: can pick any branch
+        branches = Branch.objects.all()
+        selected_branch_id = request.GET.get('branch', '')
+        if selected_branch_id:
+            customers_qs = Customer.objects.filter(branch_id=selected_branch_id)
+        else:
+            customers_qs = Customer.objects.all()
+        hide_branch_selector = False
+
+    elif branch_admin:
+        # branch-admin: only their branch, no selector
+        branches = None
+        selected_branch_id = worker.branch.id
+        customers_qs = Customer.objects.filter(branch=worker.branch)
+        hide_branch_selector = True
+
     else:
-        customers_qs = Customer.objects.all()
+        # neither staff/superuser nor branch-admin: forbidden
+        return HttpResponseForbidden("You are not authorized to view this page.")
 
-    branches = Branch.objects.all()
-
-    # 2) Handle POST actions (change branch or send sms)
+    # 2) Handle POST actions (reassign or SMS)
     if request.method == 'POST':
         action_type = request.POST.get('action_type', '')
         customer_id = request.POST.get('customer_id', '')
-
         if not customer_id:
             messages.error(request, "No customer specified.")
             return redirect('manage_customers')
-
         customer = get_object_or_404(Customer, id=customer_id)
 
         if action_type == 'change_branch':
+            # only staff/superuser can reassign to any branch
+            if not (user.is_staff or user.is_superuser):
+                return HttpResponseForbidden("Cannot change branch.")
             new_branch_id = request.POST.get('new_branch_id', '')
             if new_branch_id:
                 new_branch = get_object_or_404(Branch, id=new_branch_id)
                 customer.branch = new_branch
                 customer.save()
-                messages.success(request, f"{customer.user.get_full_name()} was reassigned to {new_branch.name}.")
+                messages.success(request,
+                                 f"{customer.user.get_full_name()} was reassigned to {new_branch.name}.")
             else:
                 messages.error(request, "No branch selected for reassignment.")
 
@@ -1977,22 +2134,23 @@ def manage_customers(request):
                         send_sms(phone_number, sms_message)
                         messages.success(request, f"SMS sent to {phone_number}.")
                     except Exception as e:
-                        messages.error(request, f"Failed to send SMS: {str(e)}")
+                        messages.error(request, f"Failed to send SMS: {e}")
                 else:
                     messages.error(request, "SMS message is empty.")
 
-        # After handling the action, redirect back
         return redirect('manage_customers')
 
+    # 3) Render
     context = {
         'customers': customers_qs.order_by('user__first_name'),
         'branches': branches,
-        'selected_branch_id': branch_id
+        'selected_branch_id': str(selected_branch_id),
+        'hide_branch_selector': hide_branch_selector,
     }
     return render(request, 'layouts/admin/manage_customers.html', context)
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def customer_detail_admin(request, customer_id):
     """
     Admin view to see details of a specific customer, including vehicles,
@@ -2358,7 +2516,7 @@ def analytics_dashboard(request):
     return render(request, 'layouts/admin/analytics_dashboard.html', context)
 
 
-@staff_member_required
+@staff_member_required()
 def api_revenue_expenses(request):
     """
     AJAX endpoint for retrieving revenue and expense data per branch
@@ -2530,7 +2688,7 @@ def delete_expense(request, pk):
     return render(request, 'layouts/delete_expense.html', {'expense': expense})
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def commissions_by_date(request):
     """
     Page where admin can pick a single date (and optionally a branch and worker)
@@ -2597,18 +2755,21 @@ def commissions_by_date(request):
     else:
         possible_workers = Worker.objects.all()
 
+    hide_branch_selector = getattr(request.user, 'worker_profile', None) and request.user.worker_profile.is_branch_admin
+
     context = {
         'branches': branches,
         'selected_branch_id': selected_branch_id,
         'workers': possible_workers,
         'selected_worker_id': selected_worker_id,
         'selected_date': selected_date,
+        'hide_branch_selector': hide_branch_selector,
         'commissions': results,  # each item => {worker, position, num_services, num_vehicles, total_commission}
     }
     return render(request, 'layouts/commissions_by_date.html', context)
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def commission_breakdown(request):
     """
     AJAX endpoint to get the breakdown of commissions for a given worker on a given date.
@@ -2660,7 +2821,7 @@ def commission_breakdown(request):
     return JsonResponse({'success': True, 'commissions': data})
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def expenses_by_date(request):
     """
     Page where admin can pick a single date (and optionally a branch)
@@ -2687,7 +2848,16 @@ def expenses_by_date(request):
 
     total_expenses = expenses_qs.aggregate(total=Sum('amount'))['total'] or 0
 
+    hide_branch_selector = (
+            hasattr(request.user, 'worker_profile')
+            and request.user.worker_profile.is_branch_admin
+    )
+    if hide_branch_selector:
+        # automatically filter expenses_qs by request.user.worker_profile.branch
+        expenses_qs = expenses_qs.filter(branch=request.user.worker_profile.branch)
+
     context = {
+        'hide_branch_selector': hide_branch_selector,
         'branches': branches,
         'selected_branch_id': selected_branch_id,
         'selected_date': selected_date,
@@ -2697,182 +2867,156 @@ def expenses_by_date(request):
     return render(request, 'layouts/expenses_by_date.html', context)
 
 
-@staff_member_required
+def _user_is_branch_admin(user):
+    try:
+        return user.worker_profile.is_branch_admin
+    except Worker.DoesNotExist:
+        return False
+
+
+@staff_or_branch_admin_required
 def financial_overview(request):
     """
     A comprehensive financial overview that supports filtering by:
     - Date range,
     - Month & year,
     - or Week.
-    Displays:
-      - Total Revenue, Expenses, Commissions, Arrears
-      - Daily breakdown in a small multi-line chart
-      - Optionally filter by Branch
+    Staff/superusers can optionally filter by branch.
+    Branch-admins see only their branch and do not get a branch dropdown.
     """
+    user = request.user
+    is_branch_admin = _user_is_branch_admin(user)
+    hide_branch_selector = is_branch_admin  # if True, template will omit branch dropdown
 
+    # Build list of possible branches (for staff only)
     branches = Branch.objects.all()
-    selected_branch_id = request.GET.get('branch', '')
-    view_type = request.GET.get('view_type', 'date_range')  # can be: 'date_range', 'month_year', or 'week'
 
-    # For date range
+    # If branch admin => force their branch
+    if is_branch_admin:
+        worker = user.worker_profile
+        selected_branch_id = worker.branch.id
+    else:
+        selected_branch_id = request.GET.get('branch', '')
+
+    # Common filters
+    view_type = request.GET.get('view_type', 'date_range')  # 'date_range' | 'month_year' | 'week'
     start_date_str = request.GET.get('start_date', '')
     end_date_str = request.GET.get('end_date', '')
-
-    # For month_year
     month_str = request.GET.get('month', '')
     year_str = request.GET.get('year', '')
-
-    # For week
     week_str = request.GET.get('week', '')
 
     today = timezone.now().date()
     start_date = today
     end_date = today
 
-    # ------------------ Determine final start_date and end_date ------------------
+    # Determine start_date / end_date
     if view_type == 'month_year':
         try:
-            month = int(month_str)
-            year = int(year_str)
-            start_date = datetime(year, month, 1).date()
-            if month == 12:
-                end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
-            else:
-                end_date = datetime(year, month + 1, 1).date() - timedelta(days=1)
+            m = int(month_str);
+            y = int(year_str)
+            start_date = datetime(y, m, 1).date()
+            end_date = (datetime(y + (m == 12), (m % 12) + 1, 1).date() - timedelta(days=1))
         except (ValueError, TypeError):
-            messages.error(request, "Invalid month/year; defaulting to current month.")
+            messages.error(request, "Invalid month/year; defaulting to this month.")
             start_date = today.replace(day=1)
             end_date = today
 
     elif view_type == 'week':
         try:
-            week = int(week_str)
-            first_day_of_year = datetime(today.year, 1, 1).date()
-            first_monday = first_day_of_year
-            while first_monday.isoweekday() != 1:
-                first_monday += timedelta(days=1)
-            start_date = first_monday + timedelta(weeks=week - 1)
+            wk = int(week_str)
+            # first Monday of the year
+            first = datetime(today.year, 1, 1).date()
+            while first.isoweekday() != 1:
+                first += timedelta(days=1)
+            start_date = first + timedelta(weeks=wk - 1)
             end_date = start_date + timedelta(days=6)
         except (ValueError, TypeError):
-            messages.error(request, "Invalid week number; defaulting to current week.")
-            today_weekday = today.isoweekday()
-            start_date = today - timedelta(days=today_weekday - 1)
+            messages.error(request, "Invalid week; defaulting to current week.")
+            weekday = today.isoweekday()
+            start_date = today - timedelta(days=weekday - 1)
             end_date = start_date + timedelta(days=6)
 
-    else:
-        # date_range
+    else:  # date_range
         try:
             if start_date_str and end_date_str:
-                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
             else:
                 start_date = today
                 end_date = today
         except ValueError:
-            messages.error(request, "Invalid date range; showing today's data.")
+            messages.error(request, "Invalid date range; showing today.")
             start_date = today
             end_date = today
 
     if start_date > end_date:
-        messages.warning(request, "Start date was after end date. Swapping them.")
+        messages.warning(request, "Start date after end date; swapping.")
         start_date, end_date = end_date, start_date
 
-    # ------------------ Query Sums in the date range ------------------
+    # Base querysets
     revenue_qs = Revenue.objects.filter(date__range=[start_date, end_date])
     expense_qs = Expense.objects.filter(date__range=[start_date, end_date])
     commission_qs = Commission.objects.filter(date__range=[start_date, end_date])
-    arrears_qs = Arrears.objects.filter(date_created__date__gte=start_date, date_created__date__lte=end_date)
+    arrears_qs = Arrears.objects.filter(
+        date_created__date__gte=start_date,
+        date_created__date__lte=end_date
+    )
 
-    # Filter by branch if selected
+    # Apply branch filter if any
     if selected_branch_id:
         revenue_qs = revenue_qs.filter(branch_id=selected_branch_id)
         expense_qs = expense_qs.filter(branch_id=selected_branch_id)
         commission_qs = commission_qs.filter(worker__branch_id=selected_branch_id)
         arrears_qs = arrears_qs.filter(branch_id=selected_branch_id)
 
+    # Summaries
     total_revenue = revenue_qs.aggregate(total=Sum('final_amount'))['total'] or 0
     total_expenses = expense_qs.aggregate(total=Sum('amount'))['total'] or 0
     total_commissions = commission_qs.aggregate(total=Sum('amount'))['total'] or 0
     total_arrears = arrears_qs.aggregate(total=Sum('amount_owed'))['total'] or 0
 
-    # ------------------ Build daily data for chart ------------------
+    # Build daily series
     daily_data = {}
-    cur_date = start_date
-    while cur_date <= end_date:
-        daily_data[cur_date] = {
-            'revenue': 0.0,
-            'expense': 0.0,
-            'commission': 0.0,
-            'arrears': 0.0,
-            'net': 0.0,
-        }
-        cur_date += timedelta(days=1)
+    d = start_date
+    while d <= end_date:
+        daily_data[d] = {'revenue': 0, 'expense': 0, 'commission': 0, 'arrears': 0, 'net': 0}
+        d += timedelta(days=1)
 
-    # Summarize daily revenues
-    for rev in revenue_qs.values('date').annotate(sum_rev=Sum('final_amount')):
-        day = rev['date']
-        if day in daily_data:
-            daily_data[day]['revenue'] = float(rev['sum_rev'] or 0)
-
-    # Summarize daily expenses
-    for exp in expense_qs.values('date').annotate(sum_exp=Sum('amount')):
-        day = exp['date']
-        if day in daily_data:
-            daily_data[day]['expense'] = float(exp['sum_exp'] or 0)
-
-    # Summarize daily commissions
-    for com in commission_qs.values('date').annotate(sum_com=Sum('amount')):
-        day = com['date']
-        if day in daily_data:
-            daily_data[day]['commission'] = float(com['sum_com'] or 0)
-
-    # Summarize daily arrears by creation date
+    for e in revenue_qs.values('date').annotate(sum_rev=Sum('final_amount')):
+        daily_data[e['date']]['revenue'] = float(e['sum_rev'] or 0)
+    for e in expense_qs.values('date').annotate(sum_exp=Sum('amount')):
+        daily_data[e['date']]['expense'] = float(e['sum_exp'] or 0)
+    for e in commission_qs.values('date').annotate(sum_com=Sum('amount')):
+        daily_data[e['date']]['commission'] = float(e['sum_com'] or 0)
     for arr in arrears_qs:
-        arr_day = arr.date_created.date()
-        if arr_day in daily_data:
-            daily_data[arr_day]['arrears'] += float(arr.amount_owed or 0)
-
-    # Compute net
-    for d, vals in daily_data.items():
+        dd = arr.date_created.date()
+        if dd in daily_data:
+            daily_data[dd]['arrears'] += float(arr.amount_owed or 0)
+    # compute net
+    for dd, vals in daily_data.items():
         vals['net'] = vals['revenue'] - vals['expense']
 
-    # Sort by day
-    sorted_days = sorted(daily_data.keys())
-    chart_labels = [d.strftime('%Y-%m-%d') for d in sorted_days]
+    # Prepare for chart & table
+    sorted_days = sorted(daily_data)
+    chart_labels = [d.strftime("%Y-%m-%d") for d in sorted_days]
     chart_revenues = [daily_data[d]['revenue'] for d in sorted_days]
     chart_expenses = [daily_data[d]['expense'] for d in sorted_days]
     chart_commissions = [daily_data[d]['commission'] for d in sorted_days]
     chart_arrears = [daily_data[d]['arrears'] for d in sorted_days]
     chart_nets = [daily_data[d]['net'] for d in sorted_days]
 
-    # Prepare daily_data_list for table
-    daily_data_list = []
-    for d in sorted_days:
-        daily_data_list.append({
-            'date': d.strftime('%Y-%m-%d'),
-            'revenue': daily_data[d]['revenue'],
-            'expense': daily_data[d]['expense'],
-            'net': daily_data[d]['net'],
-        })
-
-    # Prepare months list
-    months = [
-        (1, 'January'), (2, 'February'), (3, 'March'), (4, 'April'),
-        (5, 'May'), (6, 'June'), (7, 'July'), (8, 'August'),
-        (9, 'September'), (10, 'October'), (11, 'November'), (12, 'December'),
+    daily_data_list = [
+        {'date': d.strftime("%Y-%m-%d"),
+         'revenue': daily_data[d]['revenue'],
+         'expense': daily_data[d]['expense'],
+         'net': daily_data[d]['net']}
+        for d in sorted_days
     ]
-
-    # Dump chart data as JSON
-    import json
-    chart_labels_json = json.dumps(chart_labels)
-    chart_revenues_json = json.dumps(chart_revenues)
-    chart_expenses_json = json.dumps(chart_expenses)
-    chart_commissions_json = json.dumps(chart_commissions)
-    chart_arrears_json = json.dumps(chart_arrears)
-    chart_nets_json = json.dumps(chart_nets)
 
     context = {
         'branches': branches,
+        'hide_branch_selector': hide_branch_selector,
         'selected_branch_id': selected_branch_id,
         'view_type': view_type,
         'start_date': start_date,
@@ -2887,17 +3031,19 @@ def financial_overview(request):
         'total_arrears': total_arrears,
 
         'daily_data_list': daily_data_list,
-        'months': months,
+        'months': [
+            (1, 'January'), (2, 'February'), (3, 'March'), (4, 'April'),
+            (5, 'May'), (6, 'June'), (7, 'July'), (8, 'August'),
+            (9, 'September'), (10, 'October'), (11, 'November'), (12, 'December'),
+        ],
 
-        # JSON data for chart
-        'chart_labels_json': chart_labels_json,
-        'chart_revenues_json': chart_revenues_json,
-        'chart_expenses_json': chart_expenses_json,
-        'chart_commissions_json': chart_commissions_json,
-        'chart_arrears_json': chart_arrears_json,
-        'chart_nets_json': chart_nets_json,
+        'chart_labels_json': json.dumps(chart_labels),
+        'chart_revenues_json': json.dumps(chart_revenues),
+        'chart_expenses_json': json.dumps(chart_expenses),
+        'chart_commissions_json': json.dumps(chart_commissions),
+        'chart_arrears_json': json.dumps(chart_arrears),
+        'chart_nets_json': json.dumps(chart_nets),
     }
-
     return render(request, 'layouts/financial_overview.html', context)
 
 
@@ -2911,133 +3057,125 @@ from django.contrib import messages
 from .models import Branch, ProductSale, ProductCategory
 
 
-@staff_member_required
+@staff_or_branch_admin_required
 def product_sales_report(request):
     """
     Shows a product sales report with filters for date/month/year,
-    plus branch & category filters. Displays profit and a category
-    breakdown chart.
+    plus branch & category filters. Branch-admins see only their branch
+    (no branch dropdown); staff see all branches.
     """
+    user = request.user
+    is_branch_admin = _user_is_branch_admin(user)
+    hide_branch_selector = is_branch_admin
+
+    # All branches & categories for staff
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()
 
-    # 1) Capture filters from GET
-    branch_id = request.GET.get('branch', '')
-    category_id = request.GET.get('category', '')
-    date_str = request.GET.get('date', '')  # e.g. 2025-02-20
-    month_str = request.GET.get('month', '')  # e.g. "02"
-    year_str = request.GET.get('year', '')  # e.g. "2025"
+    # Determine branch filter
+    if is_branch_admin:
+        branch_id = user.worker_profile.branch.id
+    else:
+        branch_id = request.GET.get('branch', '')
 
-    # We'll build our queryset step by step
+    # Category filter
+    category_id = request.GET.get('category', '')
+
+    # Date filters
+    date_str = request.GET.get('date', '')
+    month_str = request.GET.get('month', '')
+    year_str = request.GET.get('year', '')
+
+    # Start building queryset
     sales_qs = ProductSale.objects.all()
 
-    # 2) Apply Branch filter if any
+    # Branch filter
     if branch_id:
         sales_qs = sales_qs.filter(branch_id=branch_id)
 
-    # 3) Apply Category filter if any
-    #    ProductSale has product__category
+    # Category filter
     if category_id:
         sales_qs = sales_qs.filter(product__category_id=category_id)
 
-    # 4) Date vs. Month-Year vs. Year
-    #    If "date" is given, we ignore month/year filters
+    # Date / month-year / year
     selected_date = None
     selected_month = None
     selected_year = None
 
     try:
-        # (a) Exact date takes precedence if provided
         if date_str:
             selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
             sales_qs = sales_qs.filter(date_sold__date=selected_date)
-
-        # (b) Else if month & year are provided
         elif month_str and year_str:
             selected_month = int(month_str)
             selected_year = int(year_str)
-            # Filter by year + month
             sales_qs = sales_qs.filter(
                 date_sold__year=selected_year,
                 date_sold__month=selected_month
             )
-
-        # (c) Else if only year is provided
         elif year_str:
             selected_year = int(year_str)
             sales_qs = sales_qs.filter(date_sold__year=selected_year)
-
-        # (d) If none provided, default to "today" or entire range
         else:
-            # For demonstration: default to "today"
+            # default to today
             selected_date = timezone.now().date()
             sales_qs = sales_qs.filter(date_sold__date=selected_date)
-
     except ValueError:
-        messages.error(request, "Invalid date/month/year format. Showing today's data.")
+        messages.error(request, "Invalid date/month/year; defaulting to today.")
         selected_date = timezone.now().date()
         sales_qs = sales_qs.filter(date_sold__date=selected_date)
 
-    # 5) Calculate aggregates
-    #    total_revenue = sum of total_price
-    #    total_cost = sum of (product.cost * quantity)
-    #    total_profit = sum of ( (product.price - product.cost) * quantity )
-    # We can do that with annotations or just sum manually:
+    # Annotate cost & profit
     sales_qs = sales_qs.annotate(
         line_cost=F('product__cost') * F('quantity'),
-        line_profit=(F('product__price') - F('product__cost')) * F('quantity')
+        line_profit=(F('product__price') - F('product__cost')) * F('quantity'),
     )
 
+    # Totals
     total_revenue = sales_qs.aggregate(sum_rev=Sum('total_price'))['sum_rev'] or 0
     total_cost = sales_qs.aggregate(sum_cost=Sum('line_cost'))['sum_cost'] or 0
     total_profit = sales_qs.aggregate(sum_profit=Sum('line_profit'))['sum_profit'] or 0
 
-    # 6) Category breakdown for Chart.js
-    #    sum by product__category
-    #    We'll store labels & data in arrays
+    # Category breakdown
     cat_data_qs = sales_qs.values('product__category__name').annotate(
         cat_revenue=Sum('total_price'),
         cat_profit=Sum('line_profit')
     )
-    # Build arrays for chart
     chart_labels = []
     chart_revenue_data = []
     chart_profit_data = []
-
     for row in cat_data_qs:
-        cat_name = row['product__category__name'] or "Uncategorized"
-        chart_labels.append(cat_name)
+        name = row['product__category__name'] or "Uncategorized"
+        chart_labels.append(name)
         chart_revenue_data.append(float(row['cat_revenue'] or 0))
         chart_profit_data.append(float(row['cat_profit'] or 0))
 
-    months = [f"{i:02d}" for i in range(1, 13)]
-
-    stock_summary_qs = Product.objects.values('category__name').annotate(
-        in_stock_qty=Sum('stock'),
+    # Stock summary
+    stock_qs = Product.objects.values('category__name').annotate(
+        in_stock_qty=Sum(F('stock')),
         total_cost_if_sold=Sum(F('stock') * F('cost')),
         total_price_if_sold=Sum(F('stock') * F('price')),
-        total_profit_if_sold=Sum((F('price') - F('cost')) * F('stock'))
+        total_profit_if_sold=Sum((F('price') - F('cost')) * F('stock')),
     ).order_by('category__name')
 
-    # Convert to a list of dicts for easy looping in template
-    # You might store category_id as well if you want links.
     stock_summary = []
-    for row in stock_summary_qs:
-        cat_name = row['category__name'] or "Uncategorized"
+    for row in stock_qs:
+        cat = row['category__name'] or "Uncategorized"
         stock_summary.append({
-            'category_name': cat_name,
+            'category_name': cat,
             'in_stock_qty': row['in_stock_qty'] or 0,
             'total_cost_if_sold': row['total_cost_if_sold'] or 0.0,
             'total_price_if_sold': row['total_price_if_sold'] or 0.0,
             'total_profit_if_sold': row['total_profit_if_sold'] or 0.0,
         })
 
-    # 7) Prepare context
+    months = list(range(1, 13))
+
     context = {
+        'months': months,
         'branches': branches,
         'categories': categories,
-        'months': months,
-
+        'hide_branch_selector': hide_branch_selector,
         'selected_branch_id': branch_id,
         'selected_category_id': category_id,
 
@@ -3048,15 +3186,16 @@ def product_sales_report(request):
         'selected_month': selected_month,
         'selected_year': selected_year,
 
-        'sales': sales_qs,  # includes line_cost & line_profit annotations
+        'sales': sales_qs,
         'total_revenue': total_revenue,
         'total_cost': total_cost,
         'total_profit': total_profit,
 
-        # Chart data
+        # chart
         'chart_labels': json.dumps(chart_labels),
         'chart_revenue_data': chart_revenue_data,
         'chart_profit_data': chart_profit_data,
+
         'stock_summary': stock_summary,
     }
     return render(request, 'layouts/product_sales_report.html', context)
@@ -3489,31 +3628,24 @@ def get_vehicle_services(request, vehicle_id):
 def enroll_worker(request):
     """
     Allows an admin to create a new Worker user (CustomUser with role='worker'),
-    assign them to a branch, optionally set gh_card_number, gh_card_photo, etc.,
-    and email them a password reset link to set their password.
+    assign them to a branch, capture all personal, educational, employment,
+    reference, and guarantor info, upload ID photos, and email/SMS them
+    a password reset link to set their password.
     """
     if request.method == 'POST':
-        form = EnrollWorkerForm(request.POST, request.FILES)  # include request.FILES for image upload
+        form = EnrollWorkerForm(request.POST, request.FILES)
         if form.is_valid():
+            # Check phone uniqueness before doing any DB writes
+            phone_number = form.cleaned_data['phone_number']
+            if CustomUser.objects.filter(phone_number=phone_number).exists():
+                form.add_error('phone_number', 'This phone number is already in use.')
+                return render(request, 'layouts/admin/enroll_worker.html', {'form': form})
+
             with transaction.atomic():
-                # Extract data
+                # --- CREATE USER ---
                 first_name = form.cleaned_data['first_name']
                 last_name = form.cleaned_data['last_name']
-                email = form.cleaned_data['email']
-                phone_number = form.cleaned_data['phone_number']
-                branch = form.cleaned_data['branch']
-                position = form.cleaned_data['position']
-                salary = form.cleaned_data.get('salary') or 0.0
-                gh_card_number = form.cleaned_data['gh_card_number']
-                year_of_admission = form.cleaned_data.get('year_of_admission') or None
-                is_branch_head = form.cleaned_data.get('is_branch_head', False)
-
-                # Check if phone already exists
-                if CustomUser.objects.filter(phone_number=phone_number).exists():
-                    form.add_error('phone_number', 'This phone number is already in use.')
-                    return render(request, 'layouts/admin/enroll_worker.html', {'form': form})
-
-                # Create CustomUser (role=worker)
+                email = form.cleaned_data.get('email', '')
                 user = CustomUser.objects.create(
                     first_name=first_name,
                     last_name=last_name,
@@ -3521,21 +3653,84 @@ def enroll_worker(request):
                     phone_number=phone_number,
                     username=phone_number,
                     role='worker',
-                    is_active=True,  # so they can reset password
+                    is_active=True,
                 )
-                # Create Worker profile
+
+                # --- EXTRACT WORKER FIELDS ---
+                branch = form.cleaned_data['branch']
+                position_job = form.cleaned_data.get('position_job')
+                salary = form.cleaned_data.get('salary') or 0.0
+                gh_card_number = form.cleaned_data.get('gh_card_number')
+                year_of_admission = form.cleaned_data.get('year_of_admission')
+                is_branch_admin = form.cleaned_data.get('is_branch_admin', False)
+
+                # personal & ID
+                date_of_birth = form.cleaned_data.get('date_of_birth')
+                place_of_birth = form.cleaned_data.get('place_of_birth')
+                nationality = form.cleaned_data.get('nationality')
+                home_address = form.cleaned_data.get('home_address')
+                landmark = form.cleaned_data.get('landmark')
+                ecowas_id_card_no = form.cleaned_data.get('ecowas_id_card_no')
+                ecowas_id_card_photo = form.cleaned_data.get('ecowas_id_card_photo')
+                passport_photo = form.cleaned_data.get('passport_photo')
+
+                # --- CREATE WORKER PROFILE ---
                 worker = Worker.objects.create(
                     user=user,
                     branch=branch,
-                    position=position,
+                    position=position_job,
                     salary=salary,
                     gh_card_number=gh_card_number,
                     year_of_admission=year_of_admission,
-                    is_branch_head=is_branch_head
+                    is_branch_admin=is_branch_admin,
+                    date_of_birth=date_of_birth,
+                    place_of_birth=place_of_birth,
+                    nationality=nationality,
+                    home_address=home_address,
+                    landmark=landmark,
+                    ecowas_id_card_no=ecowas_id_card_no,
+                    ecowas_id_card_photo=ecowas_id_card_photo,
+                    passport_photo=passport_photo,
                 )
 
-                # Generate password reset link
-                from django.contrib.sites.shortcuts import get_current_site
+                # --- EDUCATION RECORD ---
+                WorkerEducation.objects.create(
+                    worker=worker,
+                    school_name=form.cleaned_data.get('school_name'),
+                    school_location=form.cleaned_data.get('school_location'),
+                    year_completed=form.cleaned_data.get('year_completed'),
+                )
+
+                # --- EMPLOYMENT RECORD ---
+                WorkerEmployment.objects.create(
+                    worker=worker,
+                    employer_name=form.cleaned_data.get('employer_name'),
+                    contact_number=form.cleaned_data.get('contact_number'),
+                    location=form.cleaned_data.get('location'),
+                    position=form.cleaned_data.get('position'),
+                    last_date_of_work=form.cleaned_data.get('last_date_of_work'),
+                    home_office_address=form.cleaned_data.get('home_office_address'),
+                    reason_for_leaving=form.cleaned_data.get('reason_for_leaving'),
+                    may_we_contact=form.cleaned_data.get('may_we_contact'),
+                )
+
+                # --- REFERENCE RECORD ---
+                WorkerReference.objects.create(
+                    worker=worker,
+                    full_name=form.cleaned_data.get('ref_full_name'),
+                    mobile_number=form.cleaned_data.get('ref_mobile_number'),
+                    home_office_address=form.cleaned_data.get('ref_address'),
+                )
+
+                # --- GUARANTOR RECORD ---
+                WorkerGuarantor.objects.create(
+                    worker=worker,
+                    full_name=form.cleaned_data.get('gua_full_name'),
+                    mobile_number=form.cleaned_data.get('gua_mobile_number'),
+                    home_office_address=form.cleaned_data.get('gua_address'),
+                )
+
+                # --- GENERATE PASSWORD RESET LINK ---
                 current_site = get_current_site(request)
                 domain = current_site.domain
                 uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -3544,9 +3739,8 @@ def enroll_worker(request):
                     'uidb64': uid,
                     'token': token,
                 })
-                reset_link = f"http://{domain}{reset_url}"
+                reset_link = f"https://{domain}{reset_url}"
 
-                # Email the link to the user
                 subject = "Welcome to AutoDash - Set Your Password"
                 message = (
                     f"Hello {first_name},\n\n"
@@ -3555,24 +3749,24 @@ def enroll_worker(request):
                     f"{reset_link}\n\n"
                     f"Thank you!"
                 )
-                print(message)
+
+            # send SMS (if phone provided)
             if phone_number:
                 try:
                     send_sms(phone_number, message)
                 except Exception as e:
-                    print(e)
-            # if email:
-            #     send_mail(
-            #         subject,
-            #         message,
-            #         settings.DEFAULT_FROM_EMAIL,
-            #         [email],
-            #         fail_silently=False,
-            #     )
+                    # log or print as needed
+                    print("SMS failed:", e)
 
-            messages.success(request,
-                             "Worker enrolled successfully. Password reset link sent (if phone number provided).")
+            # optionally: send email
+            # send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
+
+            messages.success(
+                request,
+                "Worker enrolled successfully. Password reset link sent (if phone number provided)."
+            )
             return redirect('enroll_worker')
+
         else:
             messages.error(request, "Please correct the errors below.")
     else:
@@ -4350,3 +4544,300 @@ def generate_subscription_card(request, subscription_id):
         'scanned_url': scanned_url
     }
     return render(request, 'layouts/admin/subscription_card.html', context)
+
+
+def _parse_date(val, default):
+    try:
+        return datetime.strptime(val, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return default
+
+
+@login_required
+def daily_budget_insights(request):
+    # 1) figure out branch
+    try:
+        branch = request.user.worker_profile.branch
+    except (AttributeError, Worker.DoesNotExist):
+        branch = None
+
+    # 2) parse date range (default to last 7 days)
+    today = date.today()
+    end_date = _parse_date(request.GET.get("end_date"), today)
+    start_date = _parse_date(request.GET.get("start_date"), end_date - timedelta(days=6))
+    if start_date > end_date:
+        start_date, end_date = end_date - timedelta(days=6), end_date
+
+    # 3) build list of calendar dates
+    days = (end_date - start_date).days + 1
+    dates = [start_date + timedelta(days=i) for i in range(days)]
+
+    insights = []
+    labels = []
+    budgets_data = []
+    expenses_data = []
+
+    for current in dates:
+        labels.append(current.strftime("%Y-%m-%d"))
+
+        # a) get that weekday’s budget
+        wb = WeeklyBudget.objects.filter(branch=branch, weekday=current.weekday()).first()
+        budget_amt = wb.budget_amount if wb else 0.0
+
+        # b) sum one-off expenses for that day & branch
+        qs = Expense.objects.filter(date=current)
+        if branch:
+            qs = qs.filter(branch=branch)
+        one_off_sum = qs.aggregate(total=Sum("amount"))["total"] or 0.0
+
+        # c) add any recurring expenses that apply today
+        rec_sum = 0.0
+        for r in RecurringExpense.objects.filter(branch=branch):
+            if r.applies_today(current):
+                rec_sum += r.amount
+
+        total_exp = one_off_sum + rec_sum
+        diff = budget_amt - total_exp
+        status = "Under" if diff > 0 else ("Over" if diff < 0 else "On Target")
+
+        insights.append({
+            "date": current,
+            "budget": budget_amt,
+            "expense": total_exp,
+            "difference": diff,
+            "status": status
+        })
+
+        budgets_data.append(budget_amt)
+        expenses_data.append(total_exp)
+
+    insights.reverse()
+
+    return render(request, "layouts/budgets/insights.html", {
+        "insights": insights,
+        "labels_json": json.dumps(labels),
+        "budgets_json": json.dumps(budgets_data),
+        "expenses_json": json.dumps(expenses_data),
+        "start_date": start_date,
+        "end_date": end_date,
+    })
+
+
+@login_required
+def set_weekly_budgets(request):
+    # assume every user with a worker profile belongs to one branch
+    try:
+        branch = request.user.worker_profile.branch
+    except Worker.DoesNotExist:
+        messages.error(request, "You must be a branch worker to set budgets.")
+        return redirect("index")
+
+    # Load or initialize existing budgets
+    existing = {wb.weekday: wb for wb in WeeklyBudget.objects.filter(branch=branch)}
+
+    if request.method == "POST":
+        # Iterate 0–6 for Monday–Sunday
+        for weekday, dayname in WeeklyBudget.WEEKDAY_CHOICES:
+            key = f"budget_{weekday}"
+            raw = request.POST.get(key, "").strip()
+            try:
+                amt = float(raw) if raw else 0.0
+            except ValueError:
+                amt = 0.0
+
+            wb = existing.get(weekday)
+            if wb:
+                wb.budget_amount = amt
+                wb.save()
+            else:
+                WeeklyBudget.objects.create(
+                    branch=branch,
+                    weekday=weekday,
+                    budget_amount=amt
+                )
+        messages.success(request, "Weekly budgets updated.")
+        return redirect("set_weekly_budgets")
+
+    # GET → render form with current values
+    initial = {wd: existing.get(wd).budget_amount if wd in existing else 0.0
+               for wd, _ in WeeklyBudget.WEEKDAY_CHOICES}
+
+    return render(request, "layouts/budgets/set_weekly.html", {
+        "branch": branch,
+        "weekday_choices": WeeklyBudget.WEEKDAY_CHOICES,
+        "initial": initial,
+    })
+
+
+@staff_member_required
+def sales_targets_manage(request):
+    """
+    List and edit all branch-level weekly/monthly sales targets in one formset.
+    """
+    # Ensure there's one SalesTarget per branch & frequency
+    for b in Branch.objects.all():
+        for freq in (SalesTarget.FREQUENCY_WEEKLY, SalesTarget.FREQUENCY_MONTHLY):
+            SalesTarget.objects.get_or_create(branch=b, frequency=freq, defaults={'target_amount': 0.0})
+
+    TargetFormSet = modelformset_factory(
+        SalesTarget,
+        fields=('branch', 'frequency', 'target_amount'),
+        extra=0
+    )
+
+    if request.method == 'POST':
+        formset = TargetFormSet(request.POST, queryset=SalesTarget.objects.all())
+        if formset.is_valid():
+            formset.save()
+            messages.success(request, "Sales targets updated.")
+            return redirect('sales_targets_manage')
+    else:
+        formset = TargetFormSet(queryset=SalesTarget.objects.all())
+
+    return render(request, 'layouts/admin/sales_targets_manage.html', {
+        'formset': formset
+    })
+
+
+def _first_of_month(dt: date) -> date:
+    return dt.replace(day=1)
+
+
+def _end_of_month(dt: date) -> date:
+    # move to first of next month, then back one day
+    if dt.month == 12:
+        nm = date(dt.year + 1, 1, 1)
+    else:
+        nm = date(dt.year, dt.month + 1, 1)
+    return nm - timedelta(days=1)
+
+
+def _shift_months(dt: date, months: int) -> date:
+    """
+    Shift dt by -months months, landing on the first of that month.
+    """
+    # compute year and month
+    year = dt.year
+    month = dt.month - months
+    # wrap underflows
+    while month <= 0:
+        month += 12
+        year -= 1
+    return date(year, month, 1)
+
+
+@staff_member_required
+def sales_targets_report(request):
+    """
+    Show for each branch:
+      • Revenue this period (week or month)
+      • Target amount
+      • Met? (Revenue ≥ Target)
+      • Over the last 6 periods, how many times each branch has hit target
+    """
+    # 1) frequency: weekly or monthly
+    freq = request.GET.get('freq', SalesTarget.FREQUENCY_MONTHLY)
+
+    today = date.today()
+
+    # 2) Determine current period and revenue queryset
+    if freq == SalesTarget.FREQUENCY_WEEKLY:
+        # find this week’s Monday or one specified
+        ws_str = request.GET.get('week_start')
+        if ws_str:
+            week_start = date.fromisoformat(ws_str)
+        else:
+            week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+        period_label = f"{week_start:%Y-%m-%d} – {week_end:%Y-%m-%d}"
+        rev_qs = Revenue.objects.filter(date__gte=week_start, date__lte=week_end)
+    else:
+        # monthly: year_month param or this month
+        ym = request.GET.get('year_month', today.strftime('%Y-%m'))
+        year, mon = map(int, ym.split('-'))
+        start = date(year, mon, 1)
+        end = _end_of_month(start)
+        period_label = start.strftime('%B %Y')
+        rev_qs = Revenue.objects.filter(date__gte=start, date__lte=end)
+
+    # 3) revenue per branch this period
+    rev_by_branch = (
+        rev_qs
+        .values('branch__id', 'branch__name')
+        .annotate(revenue=Sum('final_amount'))
+        .order_by('branch__name')
+    )
+
+    # 4) load targets for this frequency
+    targets = {
+        t.branch_id: t.target_amount
+        for t in SalesTarget.objects.filter(frequency=freq)
+    }
+
+    # 5) build current‐period rows
+    rows = []
+    for branch in Branch.objects.order_by('name'):
+        rev = next((r['revenue'] for r in rev_by_branch if r['branch__id'] == branch.id), 0.0)
+        tgt = targets.get(branch.id, 0.0)
+        rows.append({
+            'branch': branch.name,
+            'revenue': rev,
+            'target': tgt,
+            'met': rev >= tgt,
+        })
+
+    # 6) history over last 6 periods
+    labels = []
+    history = []  # list of per‐period lists of booleans
+    meet_counts = {b.id: 0 for b in Branch.objects.all()}
+
+    for i in range(5, -1, -1):
+        if freq == SalesTarget.FREQUENCY_WEEKLY:
+            period_start = week_start - timedelta(weeks=i)
+            period_end = period_start + timedelta(days=6)
+            key = period_start.strftime('%Y-%m-%d')
+            qs = Revenue.objects.filter(date__gte=period_start, date__lte=period_end)
+        else:
+            # monthly
+            m_start = _shift_months(start, i)
+            m_end = _end_of_month(m_start)
+            key = m_start.strftime('%Y-%m')
+            qs = Revenue.objects.filter(date__gte=m_start, date__lte=m_end)
+
+        labels.append(key)
+
+        # revenue per branch this period
+        by_branch = {
+            e['branch__id']: e['total']
+            for e in qs.values('branch__id').annotate(total=Sum('final_amount'))
+        }
+
+        row_hits = []
+        for branch in Branch.objects.order_by('name'):
+            rev_amt = by_branch.get(branch.id, 0.0)
+            tgt_amt = targets.get(branch.id, 0.0)
+            hit = rev_amt >= tgt_amt
+            if hit:
+                meet_counts[branch.id] += 1
+            row_hits.append(hit)
+
+        history.append(row_hits)
+
+    # prepare data for a heatmap‐style chart: one dataset per branch
+    chart_data = []
+    branches = list(Branch.objects.order_by('name'))
+    for idx, branch in enumerate(branches):
+        chart_data.append({
+            'label': branch.name,
+            'data': [1 if history[p][idx] else 0 for p in range(len(history))],
+        })
+
+    import json
+    return render(request, 'layouts/admin/sales_targets_report.html', {
+        'freq': freq,
+        'period_label': period_label,
+        'rows': rows,
+        'labels': json.dumps(labels),
+        'chart_data': json.dumps(chart_data),
+        'meet_counts': meet_counts,
+    })

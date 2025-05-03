@@ -12,6 +12,7 @@
           <h4 class="fw-bold py-3 mb-4">Manage Customers</h4>
 
           <!-- Branch Filter Form -->
+        {% if not hide_branch_selector %}
           <form method="get" class="row mb-3">
             <div class="col-auto">
               <label for="branch" class="form-label">Filter by Branch:</label>
@@ -32,6 +33,7 @@
               <button type="submit" class="btn btn-primary">Filter</button>
             </div>
           </form>
+        {% endif %}
 
           <div>
             <a class="btn btn-outline-success m-1" href="{% url 'create_customer_page' %}">Add New Customer</a>

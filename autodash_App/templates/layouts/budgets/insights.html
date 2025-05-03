@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block style %}
+<style>
+  .insights-table th {
+    background-color: #e9f2fd;
+    color: #1f3b63;
+    font-weight: 600;
+  }
+  .insights-table td {
+    vertical-align: middle;
+  }
+  .badge-under   { background-color: #d4edda; color: #155724; }
+  .badge-target  { background-color: #fff3cd; color: #856404; }
+  .badge-over    { background-color: #f8d7da; color: #721c24; }
+</style>
+{% endblock style %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold py-3 mb-4">Daily Budget Insights</h4>
+
+          <!-- Date Filter -->
+          <form method="get" class="row g-3 mb-4 align-items-end">
+            <div class="col-md-3">
+              <label for="start_date" class="form-label">Start Date</label>
+              <input
+                type="date"
+                id="start_date"
+                name="start_date"
+                class="form-control"
+                value="{{ start_date|date:'Y-m-d' }}"
+              />
+            </div>
+            <div class="col-md-3">
+              <label for="end_date" class="form-label">End Date</label>
+              <input
+                type="date"
+                id="end_date"
+                name="end_date"
+                class="form-control"
+                value="{{ end_date|date:'Y-m-d' }}"
+              />
+            </div>
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-primary w-100">Apply</button>
+            </div>
+          </form>
+
+          <!-- Table of Insights -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <h5 class="card-title mb-3">Budget vs. Expenses</h5>
+              <div class="table-responsive">
+                <table class="table table-bordered insights-table">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Date</th>
+                      <th>Budget (GHS)</th>
+                      <th>Expense (GHS)</th>
+                      <th>Difference</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in insights %}
+                    <tr>
+                      <td>{{ row.date|date:"Y-m-d" }}</td>
+                      <td>{{ row.budget|floatformat:2 }}</td>
+                      <td>{{ row.expense|floatformat:2 }}</td>
+                      <td
+                        {% if row.difference < 0 %}
+                          class="text-danger"
+                        {% elif row.difference > 0 %}
+                          class="text-success"
+                        {% endif %}
+                      >
+                        {{ row.difference|floatformat:2 }}
+                      </td>
+                      <td>
+                        {% if row.status == "Under" %}
+                          <span class="badge badge-under">Under</span>
+                        {% elif row.status == "On Target" %}
+                          <span class="badge badge-target">On Target</span>
+                        {% else %}
+                          <span class="badge badge-over">Over</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chart -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <h5 class="card-title mb-3">Budget vs. Expense Trend</h5>
+              <canvas id="budgetChart" height="120"></canvas>
+            </div>
+          </div>
+
+          {% include 'inc/footer.html' %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const labels   = JSON.parse('{{ labels_json|safe }}');
+  const budgets  = JSON.parse('{{ budgets_json|safe }}');
+  const expenses = JSON.parse('{{ expenses_json|safe }}');
+  const ctx = document.getElementById('budgetChart').getContext('2d');
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Budget',
+          data: budgets,
+          backgroundColor: 'rgba(54, 162, 235, 0.4)',
+          borderColor:   'rgba(54, 162, 235, 1)',
+          borderWidth: 1
+        },
+        {
+          label: 'Expense',
+          data: expenses,
+          backgroundColor: 'rgba(255, 99, 132, 0.4)',
+          borderColor:   'rgba(255, 99, 132, 1)',
+          borderWidth: 1
+        }
+      ]
+    },
+    options: {
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: 'GHS' } },
+        x: { title: { display: true, text: 'Date' } }
+      }
+    }
+  });
+});
+</script>
+{% endblock scripts %}

@@ -33,3 +33,16 @@ def json_script(value, element_id):
     """Outputs a <script> tag with JSON-encoded data."""
     json_data = json.dumps(value)
     return mark_safe(f'<script id="{element_id}" type="application/json">{json_data}</script>')
+
+
+@register.filter
+def get_item(dictionary, key):
+    return dictionary.get(key)
+
+
+
+
+
+
+
+

@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from django.db import models
 from django.contrib.auth.models import AbstractUser
@@ -17,7 +18,7 @@ class CustomUser(AbstractUser):
         ('worker', 'Worker'),
         ('customer', 'Customer'),
     )
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='customer')
+    role = models.CharField(max_length=50, choices=ROLE_CHOICES, default='customer')
     phone_number = models.CharField(max_length=15, unique=True, null=True, blank=True)
     email = models.EmailField(null=True, blank=True)
     address = models.CharField(max_length=255, null=True, blank=True)
@@ -50,45 +51,95 @@ class WorkerCategory(models.Model):
 
 
 class Worker(models.Model):
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='worker_profile', null=True,
-                                blank=True)
-    worker_category = models.ForeignKey('WorkerCategory', on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.OneToOneField(
+        CustomUser, on_delete=models.CASCADE,
+        related_name='worker_profile', null=True, blank=True
+    )
+    worker_category = models.ForeignKey(
+        'WorkerCategory', on_delete=models.SET_NULL,
+        null=True, blank=True
+    )
     gh_card_number = models.CharField(max_length=20, null=True, blank=True)
-    gh_card_photo = models.ImageField(upload_to='gh_card_photos/', null=True, blank=True)
+    gh_card_photo = models.ImageField(
+        upload_to='gh_card_photos/', null=True, blank=True
+    )
     is_gh_card_approved = models.BooleanField(default=False)
+
+    # NEW personal & ID fields
+    date_of_birth = models.DateField(null=True, blank=True)
+    ecowas_id_card_no = models.CharField(max_length=50, null=True, blank=True)
+    ecowas_id_card_photo = models.ImageField(
+        upload_to='ecowas_id_photos/', null=True, blank=True
+    )
+    passport_photo = models.ImageField(
+        upload_to='passport_photos/', null=True, blank=True
+    )
+    place_of_birth = models.CharField(max_length=100, null=True, blank=True)
+    nationality = models.CharField(max_length=50, null=True, blank=True)
+    home_address = models.TextField(null=True, blank=True)
+    landmark = models.CharField(max_length=255, null=True, blank=True)
+
+    # Educational
     year_of_admission = models.IntegerField(null=True, blank=True)
+
+    # Employment
     position = models.CharField(max_length=100, null=True, blank=True)
     salary = models.FloatField(null=True, blank=True)
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='workers')
+
+    # Branch admin flag
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name='workers'
+    )
+    is_branch_admin = models.BooleanField(default=False)
+
     date_joined = models.DateField(default=timezone.now)
     rating_sum = models.FloatField(default=0)
     rating_count = models.IntegerField(default=0)
     pending_phone_number = models.CharField(max_length=15, null=True, blank=True)
     is_phone_number_approved = models.BooleanField(default=True)
-    is_branch_head = models.BooleanField(default=False)
     daily_commission = models.FloatField(default=0)
 
     def __str__(self):
-        return f"{self.user.first_name} {self.user.last_name} - ({self.branch.name})"
+        return f"{self.user.get_full_name()}  @ {self.branch.name}"
 
     def average_rating(self):
-        if self.rating_count > 0:
-            return round(self.rating_sum / self.rating_count, 2)
-        return 0
+        return round(self.rating_sum / self.rating_count, 2) if self.rating_count else 0
 
-    def add_rating(self, rating):
-        self.rating_sum += rating
-        self.rating_count += 1
-        self.save()
 
-    def add_commission(self, amount):
-        """
-        Increments the worker's daily commission by `amount`.
-        You might track daily_commission or create a new Commission row,
-        depending on your approach.
-        """
-        self.daily_commission += amount
-        self.save()
+# ---------------------------------------------------------------------
+# RELATED INFO MODELS
+# ---------------------------------------------------------------------
+class WorkerEducation(models.Model):
+    worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='educations')
+    school_name = models.CharField(max_length=200, null=True, blank=True)
+    school_location = models.CharField(max_length=200, null=True, blank=True)
+    year_completed = models.IntegerField(null=True, blank=True)
+
+
+class WorkerEmployment(models.Model):
+    worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='employments')
+    employer_name = models.CharField(max_length=200, null=True, blank=True)
+    contact_number = models.CharField(max_length=20, null=True, blank=True)
+    location = models.CharField(max_length=200, null=True, blank=True)
+    position = models.CharField(max_length=100, null=True, blank=True)
+    last_date_of_work = models.DateField(null=True, blank=True)
+    home_office_address = models.TextField(null=True, blank=True)
+    reason_for_leaving = models.CharField(max_length=255, null=True, blank=True)
+    may_we_contact = models.BooleanField(default=False)
+
+
+class WorkerReference(models.Model):
+    worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='references')
+    full_name = models.CharField(max_length=200, null=True, blank=True)
+    mobile_number = models.CharField(max_length=20, null=True, blank=True)
+    home_office_address = models.TextField(null=True, blank=True)
+
+
+class WorkerGuarantor(models.Model):
+    worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='guarantors')
+    full_name = models.CharField(max_length=200, null=True, blank=True)
+    mobile_number = models.CharField(max_length=20, null=True, blank=True)
+    home_office_address = models.TextField(null=True, blank=True)
 
 
 class VehicleGroup(models.Model):
@@ -386,6 +437,7 @@ class ServiceRenderedOrder(models.Model):
         null=True,
         blank=True
     )
+    comments = models.TextField(null=True, blank=True)
     date = models.DateTimeField(auto_now_add=True)
     time_in = models.DateTimeField(default=timezone.now)
     time_out = models.DateTimeField(null=True, blank=True)
@@ -428,7 +480,6 @@ class ServiceRendered(models.Model):
     negotiated_price = models.FloatField(null=True, blank=True)
     payment_type = models.CharField(max_length=200, null=True, blank=True, choices=(
         ("Loyalty Reward", "Loyalty Reward"), ("Subscription", "Subscription"), ("Cash", "Cash")))
-
 
     def __str_(self):
         return f"{self.service.service_type} on Vehicle {self.order.vehicle}"
@@ -585,3 +636,78 @@ class Arrears(models.Model):
             user=self.service_order.user,
             date=timezone.now().date()
         )
+
+
+class WeeklyBudget(models.Model):
+    WEEKDAY_CHOICES = [
+        (0, "Monday"),
+        (1, "Tuesday"),
+        (2, "Wednesday"),
+        (3, "Thursday"),
+        (4, "Friday"),
+        (5, "Saturday"),
+        (6, "Sunday"),
+    ]
+
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name="weekly_budgets"
+    )
+    weekday = models.IntegerField(choices=WEEKDAY_CHOICES)
+    budget_amount = models.FloatField(default=0.0)
+
+    class Meta:
+        unique_together = ("branch", "weekday")
+        ordering = ["weekday"]
+
+    def __str__(self):
+        return f"{self.branch.name} – {self.get_weekday_display()}: GHS{self.budget_amount:.2f}"
+
+
+class RecurringExpense(models.Model):
+    WEEKDAY_CHOICES = [
+        (0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'),
+        (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
+    ]
+
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
+    description = models.CharField(max_length=255)
+    amount = models.FloatField()
+    # You can choose either a specific date, or blanket every weekday/weekend, etc.
+    apply_on = models.JSONField(
+        default=list,
+        help_text="List of weekdays (0=Mon … 6=Sun) or special dates"
+    )
+
+    def applies_today(self, date=None):
+        """Return True if this expense should be created on `date`."""
+        d = date or timezone.localdate()
+        # by weekday:
+        if d.weekday() in self.apply_on:
+            return True
+        # you could also store specific 'YYYY-MM-DD' strings in JSONField and test here
+        return False
+
+    def __str__(self):
+        return f"{self.description} {self.amount}"
+
+
+class SalesTarget(models.Model):
+    FREQUENCY_WEEKLY = 'weekly'
+    FREQUENCY_MONTHLY = 'monthly'
+    FREQUENCY_CHOICES = [
+        (FREQUENCY_WEEKLY, 'Weekly'),
+        (FREQUENCY_MONTHLY, 'Monthly'),
+    ]
+
+    branch = models.ForeignKey('Branch', on_delete=models.CASCADE, related_name='sales_targets')
+    frequency = models.CharField(max_length=10, choices=FREQUENCY_CHOICES)
+    target_amount = models.FloatField()
+
+    class Meta:
+        unique_together = ('branch', 'frequency')
+        ordering = ['branch__name', 'frequency']
+
+    def __str__(self):
+        return f"{self.branch.name} – {self.get_frequency_display()} target: GHS {self.target_amount}"

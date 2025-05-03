@@ -13,6 +13,7 @@
 
           <!-- Filter Form -->
           <form method="GET" class="row mb-4 g-3 align-items-end">
+            {% if not hide_branch_selector %}
             <div class="col-md-2">
               <label for="branch" class="form-label">Branch</label>
               <select name="branch" id="branch" class="form-control">
@@ -27,6 +28,7 @@
                 {% endfor %}
               </select>
             </div>
+          {% endif %}
             <div class="col-md-2">
               <label for="category" class="form-label">Category</label>
               <select name="category" id="category" class="form-control">

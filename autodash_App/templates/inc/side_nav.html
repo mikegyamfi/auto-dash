@@ -124,32 +124,38 @@
       {% endif %}
       
       <!-- Admin Links -->
-      {% if request.user.is_superuser %}
-        <li class="menu-header small text-uppercase"><span class="menu-header-text">Admin</span></li>
+      {% if request.user.is_superuser or request.user.worker_profile.is_branch_admin %}
+        <li class="menu-header small text-uppercase"><span class="menu-header-text">
+            {% if request.user.is_superuser %}Admin{% else %}Branch Admin ({{ request.user.worker_profile.branch.name }}){% endif %}
+        </span></li>
         <li class="menu-item">
           <a href="{% url 'admin_dashboard' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-bar-chart-alt-2"></i>
             <div data-i18n="Analytics">Dashboard</div>
           </a>
         </li>
+          {% if request.user.is_superuser %}
         <li class="menu-item">
           <a href="{% url 'manage_branches' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-building-house"></i>
             <div data-i18n="Branches">Branches</div>
           </a>
         </li>
+              {% endif %}
         <li class="menu-item">
           <a href="{% url 'manage_workers' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-group"></i>
             <div data-i18n="Workers">Workers</div>
           </a>
         </li>
+          {% if request.user.is_superuser %}
         <li class="menu-item">
           <a href="{% url 'enroll_worker' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-group"></i>
             <div data-i18n="Workers">Enrol Worker</div>
           </a>
         </li>
+              {% endif %}
         <li class="menu-item">
           <a href="{% url 'commissions_by_date' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-money"></i>
@@ -180,10 +186,23 @@
             <div data-i18n="Customers">Customers</div>
           </a>
         </li>
+          {% if request.user.is_superuser %}
         <li class="menu-item">
           <a href="{% url 'vehicle_groups' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-car"></i>
             <div data-i18n="Vehicle Groups">Vehicle Groups</div>
+          </a>
+        </li>
+          <li class="menu-item">
+          <a href="{% url 'sales_targets_manage' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-target-lock"></i>
+            <div data-i18n="Vehicle Groups">Set Target</div>
+          </a>
+        </li>
+          <li class="menu-item">
+          <a href="{% url 'sales_targets_report' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-receipt"></i>
+            <div data-i18n="Vehicle Groups">Target Report</div>
           </a>
         </li>
         <li class="menu-item">
@@ -192,12 +211,25 @@
             <div data-i18n="Vehicle Groups">Reporting</div>
           </a>
         </li>
+          <li class="menu-item">
+          <a href="{% url 'set_weekly_budgets' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-money"></i>
+            <div data-i18n="Vehicle Groups">Add Weekly Budget</div>
+          </a>
+        </li>
+          <li class="menu-item">
+          <a href="{% url 'daily_budget_insights' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-chart"></i>
+            <div data-i18n="Vehicle Groups">Budget Insights</div>
+          </a>
+        </li>
         <li class="menu-item">
           <a href="{% url 'admin_analytics' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-line-chart"></i>
             <div data-i18n="Analytics">Analytics</div>
           </a>
         </li>
+              {% endif %}
       {% endif %}
     {% endif %}
   </ul>

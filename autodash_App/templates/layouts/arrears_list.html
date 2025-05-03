@@ -1,14 +1,4 @@
 {% extends 'base.html' %}
-{% load static %}
-
-{% block style %}
-  {{ block.super }}
-  <!-- DataTables CSS -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css"
-  >
-{% endblock style %}
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
@@ -44,7 +34,9 @@
 
           <div class="card mb-3">
             <div class="card-body">
-              <h5 class="card-title">Total Owed: GHS {{ total_owed|floatformat:2 }}</h5>
+              <h5 class="card-title">
+                Total Owed: GHS {{ total_owed|floatformat:2 }}
+              </h5>
             </div>
           </div>
 
@@ -65,66 +57,72 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {% for arr in arrears_list %}
-                      <tr data-arrears-id="{{ arr.id }}">
-                        <td>
-                          <a href="#"
-                             class="arrears-details-link"
-                             data-arrears-id="{{ arr.id }}">
-                            {{ arr.service_order.service_order_number }}
-                          </a>
-                        </td>
-                        <td>{{ arr.amount_owed|floatformat:2 }}</td>
-                        <td>{{ arr.date_created|date:"Y-m-d H:i" }}</td>
-                        <td>
-                          {% if arr.is_paid %}
-                            <span class="badge bg-success">Paid</span>
-                          {% else %}
-                            <span class="badge bg-danger">Unpaid</span>
-                          {% endif %}
-                        </td>
-                        <td>
-                          {% if arr.is_paid %}
-                            {{ arr.date_paid|date:"Y-m-d H:i" }}
-                          {% else %}
-                            ---
-                          {% endif %}
-                        </td>
-                        <td>
-                          <div class="d-flex flex-wrap gap-2">
-                            {% if not arr.is_paid %}
-                              <a href="{% url 'mark_arrears_as_paid' arr.id %}"
-                                 class="btn btn-sm btn-primary"
-                                 onclick="return confirm('Mark this arrears as paid?');">
-                                Mark as Paid
-                              </a>
-                              <a href="{% url 'send_arrears_reminder' arr.id %}"
-                                 class="btn btn-sm btn-warning">
-                                Send Reminder
-                              </a>
+                    {% if arrears_list %}
+                      {% for arr in arrears_list %}
+                        <tr data-arrears-id="{{ arr.id }}">
+                          <td>
+                            <a
+                              href="#"
+                              class="arrears-details-link"
+                              data-arrears-id="{{ arr.id }}"
+                            >
+                              {{ arr.service_order.service_order_number }}
+                            </a>
+                          </td>
+                          <td>{{ arr.amount_owed|floatformat:2 }}</td>
+                          <td>{{ arr.date_created|date:"Y-m-d H:i" }}</td>
+                          <td>
+                            {% if arr.is_paid %}
+                              <span class="badge bg-success">Paid</span>
                             {% else %}
-                              <button class="btn btn-secondary btn-sm" disabled>
-                                Already Paid
-                              </button>
+                              <span class="badge bg-danger">Unpaid</span>
                             {% endif %}
-                          </div>
-                        </td>
-                      </tr>
-                    {% empty %}
+                          </td>
+                          <td>
+                            {% if arr.is_paid %}
+                              {{ arr.date_paid|date:"Y-m-d H:i" }}
+                            {% else %}
+                              ---
+                            {% endif %}
+                          </td>
+                          <td>
+                            <div class="d-flex flex-wrap gap-2">
+                              {% if not arr.is_paid %}
+                                <a
+                                  href="{% url 'mark_arrears_as_paid' arr.id %}"
+                                  class="btn btn-sm btn-primary"
+                                  onclick="return confirm('Mark this arrears as paid?');"
+                                >
+                                  Mark as Paid
+                                </a>
+                                <a
+                                  href="{% url 'send_arrears_reminder' arr.id %}"
+                                  class="btn btn-sm btn-warning"
+                                >
+                                  Send Reminder
+                                </a>
+                              {% else %}
+                                <button class="btn btn-secondary btn-sm" disabled>
+                                  Already Paid
+                                </button>
+                              {% endif %}
+                            </div>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
                       <tr>
                         <td colspan="6">No arrears found.</td>
                       </tr>
-                    {% endfor %}
+                    {% endif %}
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
           <!-- /Arrears Table -->
-
         </div>
         {% include 'inc/footer.html' %}
-        <div class="content-backdrop fade"></div>
       </div>
     </div>
   </div>
@@ -132,16 +130,29 @@
 </div>
 
 <!-- Modal for Arrears/Service Details -->
-<div class="modal fade" id="arrearsDetailModal" tabindex="-1" aria-hidden="true">
+<div
+  class="modal fade"
+  id="arrearsDetailModal"
+  tabindex="-1"
+  aria-labelledby="arrearsDetailModalLabel"
+  aria-hidden="true"
+>
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Service Order Details</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <h5 class="modal-title" id="arrearsDetailModalLabel">Service Order Details</h5>
+        <button
+          type="button"
+          class="close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        >
+          &times;
+        </button>
       </div>
       <div class="modal-body">
         <p><strong>Order Number:</strong> <span id="detail-order-number"></span></p>
-        <p><strong>Customer:</strong> <span id="detail-customer"></span></p>
+          <p><strong>Customer:</strong> <span id="detail-customer"></span></p>
         <p><strong>Date:</strong> <span id="detail-date"></span></p>
         <p><strong>Status:</strong> <span id="detail-status"></span></p>
         <p><strong>Payment Method:</strong> <span id="detail-payment-method"></span></p>
@@ -167,79 +178,74 @@
     </div>
   </div>
 </div>
-{% endblock content %}
+<!-- / Modal -->
+
+{% endblock %}
 
 {% block scripts %}
-  {{ block.super }}
-  <!-- jQuery -->
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <!-- DataTables JS -->
-  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-  <script>
-    $(document).ready(function() {
-      $('#myTable').DataTable();
-    });
-  </script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const detailModal = new bootstrap.Modal(document.getElementById('arrearsDetailModal'));
+  const detailsLinks = document.querySelectorAll('.arrears-details-link');
 
-  <!-- Arrears details modal logic -->
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      const detailModalEl = document.getElementById('arrearsDetailModal');
-      const detailModal   = new bootstrap.Modal(detailModalEl);
+  detailsLinks.forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      const arrearsId = this.getAttribute('data-arrears-id');
+      fetch(`/arrears/${arrearsId}/details/`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            const orderData = data.data;
+            document.getElementById('detail-order-number').textContent = orderData.order_number;
+            document.getElementById('detail-customer').textContent = orderData.customer;
+            document.getElementById('detail-date').textContent = orderData.date;
+            document.getElementById('detail-status').textContent = orderData.status;
+            document.getElementById('detail-payment-method').textContent = orderData.payment_method;
+            document.getElementById('detail-final-amount').textContent = parseFloat(orderData.final_amount).toFixed(2);
 
-      document.querySelectorAll('.arrears-details-link').forEach(link => {
-        link.addEventListener('click', function(e) {
-          e.preventDefault();
-          const id = this.dataset.arrearsId;
-          fetch(`/arrears/${id}/details/`)
-            .then(res => res.json())
-            .then(json => {
-              if (json.success) {
-                const od = json.data;
-                document.getElementById('detail-order-number').textContent  = od.order_number;
-                document.getElementById('detail-customer').textContent      = od.customer;
-                document.getElementById('detail-date').textContent          = od.date;
-                document.getElementById('detail-status').textContent        = od.status;
-                document.getElementById('detail-payment-method').textContent= od.payment_method;
-                document.getElementById('detail-final-amount').textContent  = parseFloat(od.final_amount).toFixed(2);
+            // Vehicle
+            const vehicleDiv = document.getElementById('vehicle-info');
+            if (orderData.vehicle) {
+              vehicleDiv.innerHTML =
+                `Plate: ${orderData.vehicle.car_plate}, ` +
+                `Make: ${orderData.vehicle.car_make}, ` +
+                `Color: ${orderData.vehicle.car_color}`;
+            } else {
+              vehicleDiv.textContent = 'No vehicle info';
+            }
 
-                // Vehicle
-                const vinfo = document.getElementById('vehicle-info');
-                if (od.vehicle) {
-                  vinfo.textContent = 
-                    `Plate: ${od.vehicle.car_plate}, ` +
-                    `Make: ${od.vehicle.car_make}, ` +
-                    `Color: ${od.vehicle.car_color}`;
-                } else {
-                  vinfo.textContent = 'No vehicle info';
-                }
+            // Workers
+            const workersList = document.getElementById('workers-list');
+            workersList.innerHTML = '';
+            orderData.workers.forEach(function(w) {
+              const li = document.createElement('li');
+              li.textContent = w;
+              workersList.appendChild(li);
+            });
 
-                // Workers
-                const wlist = document.getElementById('workers-list');
-                wlist.innerHTML = '';
-                od.workers.forEach(w => {
-                  const li = document.createElement('li');
-                  li.textContent = w;
-                  wlist.appendChild(li);
-                });
+            // Services
+            const servicesList = document.getElementById('services-list');
+            servicesList.innerHTML = '';
+            orderData.services.forEach(function(svc) {
+              const row = document.createElement('tr');
+              row.innerHTML =
+                `<td>${svc.service_type}</td>` +
+                `<td>${parseFloat(svc.price).toFixed(2)}</td>` +
+              servicesList.appendChild(row);
+            });
 
-                // Services
-                const slist = document.getElementById('services-list');
-                slist.innerHTML = '';
-                od.services.forEach(s => {
-                  const row = document.createElement('tr');
-                  row.innerHTML = `<td>${s.service_type}</td><td>${parseFloat(s.price).toFixed(2)}</td>`;
-                  slist.appendChild(row);
-                });
-
-                detailModal.show();
-              } else {
-                alert('Unable to fetch details.');
-              }
-            })
-            .catch(() => alert('Error fetching details.'));
+            detailModal.show();
+          } else {
+            alert("Unable to fetch order details.");
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert("Error fetching details. Please try again.");
         });
-      });
     });
-  </script>
+  });
+});
+</script>
 {% endblock scripts %}

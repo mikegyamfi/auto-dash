@@ -54,10 +54,14 @@ urlpatterns = [
                   path('elevated/customers/', views.manage_customers, name='manage_customers'),
                   path('elevated/customers/<int:customer_id>/', views.customer_detail_admin,
                        name='customer_detail_admin'),
-                  path('elevated/enrol_customer_in_subscription/<int:customer_id>', views.enroll_subscription, name='enrol_customer_in_subscription'),
-                  path('elevated/renew_customer_subscription/<int:customer_id>', views.renew_subscription, name='renew_customer_subscription'),
+                  path('elevated/enrol_customer_in_subscription/<int:customer_id>', views.enroll_subscription,
+                       name='enrol_customer_in_subscription'),
+                  path('elevated/renew_customer_subscription/<int:customer_id>', views.renew_subscription,
+                       name='renew_customer_subscription'),
                   path('elevated/vehicle-groups/', views.vehicle_groups, name='vehicle_groups'),
                   path('elevated/dashboard_analytics/', views.analytics_dashboard, name='admin_analytics'),
+                  path('elevated/sales-targets/', views.sales_targets_manage, name='sales_targets_manage'),
+                  path('elevated/sales-target_report/', views.sales_targets_report, name='sales_targets_report'),
                   path('admin_dashboard/get_branch_comparison_data/', views.get_branch_comparison_data,
                        name='get_branch_comparison_data'),
                   path('admin_dashboard/get_service_performance_data/', views.get_service_performance_data,
@@ -125,11 +129,11 @@ urlpatterns = [
                   path('vehicles/', views.vehicle_list, name='vehicle_list'),
                   path('vehicles/edit/<int:pk>/', views.edit_vehicle, name='edit_vehicle'),
                   path('customer/edit/<int:customer_id>/', views.edit_customer, name='edit_customer'),
-                  path('generate_customer_subscription_card/<int:subscription_id>', views.generate_subscription_card, name='generate_subscription_card'),
+                  path('generate_customer_subscription_card/<int:subscription_id>', views.generate_subscription_card,
+                       name='generate_subscription_card'),
+                  path('budget_analysis', views.daily_budget_insights, name='daily_budget_insights'),
+                  path("budgets/weekly/", views.set_weekly_budgets, name="set_weekly_budgets"),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-
-

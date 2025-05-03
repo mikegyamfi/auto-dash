@@ -50,6 +50,8 @@ def login_page(request):
             print(name)
             print(password)
 
+
+
             user = authenticate(request, username=name, password=password)
             print(user)
             if user:
