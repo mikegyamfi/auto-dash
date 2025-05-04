@@ -4553,7 +4553,7 @@ def _parse_date(val, default):
         return default
 
 
-@staff_member_required
+@login_required
 def daily_budget_insights(request):
     user = request.user
 
@@ -4561,8 +4561,11 @@ def daily_budget_insights(request):
     if user.is_superuser:
         branches = Branch.objects.all()
         branch_id = request.GET.get("branch", "")
-        branch = get_object_or_404(Branch, id=branch_id) if branch_id else (
-            branches.first() if branches.exists() else None)
+        branch = (
+            get_object_or_404(Branch, id=branch_id)
+            if branch_id else
+            (branches.first() if branches.exists() else None)
+        )
         show_branch_selector = True
     else:
         branches = None
@@ -4596,17 +4599,19 @@ def daily_budget_insights(request):
         labels.append(current.strftime("%Y-%m-%d"))
 
         # (a) Weekly budget for that weekday
-        wb = WeeklyBudget.objects.filter(branch=branch, weekday=current.weekday()).first()
+        wb = WeeklyBudget.objects.filter(
+            branch=branch, weekday=current.weekday()
+        ).first()
         budget_amt = wb.budget_amount if wb else 0.0
 
-        # (b) One-off expenses
-        qs = Expense.objects.filter(date=current, branch=branch)
-        one_off = qs.aggregate(total=Sum("amount"))["total"] or 0.0
+        # (b) Sum all Expense rows (one-off + recurring minted by middleware)
+        total_exp = (
+            Expense.objects
+            .filter(branch=branch, date=current)
+            .aggregate(total=Sum("amount"))["total"]
+            or 0.0
+        )
 
-        # (c) Recurring
-        rec_sum = sum(r.amount for r in RecurringExpense.objects.filter(branch=branch) if r.applies_today(current))
-
-        total_exp = one_off + rec_sum
         diff = budget_amt - total_exp
         if diff > 0:
             status = "Under"
