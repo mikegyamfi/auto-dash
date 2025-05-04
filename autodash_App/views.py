@@ -4928,6 +4928,11 @@ def sales_targets_report(request):
             'met': rev >= tgt,
         })
 
+    rev_series.reverse()
+    tgt_series.reverse()
+    daily_table.reverse()
+    daily_labels.reverse()
+
     daily_chart = [{
         'branch': daily_branch.name,
         'revenue': rev_series,
