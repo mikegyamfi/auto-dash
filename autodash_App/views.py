@@ -4916,3 +4916,132 @@ def sales_targets_report(request):
         'daily_chart': json.dumps(daily_chart),
         'daily_table': daily_table,
     })
+
+
+# Period options
+PERIOD_CHOICES = [
+    ('1_week',   '1 Week'),
+    ('2_weeks',  '2 Weeks'),
+    ('3_weeks',  '3 Weeks'),
+    ('1_month',  '1 Month'),
+    ('3_months', '3 Months'),
+    ('6_months', '6 Months'),
+    ('1_year',   '1 Year'),
+    ('2_years',  '2 Years'),
+]
+PERIOD_DELTAS = {
+    '1_week':   timedelta(weeks=1),
+    '2_weeks':  timedelta(weeks=2),
+    '3_weeks':  timedelta(weeks=3),
+    '1_month':  timedelta(days=30),
+    '3_months': timedelta(days=90),
+    '6_months': timedelta(days=182),
+    '1_year':   timedelta(days=365),
+    '2_years':  timedelta(days=365*2),
+}
+
+@staff_or_branch_admin_required
+def dormant_vehicles(request):
+    user = request.user
+    today = timezone.now().date()
+
+    # — Branch selection for superusers —
+    if user.is_superuser:
+        branches = Branch.objects.all()
+        branch_id = request.GET.get('branch', '')
+        branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
+        show_branch_selector = True
+    else:
+        branches = None
+        # branch-admin or staff: fixed to their branch
+        branch = user.worker_profile.branch
+        show_branch_selector = False
+
+    # — Period selection & cutoff calculation —
+    period_key = request.GET.get('period', '3_months')
+    delta = PERIOD_DELTAS.get(period_key, PERIOD_DELTAS['3_months'])
+    cutoff = today - delta
+
+    # — Build queryset of vehicles with latest service date ≤ cutoff or never serviced —
+    qs = CustomerVehicle.objects.annotate(
+        last_service=Max('servicerenderedorder__date'),
+        other_vehicles=Count('customer__vehicles') - 1
+    )
+    # filter by branch if set
+    if branch:
+        qs = qs.filter(customer__branch=branch)
+    # dormant: last_service is null (never) OR ≤ cutoff
+    qs = qs.filter(Q(last_service__lte=cutoff) | Q(last_service__isnull=True))
+    qs = qs.select_related('customer__user')
+
+    # — Handle deletion actions —
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        vehicle_id = request.POST.get('vehicle_id')
+        vehicle = get_object_or_404(CustomerVehicle, id=vehicle_id)
+        if action == 'delete_vehicle':
+            vehicle.delete()
+            messages.success(request, f"Vehicle {vehicle.car_plate} deleted.")
+        elif action == 'delete_customer':
+            cust = vehicle.customer
+            vehicle.delete()
+            cust.delete()
+            messages.success(request, f"Vehicle and customer {cust.user.get_full_name()} deleted.")
+        return redirect('dormant_vehicles')
+
+    return render(request, 'layouts/admin/dormant_vehicles.html', {
+        'branches': branches,
+        'show_branch_selector': show_branch_selector,
+        'selected_branch': branch.id if branch else '',
+        'period_choices': PERIOD_CHOICES,
+        'selected_period': period_key,
+        'cutoff': cutoff,
+        'vehicles': qs,
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
