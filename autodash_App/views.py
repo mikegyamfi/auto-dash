@@ -725,8 +725,8 @@ def confirm_service(request, pk):
             if new_status == 'completed':
                 send_sms(
                     customer.user.phone_number,
-                    f"Hello, your payment amount  of GHS {order.total_amount} for"
-                    f"{order.vehicle.car_plate} has been received. Thank you! leave feedback - https://management.autodashgh.com/feedback/{order.id}"
+                    f"Hello, Payment of GHS{order.total_amount} for"
+                    f"{order.vehicle.car_plate} is received. Thank you! Visit https://www.autodashgh.com\nCall 059 343 1421"
                 )
             elif new_status == 'onCredit':
                 send_sms(
