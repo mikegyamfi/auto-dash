@@ -55,34 +55,34 @@
           <!-- Row 1: Revenue, Expenses, Profit, Commission -->
           <div class="row">
             <!-- Revenue Today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card bg-warning text-white">
-                <div class="card-body">
-                  <h5 class="card-title text-white">Today's Revenue</h5>
-                  <p class="card-text display-6">GHS {{ revenue_today|floatformat:2 }}</p>
-                </div>
-              </div>
-            </div>
+{#            <div class="col-md-3 col-sm-6 mb-4">#}
+{#              <div class="card bg-warning text-white">#}
+{#                <div class="card-body">#}
+{#                  <h5 class="card-title text-white">Today's Revenue</h5>#}
+{#                  <p class="card-text display-6">GHS {{ revenue_today|floatformat:2 }}</p>#}
+{#                </div>#}
+{#              </div>#}
+{#            </div>#}
 
             <!-- Expenses Today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card bg-danger text-white">
-                <div class="card-body">
-                  <h5 class="card-title text-white">Today's Expenses</h5>
-                  <p class="card-text display-6">GHS {{ expenses_today|floatformat:2 }}</p>
-                </div>
-              </div>
-            </div>
+{#            <div class="col-md-3 col-sm-6 mb-4">#}
+{#              <div class="card bg-danger text-white">#}
+{#                <div class="card-body">#}
+{#                  <h5 class="card-title text-white">Today's Expenses</h5>#}
+{#                  <p class="card-text display-6">GHS {{ expenses_today|floatformat:2 }}</p>#}
+{#                </div>#}
+{#              </div>#}
+{#            </div>#}
 
             <!-- Profit Today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card bg-success text-white">
-                <div class="card-body">
-                  <h5 class="card-title text-white">Profit Today</h5>
-                  <p class="card-text display-6">GHS {{ profit_today|floatformat:2 }}</p>
-                </div>
-              </div>
-            </div>
+{#            <div class="col-md-3 col-sm-6 mb-4">#}
+{#              <div class="card bg-success text-white">#}
+{#                <div class="card-body">#}
+{#                  <h5 class="card-title text-white">Profit Today</h5>#}
+{#                  <p class="card-text display-6">GHS {{ profit_today|floatformat:2 }}</p>#}
+{#                </div>#}
+{#              </div>#}
+{#            </div>#}
 
             <!-- My Commission Today -->
             <div class="col-md-3 col-sm-6 mb-4">
@@ -108,30 +108,30 @@
             </div>
 
             <!-- Products Sold Today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card bg-black text-white">
-                <div class="card-body">
-                  <h5 class="card-title text-white">Products Sold Today</h5>
-                  <p class="card-text display-6">{{ products_sold_today }}</p>
-                </div>
-              </div>
-            </div>
+{#            <div class="col-md-3 col-sm-6 mb-4">#}
+{#              <div class="card bg-black text-white">#}
+{#                <div class="card-body">#}
+{#                  <h5 class="card-title text-white">Products Sold Today</h5>#}
+{#                  <p class="card-text display-6">{{ products_sold_today }}</p>#}
+{#                </div>#}
+{#              </div>#}
+{#            </div>#}
 
             <!-- Daily Expense Budget Check -->
-            <div class="col-md-6 mb-4">
-              <div class="card bg-gradient bg-gray text-white">
-                <div class="card-body">
-                  <h5 class="card-title text-white">Daily Expense Budget</h5>
-                  <p>Budget: GHS {{ daily_expense_budget|floatformat:2 }}</p>
-                  <p>Expenses: GHS {{ expenses_today|floatformat:2 }}</p>
-                  {% if expenses_over_budget %}
-                    <p>Over Budget by GHS {{ budget_difference|floatformat:2 }}</p>
-                  {% else %}
-                    <p>Under Budget by GHS {{ budget_difference|floatformat:2 }}</p>
-                  {% endif %}
-                </div>
-              </div>
-            </div>
+{#            <div class="col-md-6 mb-4">#}
+{#              <div class="card bg-gradient bg-gray text-white">#}
+{#                <div class="card-body">#}
+{#                  <h5 class="card-title text-white">Daily Expense Budget</h5>#}
+{#                  <p>Budget: GHS {{ daily_expense_budget|floatformat:2 }}</p>#}
+{#                  <p>Expenses: GHS {{ expenses_today|floatformat:2 }}</p>#}
+{#                  {% if expenses_over_budget %}#}
+{#                    <p>Over Budget by GHS {{ budget_difference|floatformat:2 }}</p>#}
+{#                  {% else %}#}
+{#                    <p>Under Budget by GHS {{ budget_difference|floatformat:2 }}</p>#}
+{#                  {% endif %}#}
+{#                </div>#}
+{#              </div>#}
+{#            </div>#}
           </div>
 
           <!-- Row 3: Recent & Pending Services for this worker -->
