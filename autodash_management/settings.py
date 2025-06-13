@@ -65,7 +65,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'autodash_management.wsgi.application'
 
 # Database: Use SQLite in development, PostgreSQL in production
-if DEBUG:
+if config("USE_LOCAL"):
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
