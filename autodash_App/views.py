@@ -1,10 +1,8 @@
 import base64
 import json
 import uuid
-from datetime import date
-from decimal import Decimal
 
-from django.contrib import messages
+import openpyxl
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
@@ -16,13 +14,13 @@ from django.forms import modelformset_factory
 from django.http import (
     JsonResponse, HttpResponseForbidden
 )
-from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
-from django.urls import reverse
 from django.utils.encoding import force_bytes
-from django.utils.html import json_script
 from django.utils.http import urlsafe_base64_encode
 from qrcode import QRCode
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from xhtml2pdf import pisa
 
 from decorators import staff_or_branch_admin_required
 from . import models, forms
@@ -33,9 +31,9 @@ from .forms import (
 from .helper import send_sms
 from .models import (
     CustomerSubscription, CustomUser,
-    Service, LoyaltyTransaction, VehicleGroup, ProductSale, ProductCategory,
-    Subscription, WorkerCategory, CustomerSubscriptionTrail, CustomerSubscriptionRenewalTrail, WeeklyBudget,
-    RecurringExpense, SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget
+    Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
+    CustomerSubscriptionRenewalTrail, WeeklyBudget,
+    SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget
 )
 from .models import (
     DailyExpenseBudget
@@ -144,13 +142,13 @@ def home(request):
         branch = worker.branch
 
         # — today’s expenses & revenue —
-        expenses_today = Expense.objects.filter(branch=branch, date=today)\
+        expenses_today = Expense.objects.filter(branch=branch, date=today) \
                              .aggregate(total=Sum('amount'))['total'] or 0
-        revenue_today = Revenue.objects.filter(branch=branch, date=today)\
+        revenue_today = Revenue.objects.filter(branch=branch, date=today) \
                             .aggregate(total=Sum('final_amount'))['total'] or 0
 
         # — worker commission & net/gross —
-        worker_commission_today = Commission.objects.filter(worker=worker, date=today)\
+        worker_commission_today = Commission.objects.filter(worker=worker, date=today) \
                                       .aggregate(total=Sum('amount'))['total'] or 0
         gross_sales = revenue_today - worker_commission_today
         net_sales = gross_sales - expenses_today
@@ -170,7 +168,7 @@ def home(request):
         average_rating = worker.average_rating()
 
         # — compare to yesterday —
-        revenue_yesterday = Revenue.objects.filter(branch=branch, date=yesterday)\
+        revenue_yesterday = Revenue.objects.filter(branch=branch, date=yesterday) \
                                 .aggregate(total=Sum('final_amount'))['total'] or 0
         if revenue_yesterday > 0:
             revenue_change_percentage = round(
@@ -256,7 +254,7 @@ def home(request):
 
     # parse date range
     start_date_str = request.GET.get('start_date', '')
-    end_date_str   = request.GET.get('end_date', '')
+    end_date_str = request.GET.get('end_date', '')
     today = timezone.now().date()
     if not start_date_str and not end_date_str:
         start_dt = today
@@ -305,13 +303,13 @@ def home(request):
         cid = row['product__category']
         product_categories_today.append({
             'category_name': ProductCategory.objects.filter(id=cid).first().name
-                               if cid else "Uncategorized",
+            if cid else "Uncategorized",
             'total_qty': row['cat_qty'] or 0,
             'total_amount': row['cat_amt'] or 0
         })
 
     # recent & pending
-    recent_services  = ServiceRenderedOrder.objects.filter(branch=branch).order_by('-date')[:5]
+    recent_services = ServiceRenderedOrder.objects.filter(branch=branch).order_by('-date')[:5]
     pending_services = ServiceRenderedOrder.objects.filter(branch=branch, status='pending').order_by('-date')
 
     # order statuses
@@ -346,8 +344,8 @@ def home(request):
             date__date__range=[start_dt, end_dt]
         ).count(),
         'completed_orders_count': count_status('completed'),
-        'pending_orders_count':   count_status('pending'),
-        'canceled_orders_count':  count_status('canceled'),
+        'pending_orders_count': count_status('pending'),
+        'canceled_orders_count': count_status('canceled'),
         'on_credit_orders_count': count_status('onCredit'),
 
         'recent_services': recent_services,
@@ -1221,7 +1219,7 @@ def send_password_reset(user):
 def service_history(request):
     user = request.user
 
-    # Must be worker, admin, or staff
+    # Authorization: only workers, admins, staff
     if user.role not in ["worker", "Admin"] and not user.is_staff:
         messages.error(request, "You are not authorized to view this page.")
         return redirect('index')
@@ -1238,71 +1236,51 @@ def service_history(request):
             return redirect('index')
         services_rendered = services_rendered.filter(branch=worker.branch)
 
-    # Status / Payment / Date / Branch filters
+    # Filters: status, payment method
     statuses = ServiceRenderedOrder.STATUS_CHOICES
     payment_methods = ['all', 'cash', 'momo', 'loyalty', 'subscription',
                        'subscription-cash', 'subscription-momo']
 
     status_filter = request.GET.get('status', 'all')
     payment_filter = request.GET.get('payment_method', 'all')
+
+    if status_filter != 'all':
+        services_rendered = services_rendered.filter(status=status_filter)
+    if payment_filter != 'all':
+        services_rendered = services_rendered.filter(payment_method=payment_filter)
+
+    # Date range filter
     start_date_str = request.GET.get('start_date', '')
     end_date_str = request.GET.get('end_date', '')
+    from datetime import datetime as dt
 
-    # If user is staff/superuser => branch filter
+    today_date = timezone.now().date()
+    if not start_date_str and not end_date_str:
+        services_rendered = services_rendered.filter(date__date=today_date)
+        start_date_str = end_date_str = today_date.strftime('%Y-%m-%d')
+    else:
+        try:
+            start_dt = dt.strptime(start_date_str, '%Y-%m-%d').date() if start_date_str else today_date
+            end_dt = dt.strptime(end_date_str, '%Y-%m-%d').date() if end_date_str else today_date
+            if end_dt < start_dt:
+                start_dt, end_dt = end_dt, start_dt
+            services_rendered = services_rendered.filter(date__date__range=[start_dt, end_dt])
+        except ValueError:
+            messages.warning(request, "Invalid date format. Showing today's data.")
+            services_rendered = services_rendered.filter(date__date=today_date)
+            start_date_str = end_date_str = today_date.strftime('%Y-%m-%d')
+
+    # Branch filter for staff/superuser
     branches = None
     selected_branch_id = None
     if user.is_staff or user.is_superuser:
+        from .models import Branch
         branches = Branch.objects.all()
         selected_branch_id = request.GET.get('branch', '')
         if selected_branch_id:
             services_rendered = services_rendered.filter(branch_id=selected_branch_id)
 
-    # 1) Status filter
-    if status_filter != 'all':
-        services_rendered = services_rendered.filter(status=status_filter)
-
-    # 2) Payment filter
-    if payment_filter != 'all':
-        services_rendered = services_rendered.filter(payment_method=payment_filter)
-
-    # 3) Date range filter
-    # If none provided => default to "today"
-    from datetime import datetime
-    today_date = timezone.now().date()
-    if not start_date_str and not end_date_str:
-        # Filter by "today" => single day
-        services_rendered = services_rendered.filter(date__date=today_date)
-        start_date_str = today_date.strftime('%Y-%m-%d')
-        end_date_str = today_date.strftime('%Y-%m-%d')
-    else:
-        # parse them
-        try:
-            if start_date_str:
-                start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-            else:
-                start_dt = today_date
-
-            if end_date_str:
-                end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-            else:
-                end_dt = today_date
-
-            if end_dt < start_dt:
-                # swap if reversed
-                start_dt, end_dt = end_dt, start_dt
-
-            # Filter by date range => date__date__range
-            services_rendered = services_rendered.filter(
-                date__date__range=[start_dt, end_dt]
-            )
-
-        except ValueError:
-            messages.warning(request, "Invalid date format. Showing today's data.")
-            services_rendered = services_rendered.filter(date__date=today_date)
-            start_date_str = today_date.strftime('%Y-%m-%d')
-            end_date_str = today_date.strftime('%Y-%m-%d')
-
-    # 4) Bulk status update logic
+    # Bulk status update
     if request.method == 'POST':
         selected_order_ids = request.POST.getlist('selected_orders')
         new_status = request.POST.get('new_status')
@@ -1313,24 +1291,30 @@ def service_history(request):
                 order = get_object_or_404(ServiceRenderedOrder, id=order_id)
                 old_status = order.status
 
-                if old_status == new_status:
-                    continue
-
-                # Commission logic
-                if old_status not in ['completed', 'onCredit'] and new_status in ['completed', 'onCredit']:
-                    # allocate
-                    for sr in order.rendered.all():
+                # Commission adjustments
+                for sr in order.rendered.all():
+                    if old_status not in ['completed', 'onCredit'] and new_status in ['completed', 'onCredit']:
                         sr.allocate_commission()
-                elif old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
-                    # remove
-                    for sr in order.rendered.all():
+                    elif old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
                         sr.remove_commission()
 
-                # update
+                # Update status
                 order.status = new_status
                 order.save()
 
-                # onCredit => Arrears if needed
+                # Record revenue if now completed or on credit, avoid duplicates
+                if new_status in ('completed', 'onCredit'):
+                    if not Revenue.objects.filter(service_rendered=order).exists():
+                        Revenue.objects.create(
+                            service_rendered=order,
+                            branch=order.branch,
+                            amount=order.total_amount,
+                            final_amount=order.final_amount,
+                            user=request.user,
+                            date=timezone.now().date()
+                        )
+
+                # Create arrears entry for onCredit if needed
                 if new_status == 'onCredit':
                     if not hasattr(order, 'arrears'):
                         Arrears.objects.create(
@@ -1338,14 +1322,18 @@ def service_history(request):
                             branch=order.branch,
                             amount_owed=order.final_amount or 0
                         )
-                    total_commission_allocated = Commission.objects.filter(
-                        service_rendered__order=order
-                    ).aggregate(total=Sum('amount'))['total'] or 0
 
             messages.success(request, "Selected orders have been updated.")
             return redirect('service_history')
         else:
             messages.error(request, "Please select orders and a valid status to update.")
+
+    aggregates = services_rendered.aggregate(
+        total_amount=Sum('total_amount'),
+        total_final=Sum('final_amount'),
+    )
+    total_amount = aggregates['total_amount'] or 0
+    total_final = aggregates['total_final'] or 0
 
     context = {
         'services_rendered': services_rendered,
@@ -1357,8 +1345,133 @@ def service_history(request):
         'end_date_str': end_date_str,
         'branches': branches,
         'selected_branch_id': selected_branch_id,
+        'total_amount': total_amount,
+        'total_final': total_final,
     }
     return render(request, 'layouts/workers/service_history.html', context)
+
+
+def _get_filtered_services(request):
+    user = request.user
+    qs = ServiceRenderedOrder.objects.all().order_by('-date')
+
+    # worker-branch filter
+    if not user.is_staff and not user.is_superuser:
+        worker = Worker.objects.filter(user=user).first()
+        if not worker:
+            return ServiceRenderedOrder.objects.none()
+        qs = qs.filter(branch=worker.branch)
+
+    # status & payment filters
+    status = request.GET.get('status', 'all')
+    pay = request.GET.get('payment_method', 'all')
+    if status != 'all':
+        qs = qs.filter(status=status)
+    if pay != 'all':
+        qs = qs.filter(payment_method=pay)
+
+    # date range
+    from datetime import datetime as dt
+    today = timezone.now().date()
+    start = request.GET.get('start_date', '')
+    end = request.GET.get('end_date', '')
+    if not (start or end):
+        qs = qs.filter(date__date=today)
+    else:
+        try:
+            sd = dt.strptime(start, '%Y-%m-%d').date() if start else today
+            ed = dt.strptime(end, '%Y-%m-%d').date() if end else today
+            if ed < sd: sd, ed = ed, sd
+            qs = qs.filter(date__date__range=[sd, ed])
+        except ValueError:
+            qs = qs.filter(date__date=today)
+
+    # branch dropdown (staff)
+    branch_id = request.GET.get('branch', '')
+    if user.is_staff and branch_id:
+        qs = qs.filter(branch_id=branch_id)
+
+    return qs
+
+
+@login_required(login_url='login')
+def export_service_history_excel(request):
+    services = _get_filtered_services(request)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Service History"
+
+    # header
+    ws.append([
+        "Service #", "Date", "Customer", "Workers",
+        "Branch", "Status", "Payment Mode", "Total", "Final"
+    ])
+
+    # rows
+    for s in services:
+        workers = ", ".join(
+            f"{w.user.first_name} {w.user.last_name}"
+            for w in s.workers.all()
+        )
+        ws.append([
+            s.service_order_number,
+            s.date.strftime('%Y-%m-%d %H:%M'),
+            s.customer.user.get_full_name(),
+            workers,
+            s.branch.name,
+            s.get_status_display(),
+            s.payment_method or "-",
+            float(s.total_amount),
+            float(s.final_amount)
+        ])
+
+    # totals
+    agg = services.aggregate(
+        total_amount=Sum('total_amount'),
+        total_final=Sum('final_amount'),
+    )
+    ws.append([])  # blank row
+    ws.append([
+        "Totals", "", "", "", "", "",
+        "",
+        agg['total_amount'] or 0,
+        agg['total_final'] or 0,
+    ])
+
+    # response
+    resp = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    fname = timezone.now().strftime("service_history_%Y%m%d_%H%M.xlsx")
+    resp['Content-Disposition'] = f'attachment; filename="{fname}"'
+    wb.save(resp)
+    return resp
+
+
+@login_required(login_url='login')
+def export_service_history_pdf(request):
+    services = _get_filtered_services(request)
+    agg = services.aggregate(
+        total_amount=Sum('total_amount'),
+        total_final=Sum('final_amount'),
+    )
+
+    html = render_to_string('layouts/admin/service_history_pdf.html', {
+        'services_rendered': services,
+        'total_amount': agg['total_amount'] or 0,
+        'total_final': agg['total_final'] or 0,
+        'now': timezone.now(),
+    })
+
+    resp = HttpResponse(content_type='application/pdf')
+    fname = timezone.now().strftime("service_history_%Y%m%d_%H%M.pdf")
+    resp['Content-Disposition'] = f'attachment; filename="{fname}"'
+
+    pisa_status = pisa.CreatePDF(html, dest=resp)
+    if pisa_status.err:
+        return HttpResponse("PDF generation error; please try again.")
+    return resp
 
 
 # ----------------------------------------------------------------
@@ -3008,14 +3121,13 @@ def financial_overview(request):
     return render(request, 'layouts/financial_overview.html', context)
 
 
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import get_object_or_404
 from django.contrib.admin.views.decorators import staff_member_required
-from django.utils import timezone
-from django.db.models import Sum, F
-from datetime import datetime, date
+from django.db.models import F
+from datetime import date
 from django.contrib import messages
 
-from .models import Branch, ProductSale, ProductCategory
+from .models import ProductSale, ProductCategory
 
 
 @staff_or_branch_admin_required
@@ -3981,6 +4093,17 @@ def generate_report(request):
 
                 context['results']['branch_data'] = branch_data
 
+                branch_totals = {
+                    'revenue': sum(row['revenue'] for row in branch_data),
+                    'commission': sum(row['commission'] for row in branch_data),
+                    'gross_sales': sum(row['gross_sales'] for row in branch_data),
+                    'expense': sum(row['expense'] for row in branch_data),
+                    'profit': sum(row['profit'] for row in branch_data),
+                    'workers': sum(row['workers'] for row in branch_data),
+                    'customers': sum(row['customers'] for row in branch_data),
+                }
+                context['results']['branch_totals'] = branch_totals
+
             # ===============  B) Worker Report  ===============
             elif report_type == 'worker':
                 # If a specific worker is chosen, or all workers
@@ -4477,7 +4600,6 @@ def log_service_scanned(request, customer_id):
 
 @staff_member_required
 def generate_subscription_card(request, subscription_id):
-    import qrcode
     from io import BytesIO
     from base64 import b64encode
     subscription = get_object_or_404(CustomerSubscription, id=subscription_id)
@@ -4567,10 +4689,10 @@ def daily_budget_insights(request):
 
         # (b) Sum all Expense rows (one-off + recurring minted by middleware)
         total_exp = (
-            Expense.objects
-            .filter(branch=branch, date=current)
-            .aggregate(total=Sum("amount"))["total"]
-            or 0.0
+                Expense.objects
+                .filter(branch=branch, date=current)
+                .aggregate(total=Sum("amount"))["total"]
+                or 0.0
         )
 
         diff = budget_amt - total_exp
@@ -4920,25 +5042,26 @@ def sales_targets_report(request):
 
 # Period options
 PERIOD_CHOICES = [
-    ('1_week',   '1 Week'),
-    ('2_weeks',  '2 Weeks'),
-    ('3_weeks',  '3 Weeks'),
-    ('1_month',  '1 Month'),
+    ('1_week', '1 Week'),
+    ('2_weeks', '2 Weeks'),
+    ('3_weeks', '3 Weeks'),
+    ('1_month', '1 Month'),
     ('3_months', '3 Months'),
     ('6_months', '6 Months'),
-    ('1_year',   '1 Year'),
-    ('2_years',  '2 Years'),
+    ('1_year', '1 Year'),
+    ('2_years', '2 Years'),
 ]
 PERIOD_DELTAS = {
-    '1_week':   timedelta(weeks=1),
-    '2_weeks':  timedelta(weeks=2),
-    '3_weeks':  timedelta(weeks=3),
-    '1_month':  timedelta(days=30),
+    '1_week': timedelta(weeks=1),
+    '2_weeks': timedelta(weeks=2),
+    '3_weeks': timedelta(weeks=3),
+    '1_month': timedelta(days=30),
     '3_months': timedelta(days=90),
     '6_months': timedelta(days=182),
-    '1_year':   timedelta(days=365),
-    '2_years':  timedelta(days=365*2),
+    '1_year': timedelta(days=365),
+    '2_years': timedelta(days=365 * 2),
 }
+
 
 @staff_or_branch_admin_required
 def dormant_vehicles(request):
@@ -4998,50 +5121,3 @@ def dormant_vehicles(request):
         'cutoff': cutoff,
         'vehicles': qs,
     })
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

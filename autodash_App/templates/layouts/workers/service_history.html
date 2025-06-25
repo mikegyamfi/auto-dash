@@ -106,11 +106,35 @@
           </form>
           <!-- / Filter Form -->
 
+        <div class="row mb-3">
+  <div class="col">
+    <strong>Totals:</strong>
+    GHS {{ total_amount|floatformat:2 }}
+    <span class="ms-4">Final: GHS {{ total_final|floatformat:2 }}</span>
+  </div>
+</div>
+
+        <div class="mb-4">
+  <a
+    href="{% url 'export_service_history_excel' %}?{{ request.GET.urlencode }}"
+    class="btn btn-outline-success me-2"
+  >
+    Export Excel
+  </a>
+  <a
+    href="{% url 'export_service_history_pdf' %}?{{ request.GET.urlencode }}"
+    class="btn btn-outline-danger"
+    target="_blank"
+  >
+    Export PDF
+  </a>
+</div>
+
           <!-- Bulk Status Update Form -->
           <form method="post" id="bulk-status-form">
             {% csrf_token %}
             <div class="table-responsive">
-              <table id="service-table" class="table table-bordered align-middle">
+              <table id="myTable" class="table table-bordered align-middle">
                 <thead class="table-light">
                   <tr>
                     <th>
@@ -133,7 +157,6 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {% if services_rendered %}
                     {% for service in services_rendered %}
                       <tr>
                         <td>
@@ -174,11 +197,6 @@
                         </td>
                       </tr>
                     {% endfor %}
-                  {% else %}
-                    <tr>
-                      <td colspan="11">No services found.</td>
-                    </tr>
-                  {% endif %}
                 </tbody>
               </table>
             </div>

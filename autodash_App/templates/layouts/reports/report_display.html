@@ -16,41 +16,53 @@
   </p>
 
   <!-- BRANCH REPORT -->
-  {% if report_type == 'branch' %}
-    {% with branch_data=results.branch_data %}
-      <h4>Branch Performance</h4>
-      <table class="table table-bordered table-sm">
-        <thead>
-          <tr>
-            <th>Branch</th>
-            <th>Revenue</th>
-             <th>Commission</th>
-            <th>Gross Sales</th>
-            <th>Expense</th>
-            <th>Profit</th>
-            <th>#Workers</th>
-            <th>#Customers</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in branch_data %}
-          <tr>
-            <td>{{ row.branch.name }}</td>
-            <td>{{ row.revenue|floatformat:2 }}</td>
-            <td>{{ row.commission|floatformat:2 }}</td>
-            <td>{{ row.gross_sales|floatformat:2 }}</td>
-            <td>{{ row.expense|floatformat:2 }}</td>
-            <td>{{ row.profit|floatformat:2 }}</td>
-            <td>{{ row.workers }}</td>
-            <td>{{ row.customers }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="7">No branch data found.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endwith %}
-  {% endif %}
+{% if report_type == 'branch' %}
+  {% with branch_data=results.branch_data totals=results.branch_totals %}
+    <h4>Branch Performance</h4>
+    <table class="table table-bordered table-sm">
+      <thead>
+        <tr>
+          <th>Branch</th>
+          <th>Revenue</th>
+          <th>Commission</th>
+          <th>Gross Sales</th>
+          <th>Expense</th>
+          <th>Profit</th>
+          <th>#Workers</th>
+          <th>#Customers</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in branch_data %}
+        <tr>
+          <td>{{ row.branch.name }}</td>
+          <td>{{ row.revenue|floatformat:2 }}</td>
+          <td>{{ row.commission|floatformat:2 }}</td>
+          <td>{{ row.gross_sales|floatformat:2 }}</td>
+          <td>{{ row.expense|floatformat:2 }}</td>
+          <td>{{ row.profit|floatformat:2 }}</td>
+          <td>{{ row.workers }}</td>
+          <td>{{ row.customers }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8">No branch data found.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-bold">
+        <tr>
+          <th>Totals</th>
+          <th>{{ totals.revenue|floatformat:2 }}</th>
+          <th>{{ totals.commission|floatformat:2 }}</th>
+          <th>{{ totals.gross_sales|floatformat:2 }}</th>
+          <th>{{ totals.expense|floatformat:2 }}</th>
+          <th>{{ totals.profit|floatformat:2 }}</th>
+          <th>{{ totals.workers }}</th>
+          <th>{{ totals.customers }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  {% endwith %}
+{% endif %}
 
   <!-- WORKER REPORT -->
   {% if report_type == 'worker' %}

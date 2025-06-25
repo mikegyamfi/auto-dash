@@ -133,7 +133,17 @@ urlpatterns = [
                        name='generate_subscription_card'),
                   path('budget_analysis', views.daily_budget_insights, name='daily_budget_insights'),
                   path("budgets/weekly/", views.set_weekly_budgets, name="set_weekly_budgets"),
-                  path('elevated/dormant_vehicles', views.dormant_vehicles, name='dormant_vehicles')
+                  path('elevated/dormant_vehicles', views.dormant_vehicles, name='dormant_vehicles'),
+                  path(
+                      'service-history/export/excel/',
+                      views.export_service_history_excel,
+                      name='export_service_history_excel'
+                  ),
+                  path(
+                      'service-history/export/pdf/',
+                      views.export_service_history_pdf,
+                      name='export_service_history_pdf'
+                  ),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

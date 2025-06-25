@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: sans-serif; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
+    th, td { border: 1px solid #444; padding: 4px; vertical-align: top; }
+    th { background: #eee; }
+    .totals { margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h2>Service History</h2>
+
+  <div class="totals">
+    <strong>Totals:</strong>
+    GHS {{ total_amount|floatformat:2 }}
+    (Final: GHS {{ total_final|floatformat:2 }})
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Service #</th>
+        <th>Date</th>
+        <th>Customer</th>
+        <th>Workers</th>
+        <th>Status</th>
+        <th>Payment</th>
+        <th>Total (GHS)</th>
+        <th>Final (GHS)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in services_rendered %}
+      <tr>
+        <td>{{ s.service_order_number }}</td>
+        <td>{{ s.date|date:"Y-m-d H:i" }}</td>
+        <td>{{ s.customer.user.get_full_name }}</td>
+        <td>
+          {% for w in s.workers.all %}
+            {{ w.user.first_name }} {{ w.user.last_name }}{% if not forloop.last %}, {% endif %}
+          {% empty %}
+            -
+          {% endfor %}
+        </td>
+        <td>{{ s.get_status_display }}</td>
+        <td>{{ s.payment_method|default:"-" }}</td>
+        <td>{{ s.total_amount|floatformat:2 }}</td>
+        <td>{{ s.final_amount|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <footer>
+    <small>Generated: {{ now|date:"Y-m-d H:i" }}</small>
+  </footer>
+</body>
+</html>
