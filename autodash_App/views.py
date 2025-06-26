@@ -120,10 +120,8 @@ def get_admin_date_range(date_str, month_str, year_str):
 @login_required(login_url='login')
 def home(request):
     user = request.user
-    today = timezone.now().date()
-    yesterday = today - timedelta(days=1)
 
-    # detect branch-admin flag
+    # 1) Detect branch-admin flag
     is_branch_admin = False
     branch_admin_profile = None
     if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin:
@@ -131,7 +129,7 @@ def home(request):
         branch_admin_profile = user.worker_profile
 
     # ----------------------------- WORKER FLOW -----------------------------
-    # only true “workers” (not staff/branch-admin/superuser)
+    # only for true “workers” (not staff/branch-admin/superuser)
     if not user.is_staff and not user.is_superuser and not is_branch_admin:
         try:
             worker = Worker.objects.get(user=user)
@@ -140,205 +138,247 @@ def home(request):
             return redirect('logout')
 
         branch = worker.branch
+        today = timezone.now().date()
+        yesterday = today - timedelta(days=1)
 
         # — today’s expenses & revenue —
-        expenses_today = Expense.objects.filter(branch=branch, date=today) \
-                             .aggregate(total=Sum('amount'))['total'] or 0
-        revenue_today = Revenue.objects.filter(branch=branch, date=today) \
-                            .aggregate(total=Sum('final_amount'))['total'] or 0
+        expenses_today = (
+            Expense.objects.filter(branch=branch, date=today)
+            .aggregate(total=Sum('amount'))['total'] or 0
+        )
+        revenue_today = (
+            Revenue.objects.filter(branch=branch, date=today)
+            .aggregate(total=Sum('final_amount'))['total'] or 0
+        )
 
         # — worker commission & net/gross —
-        worker_commission_today = Commission.objects.filter(worker=worker, date=today) \
-                                      .aggregate(total=Sum('amount'))['total'] or 0
-        gross_sales = revenue_today - worker_commission_today
+        worker_commission = (
+            Commission.objects.filter(worker=worker, date=today)
+            .aggregate(total=Sum('amount'))['total'] or 0
+        )
+        gross_sales = revenue_today - worker_commission
         net_sales = gross_sales - expenses_today
 
-        # — services, products, ratings —
-        services_rendered_today = ServiceRenderedOrder.objects.filter(
+        # — services & ratings —
+        services_rendered = ServiceRenderedOrder.objects.filter(
             workers=worker, date__date=today
         ).count()
-        products_sold_today = 0  # adjust if you track products per worker
-
         recent_services = ServiceRenderedOrder.objects.filter(
             workers=worker
         ).distinct().order_by('-date')[:5]
         pending_services = ServiceRenderedOrder.objects.filter(
-            status='pending', workers=worker
+            workers=worker, status='pending'
         ).distinct().order_by('-date')
-        average_rating = worker.average_rating()
+        avg_rating = worker.average_rating()
 
         # — compare to yesterday —
-        revenue_yesterday = Revenue.objects.filter(branch=branch, date=yesterday) \
-                                .aggregate(total=Sum('final_amount'))['total'] or 0
-        if revenue_yesterday > 0:
-            revenue_change_percentage = round(
+        revenue_yesterday = (
+            Revenue.objects.filter(branch=branch, date=yesterday)
+            .aggregate(total=Sum('final_amount'))['total'] or 0
+        )
+        if revenue_yesterday:
+            rev_change_pct = round(
                 ((revenue_today - revenue_yesterday) / revenue_yesterday) * 100, 2
             )
         else:
-            revenue_change_percentage = 0
+            rev_change_pct = 0
 
-        # — daily budget —
+        # — daily expense budget —
         db = DailyExpenseBudget.objects.filter(branch=branch, date=today).first()
-        daily_expense_budget = db.budgeted_amount if db else 0
-        expenses_over_budget = expenses_today > daily_expense_budget
-        budget_difference = abs(expenses_today - daily_expense_budget)
+        daily_budget = db.budgeted_amount if db else 0
+        over_budget = expenses_today > daily_budget
+        budget_diff = abs(expenses_today - daily_budget)
 
         # — branch-wide counts —
         total_orders = ServiceRenderedOrder.objects.filter(branch=branch).count()
-        completed_orders_count = ServiceRenderedOrder.objects.filter(
+        completed = ServiceRenderedOrder.objects.filter(
             branch=branch, status='completed'
         ).count()
-        pending_orders_count = ServiceRenderedOrder.objects.filter(
+        pending   = ServiceRenderedOrder.objects.filter(
             branch=branch, status='pending'
         ).count()
-        canceled_orders_count = ServiceRenderedOrder.objects.filter(
+        canceled  = ServiceRenderedOrder.objects.filter(
             branch=branch, status='canceled'
         ).count()
-        on_credit_orders_count = ServiceRenderedOrder.objects.filter(
+        on_credit = ServiceRenderedOrder.objects.filter(
             branch=branch, status='onCredit'
         ).count()
 
         # — rating stars breakdown —
-        full_stars = int(average_rating)
-        has_half_star = (average_rating - full_stars) >= 0.5
-        empty_stars = 5 - full_stars - (1 if has_half_star else 0)
+        full = int(avg_rating)
+        half = (avg_rating - full) >= 0.5
+        empty = 5 - full - (1 if half else 0)
 
         return render(request, 'layouts/workers/worker_dashboard.html', {
             'is_admin': False,
             'worker': worker,
             'branch': branch,
 
-            'worker_commission_today': worker_commission_today,
-            'services_rendered_today': services_rendered_today,
-            'products_sold_today': products_sold_today,
+            'worker_commission_today': worker_commission,
+            'services_rendered_today': services_rendered,
             'recent_services': recent_services,
             'pending_services': pending_services,
-            'average_rating': average_rating,
-            'full_stars_list': range(full_stars),
-            'has_half_star': has_half_star,
-            'empty_stars_list': range(empty_stars),
+            'average_rating': avg_rating,
+            'full_stars_list': range(full),
+            'has_half_star': half,
+            'empty_stars_list': range(empty),
 
             'revenue_today': revenue_today,
             'expenses_today': expenses_today,
             'gross_sales': gross_sales,
             'net_sales': net_sales,
-            'revenue_change_percentage': revenue_change_percentage,
+            'revenue_change_percentage': rev_change_pct,
 
-            'daily_expense_budget': daily_expense_budget,
-            'expenses_over_budget': expenses_over_budget,
-            'budget_difference': budget_difference,
+            'daily_expense_budget': daily_budget,
+            'expenses_over_budget': over_budget,
+            'budget_difference': budget_diff,
 
             'total_orders': total_orders,
-            'completed_orders_count': completed_orders_count,
-            'pending_orders_count': pending_orders_count,
-            'canceled_orders_count': canceled_orders_count,
-            'on_credit_orders_count': on_credit_orders_count,
+            'completed_orders_count': completed,
+            'pending_orders_count': pending,
+            'canceled_orders_count': canceled,
+            'on_credit_orders_count': on_credit,
         })
 
     # ----------------------------- ADMIN / BRANCH-ADMIN FLOW -----------------------------
-    # for staff, superusers, or branch-admin
-    # determine branch
     if is_branch_admin:
-        # branch-admin: auto-scope to their branch
         branch = branch_admin_profile.branch
     else:
-        # staff/superuser: let them choose
         branch_id = request.GET.get('branch_id')
         if not branch_id:
-            # first-time: show branch picker
-            branches = Branch.objects.all()
             return render(request, 'layouts/admin/select_branch.html', {
-                'branches': branches
+                'branches': Branch.objects.all()
             })
         branch = get_object_or_404(Branch, id=branch_id)
 
-    # parse date range
-    start_date_str = request.GET.get('start_date', '')
-    end_date_str = request.GET.get('end_date', '')
+    # parse & validate date range
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
     today = timezone.now().date()
-    if not start_date_str and not end_date_str:
-        start_dt = today
-        end_dt = today
+    if not start_str and not end_str:
+        start_dt = end_dt = today
     else:
         try:
-            start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        except ValueError:
+            start_dt = datetime.strptime(start_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
             start_dt = today
-            messages.warning(request, "Invalid start date; using today.")
+            messages.warning(request, "Invalid start date; defaulting to today.")
         try:
-            end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-        except ValueError:
+            end_dt = datetime.strptime(end_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
             end_dt = today
-            messages.warning(request, "Invalid end date; using today.")
+            messages.warning(request, "Invalid end date; defaulting to today.")
         if end_dt < start_dt:
             start_dt, end_dt = end_dt, start_dt
 
-    # summations
-    expense_qs   = Expense.objects.filter(branch=branch, date__range=[start_dt, end_dt])
-    revenue_qs   = Revenue.objects.filter(branch=branch, date__range=[start_dt, end_dt])
-    commission_qs= Commission.objects.filter(worker__branch=branch, date__range=[start_dt, end_dt])
-
-    expenses_total    = expense_qs.aggregate(total=Sum('amount'))['total'] or 0
-    revenue_total     = revenue_qs.aggregate(total=Sum('final_amount'))['total'] or 0
-    commission_total  = commission_qs.aggregate(total=Sum('amount'))['total'] or 0
+    # 1) Core aggregates
+    expenses_total = Expense.objects.filter(branch=branch, date__range=[start_dt, end_dt]) \
+                         .aggregate(total=Sum('amount'))['total'] or 0
+    revenue_total = Revenue.objects.filter(branch=branch, date__range=[start_dt, end_dt]) \
+                        .aggregate(total=Sum('final_amount'))['total'] or 0
+    commission_total = Commission.objects.filter(worker__branch=branch, date__range=[start_dt, end_dt]) \
+                           .aggregate(total=Sum('amount'))['total'] or 0
 
     gross_sales = revenue_total - commission_total
-    net_sales   = gross_sales - expenses_total
+    net_sales = gross_sales - expenses_total
 
-    # product sales
-    ps_qs = ProductSale.objects.filter(
+    # 2) Cash-Flow breakdown
+    completed = ServiceRenderedOrder.objects.filter(
         branch=branch,
-        date_sold__date__range=[start_dt, end_dt]
+        status='completed',
+        date__date__range=[start_dt, end_dt]
     )
-    products_sold_qty = ps_qs.aggregate(sum_qty=Sum('quantity'))['sum_qty'] or 0
-    products_sold_amt = ps_qs.aggregate(sum_amt=Sum('total_price'))['sum_amt'] or 0
+    cash_flow_cash = completed.aggregate(Sum('cash_paid'))['cash_paid__sum'] or 0
+    cash_flow_momo = completed.aggregate(Sum('amount_paid'))['amount_paid__sum'] or 0
+    cash_flow_subscription = completed.aggregate(Sum('subscription_amount_used'))[
+                                 'subscription_amount_used__sum'] or 0
+    cash_flow_loyalty = completed.aggregate(Sum('loyalty_points_amount_deduction'))[
+                            'loyalty_points_amount_deduction__sum'] or 0
+    cash_flow_credit = ServiceRenderedOrder.objects.filter(
+        branch=branch,
+        status='onCredit',
+        date__date__range=[start_dt, end_dt]
+    ).aggregate(Sum('final_amount'))['final_amount__sum'] or 0
 
-    # category breakdown
-    cat_agg = ps_qs.values('product__category').annotate(
-        cat_qty=Sum('quantity'),
-        cat_amt=Sum('total_price')
-    )
-    product_categories_today = []
-    for row in cat_agg:
-        cid = row['product__category']
-        product_categories_today.append({
-            'category_name': ProductCategory.objects.filter(id=cid).first().name
-            if cid else "Uncategorized",
-            'total_qty': row['cat_qty'] or 0,
-            'total_amount': row['cat_amt'] or 0
-        })
+    # 3) Build list of days in the range
+    num_days = (end_dt - start_dt).days + 1
+    all_dates = [start_dt + timedelta(days=i) for i in range(num_days)]
 
-    # recent & pending
-    recent_services = ServiceRenderedOrder.objects.filter(branch=branch).order_by('-date')[:5]
-    pending_services = ServiceRenderedOrder.objects.filter(branch=branch, status='pending').order_by('-date')
+    # 4) Sales Target (sum DailySalesTarget for each weekday)
+    sales_target = 0
+    for d in all_dates:
+        dst = DailySalesTarget.objects.filter(branch=branch, weekday=d.weekday()).first()
+        if dst:
+            sales_target += dst.target_amount
 
-    # order statuses
-    def count_status(s):
+    # 5) Expense Budget (sum WeeklyBudget for each weekday)
+    expense_budget = 0
+    for d in all_dates:
+        wb = WeeklyBudget.objects.filter(branch=branch, weekday=d.weekday()).first()
+        if wb:
+            expense_budget += wb.budget_amount
+
+    # 6) Performance % = (actual / target) * 100
+    sales_status_pct = (revenue_total / sales_target * 100) if sales_target else 0
+    expense_status_pct = (expenses_total / expense_budget * 100) if expense_budget else 0
+
+    # 7) Incentive calculation
+    if revenue_total < sales_target:
+        incentive_amount = (sales_target - revenue_total) * 0.15
+    else:
+        threshold = sales_target * 0.7
+        incentive_amount = (gross_sales - threshold) * 0.15
+
+    # 8) Recent & Pending lists
+    recent_services = ServiceRenderedOrder.objects.filter(
+        branch=branch,
+        date__date__range=[start_dt, end_dt]
+    ).order_by('-date')[:5]
+    pending_services = ServiceRenderedOrder.objects.filter(
+        branch=branch,
+        status='pending',
+        date__date__range=[start_dt, end_dt]
+    ).order_by('-date')
+
+    def count_status(status):
         return ServiceRenderedOrder.objects.filter(
             branch=branch,
-            status=s,
+            status=status,
             date__date__range=[start_dt, end_dt]
         ).count()
 
+    # 9) Context & render
     context = {
         'is_admin': True,
         'branch': branch,
 
-        'start_date_str': start_date_str,
-        'end_date_str': end_date_str,
+        'start_date_str': start_str,
+        'end_date_str': end_str,
         'start_dt': start_dt,
         'end_dt': end_dt,
 
+        # core metrics
         'revenue_today': revenue_total,
         'expenses_today': expenses_total,
         'total_commission': commission_total,
         'gross_sales': gross_sales,
         'net_sales': net_sales,
 
-        'products_sold_today': products_sold_qty,
-        'products_sold_amount_today': products_sold_amt,
-        'product_categories_today': product_categories_today,
+        # cash flow
+        'cash_flow_cash': cash_flow_cash,
+        'cash_flow_momo': cash_flow_momo,
+        'cash_flow_credit': cash_flow_credit,
+        'cash_flow_subscription': cash_flow_subscription,
+        'cash_flow_loyalty': cash_flow_loyalty,
 
+        # targets & budgets
+        'sales_target': sales_target,
+        'expense_budget': expense_budget,
+        'sales_status_pct': sales_status_pct,
+        'expense_status_pct': expense_status_pct,
+        'incentive_amount': incentive_amount,
+
+        # order counts
         'total_orders': ServiceRenderedOrder.objects.filter(
             branch=branch,
             date__date__range=[start_dt, end_dt]
@@ -348,9 +388,11 @@ def home(request):
         'canceled_orders_count': count_status('canceled'),
         'on_credit_orders_count': count_status('onCredit'),
 
+        # lists
         'recent_services': recent_services,
         'pending_services': pending_services,
     }
+
     return render(request, 'layouts/admin/dashboard.html', context)
 
 

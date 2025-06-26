@@ -119,7 +119,7 @@
           </div>
 
           <!-- Second row of service cards -->
-          <div class="row mb-4">
+          <div class="row mb-2">
             <!-- On Credit Orders -->
             <!-- Revenue Today -->
             <div class="col-md-2 col-sm-6 mb-4">
@@ -178,6 +178,97 @@
             </div>
           </div>
           <!-- End of SERVICES SECTION -->
+
+        <h5 class="mb-3">Cash Flow</h5>
+<div class="row mb-4">
+  <!-- Cash -->
+  <div class="col-md-2 col-sm-6 mb-4">
+    <div class="card"><div class="card-body">
+      <h6 class="card-title">Cash</h6>
+      <p class="display-6">GHS {{ cash_flow_cash|floatformat:2 }}</p>
+    </div></div>
+  </div>
+
+  <!-- MoMo -->
+  <div class="col-md-2 col-sm-6 mb-4">
+    <div class="card"><div class="card-body">
+      <h6 class="card-title">MoMo</h6>
+      <p class="display-6">GHS {{ cash_flow_momo|floatformat:2 }}</p>
+    </div></div>
+  </div>
+
+  <!-- Credit -->
+  <div class="col-md-2 col-sm-6 mb-4">
+    <div class="card"><div class="card-body">
+      <h6 class="card-title">Credit</h6>
+      <p class="display-6">GHS {{ cash_flow_credit|floatformat:2 }}</p>
+    </div></div>
+  </div>
+
+  <!-- Subscription -->
+  <div class="col-md-2 col-sm-6 mb-4">
+    <div class="card"><div class="card-body">
+      <h6 class="card-title">Subscription</h6>
+      <p class="display-6">GHS {{ cash_flow_subscription|floatformat:2 }}</p>
+    </div></div>
+  </div>
+
+  <!-- Loyalty -->
+  <div class="col-md-2 col-sm-6 mb-4">
+    <div class="card"><div class="card-body">
+      <h6 class="card-title">Loyalty</h6>
+      <p class="display-6">GHS {{ cash_flow_loyalty|floatformat:2 }}</p>
+    </div></div>
+  </div>
+</div>
+
+        <div class="row mb-4">
+  <!-- Sales Performance -->
+  <div class="col-md-4 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title">Sales Performance Summary</h6>
+        <p>Target: GHS {{ sales_target|floatformat:2 }}</p>
+        <p>Actual: GHS {{ revenue_today|floatformat:2 }}</p>
+        <p>
+          Status:
+          <span
+            class="{% if sales_status_pct >= 100 %}text-success{% else %}text-danger{% endif %}">
+            {{ sales_status_pct|floatformat:1 }}%
+          </span>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Expense Summary -->
+  <div class="col-md-4 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title">Expense Summary</h6>
+       <p>Expense Budget: GHS {{ expense_budget|floatformat:2 }}</p>
+<p>Actual Expenses: GHS {{ expenses_today|floatformat:2 }}</p>
+<p>
+  Status:
+        <strong>{{ expense_status_pct|floatformat:1 }}%</strong>
+</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Incentive Summary -->
+  <div class="col-md-4 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title">Incentive Summary</h6>
+        <p>Inc Amount: GHS {{ incentive_amount|floatformat:2 }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
 
           <!-- =========================== PRODUCTS SECTION =========================== -->
           <h5 class="mb-3">Products</h5>
