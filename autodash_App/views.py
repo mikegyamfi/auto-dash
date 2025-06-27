@@ -143,18 +143,18 @@ def home(request):
 
         # — today’s expenses & revenue —
         expenses_today = (
-            Expense.objects.filter(branch=branch, date=today)
-            .aggregate(total=Sum('amount'))['total'] or 0
+                Expense.objects.filter(branch=branch, date=today)
+                .aggregate(total=Sum('amount'))['total'] or 0
         )
         revenue_today = (
-            Revenue.objects.filter(branch=branch, date=today)
-            .aggregate(total=Sum('final_amount'))['total'] or 0
+                Revenue.objects.filter(branch=branch, date=today)
+                .aggregate(total=Sum('final_amount'))['total'] or 0
         )
 
         # — worker commission & net/gross —
         worker_commission = (
-            Commission.objects.filter(worker=worker, date=today)
-            .aggregate(total=Sum('amount'))['total'] or 0
+                Commission.objects.filter(worker=worker, date=today)
+                .aggregate(total=Sum('amount'))['total'] or 0
         )
         gross_sales = revenue_today - worker_commission
         net_sales = gross_sales - expenses_today
@@ -173,8 +173,8 @@ def home(request):
 
         # — compare to yesterday —
         revenue_yesterday = (
-            Revenue.objects.filter(branch=branch, date=yesterday)
-            .aggregate(total=Sum('final_amount'))['total'] or 0
+                Revenue.objects.filter(branch=branch, date=yesterday)
+                .aggregate(total=Sum('final_amount'))['total'] or 0
         )
         if revenue_yesterday:
             rev_change_pct = round(
@@ -194,10 +194,10 @@ def home(request):
         completed = ServiceRenderedOrder.objects.filter(
             branch=branch, status='completed'
         ).count()
-        pending   = ServiceRenderedOrder.objects.filter(
+        pending = ServiceRenderedOrder.objects.filter(
             branch=branch, status='pending'
         ).count()
-        canceled  = ServiceRenderedOrder.objects.filter(
+        canceled = ServiceRenderedOrder.objects.filter(
             branch=branch, status='canceled'
         ).count()
         on_credit = ServiceRenderedOrder.objects.filter(
@@ -276,6 +276,7 @@ def home(request):
                          .aggregate(total=Sum('amount'))['total'] or 0
     revenue_total = Revenue.objects.filter(branch=branch, date__range=[start_dt, end_dt]) \
                         .aggregate(total=Sum('final_amount'))['total'] or 0
+    print(revenue_total)
     commission_total = Commission.objects.filter(worker__branch=branch, date__range=[start_dt, end_dt]) \
                            .aggregate(total=Sum('amount'))['total'] or 0
 
@@ -289,6 +290,7 @@ def home(request):
         date__date__range=[start_dt, end_dt]
     )
     cash_flow_cash = completed.aggregate(Sum('cash_paid'))['cash_paid__sum'] or 0
+    print(cash_flow_cash)
     cash_flow_momo = completed.aggregate(Sum('amount_paid'))['amount_paid__sum'] or 0
     cash_flow_subscription = completed.aggregate(Sum('subscription_amount_used'))[
                                  'subscription_amount_used__sum'] or 0
@@ -323,11 +325,11 @@ def home(request):
     expense_status_pct = (expenses_total / expense_budget * 100) if expense_budget else 0
 
     # 7) Incentive calculation
-    if revenue_total < sales_target:
-        incentive_amount = (sales_target - revenue_total) * 0.15
+    if revenue_total > sales_target:
+        excess_base = net_sales - max(sales_target - commission_total, 0)
+        incentive_amount = max(excess_base * 0.15, 0)
     else:
-        threshold = sales_target * 0.7
-        incentive_amount = (gross_sales - threshold) * 0.15
+        incentive_amount = 0
 
     # 8) Recent & Pending lists
     recent_services = ServiceRenderedOrder.objects.filter(
@@ -515,39 +517,55 @@ from django.urls import reverse
 @login_required(login_url='login')
 @transaction.atomic
 def confirm_service(request, pk):
+    """
+    Finalise an individual ServiceRenderedOrder:
+        * negotiate prices
+        * allocate subscription / loyalty coverage
+        * compute cash due, discounts, commissions
+        * toggle status
+        * (Revenue rows are now created by the post-save signal)
+    """
     user = request.user
     worker = get_object_or_404(Worker, user=user)
     order = get_object_or_404(ServiceRenderedOrder, pk=pk)
-    sr_list = list(order.rendered.select_related('service__category').all())
+    sr_list = list(order.rendered.select_related("service__category"))
     customer = order.customer
 
-    # —— find active subscription & loyalty points ——
+    # ────────────────────────────────────
+    #  Subscription / loyalty preparation
+    # ────────────────────────────────────
     subscription_active = False
     cust_sub = None
     loyalty_pts = float(customer.loyalty_points) if customer else 0.0
 
     if customer:
         try:
-            latest = CustomerSubscription.objects.filter(customer=customer).latest('end_date')
-            if latest.is_active() and latest.sub_amount_remaining > 0.0:
+            latest = (
+                CustomerSubscription.objects
+                .filter(customer=customer)
+                .latest("end_date")
+            )
+            if latest.is_active() and latest.sub_amount_remaining > 0:
                 subscription_active = True
                 cust_sub = latest
         except CustomerSubscription.DoesNotExist:
             pass
 
-    # —— GET: simulate coverage & cash ——
-    if request.method == 'GET':
+    # ────────────────────────────────────
+    #  GET  → preview
+    # ────────────────────────────────────
+    if request.method == "GET":
         covered_details = []
-        sim_sub_remaining = float(cust_sub.sub_amount_remaining) if cust_sub else 0.0
+        sim_sub_remaining = float(cust_sub.sub_amount_remaining) if cust_sub else 0
         total_cash_est = 0.0
 
         for sr in sr_list:
             default_p = float(sr.service.price)
-            negotiated_p = float(sr.negotiated_price) if sr.negotiated_price is not None else default_p
+            negotiated_p = float(sr.negotiated_price or default_p)
             negotiable = bool(sr.service.category and sr.service.category.negotiable)
-            category_name = sr.service.category.name if sr.service.category else ''
+            category_name = sr.service.category.name if sr.service.category else ""
 
-            # subscription cover
+            # subscription cover preview
             sub_cover = 0.0
             if (subscription_active and order.vehicle and cust_sub and
                     sr.service in cust_sub.subscription.services.all() and
@@ -558,49 +576,53 @@ def confirm_service(request, pk):
             cash_due = negotiated_p - sub_cover
             total_cash_est += cash_due
 
-            loyalty_eligible = bool(
-                customer and
-                0 < sr.service.loyalty_points_required <= loyalty_pts
-            )
-
             covered_details.append({
-                'service_id': sr.id,
-                'service_name': sr.service.service_type,
-                'category': category_name,
-                'default_price': default_p,
-                'negotiated_price': negotiated_p,
-                'negotiable': negotiable,
-                'sub_cover': sub_cover,
-                'cash_due': cash_due,
-                'loyalty_eligible': loyalty_eligible,
+                "service_id": sr.id,
+                "service_name": sr.service.service_type,
+                "category": category_name,
+                "default_price": default_p,
+                "negotiated_price": negotiated_p,
+                "negotiable": negotiable,
+                "sub_cover": sub_cover,
+                "cash_due": cash_due,
+                "loyalty_eligible": (
+                        customer and
+                        0 < sr.service.loyalty_points_required <= loyalty_pts
+                ),
             })
 
-        return render(request, 'layouts/workers/confirm_service_order.html', {
-            'order': order,
-            'covered_details': covered_details,
-            'total_cash_est': total_cash_est,
-            'subscription_active': subscription_active,
-            'sub_name': cust_sub.subscription.name if cust_sub else '',
-            'cust_sub_remaining': float(cust_sub.sub_amount_remaining) if cust_sub else 0.0,
-            'has_sub_remaining': bool(cust_sub and cust_sub.sub_amount_remaining > 0.0),
-            'sub_expires': cust_sub.end_date if cust_sub else None,
-            'loyalty_points': loyalty_pts,
-        })
+        return render(
+            request,
+            "layouts/workers/confirm_service_order.html",
+            {
+                "order": order,
+                "covered_details": covered_details,
+                "total_cash_est": total_cash_est,
+                "subscription_active": subscription_active,
+                "sub_name": cust_sub.subscription.name if cust_sub else "",
+                "cust_sub_remaining": float(cust_sub.sub_amount_remaining) if cust_sub else 0.0,
+                "has_sub_remaining": bool(cust_sub and cust_sub.sub_amount_remaining > 0),
+                "sub_expires": cust_sub.end_date if cust_sub else None,
+                "loyalty_points": loyalty_pts,
+            },
+        )
 
-    # —— POST: finalize ——
-    # 1) update negotiated prices & recalc total_amount
+    # ────────────────────────────────────
+    #  POST → finalise
+    # ────────────────────────────────────
+    # 1. negotiated prices
     total_services = 0.0
     for sr in sr_list:
         if sr.service.category and sr.service.category.negotiable:
-            raw = request.POST.get(f'negotiated_{sr.id}', '')
+            raw = request.POST.get(f"negotiated_{sr.id}", "")
             try:
                 np = float(raw)
-            except:
+            except ValueError:
                 messages.error(request, "Invalid negotiated price.")
-                return redirect('confirm_service', pk=pk)
+                return redirect("confirm_service", pk=pk)
             if np <= 0:
                 messages.error(request, "Negotiated price must be greater than zero.")
-                return redirect('confirm_service', pk=pk)
+                return redirect("confirm_service", pk=pk)
             sr.negotiated_price = np
             sr.save()
             total_services += np
@@ -608,22 +630,23 @@ def confirm_service(request, pk):
             total_services += float(sr.service.price)
 
     order.total_amount = total_services
-    order.save()
+    order.save()  # NOTE: triggers signal for Revenue if status already terminal
 
-    # 2) update status
-    new_status = request.POST.get('status', 'completed')
+    # 2. status change
+    new_status = request.POST.get("status", "completed")
     order.status = new_status
-    order.save()
-    if new_status in ('pending', 'canceled'):
-        messages.info(request, f"Order marked {new_status}.")
-        return redirect('service_history')
+    order.save()  # NOTE: Revenue handled by post-save signal now
 
-    # 3) remove old commissions if reverting
-    if order.status in ('completed', 'onCredit') and new_status in ('pending', 'canceled'):
+    if new_status in ("pending", "canceled"):
+        messages.info(request, f"Order marked {new_status}.")
+        return redirect("service_history")
+
+    # 3. commission rollback if needed
+    if new_status in ("pending", "canceled"):
         for sr in sr_list:
             sr.remove_commission()
 
-    # 4) coverage + loyalty + cash
+    # 4. coverage calculations  (unchanged)
     remaining_sub = float(cust_sub.sub_amount_remaining) if cust_sub else 0.0
     used_sub_total = 0.0
     used_loyalty_pts = 0
@@ -642,35 +665,32 @@ def confirm_service(request, pk):
             sub_cov = min(price, remaining_sub)
             remaining_sub -= sub_cov
             used_sub_total += sub_cov
-            sr.payment_type = 'Subscription'
+            sr.payment_type = "Subscription"
         leftover = price - sub_cov
 
         # loyalty
         loy_cov = 0.0
-        if leftover > 0 and request.POST.get(f'use_loyalty_{sr.id}') and customer:
+        if leftover > 0 and request.POST.get(f"use_loyalty_{sr.id}") and customer:
             req_pts = sr.service.loyalty_points_required
             if customer.loyalty_points >= req_pts:
                 loy_cov = leftover
                 used_loyalty_pts += req_pts
                 loyalty_cover += loy_cov
                 customer.loyalty_points -= req_pts
-                sr.payment_type = 'Loyalty'
+                sr.payment_type = "Loyalty"
                 LoyaltyTransaction.objects.create(
                     customer=customer,
                     points=-req_pts,
-                    transaction_type='redeem',
+                    transaction_type="redeem",
                     description=f"Redeemed for {sr.service.service_type}",
                     branch=order.branch,
-                    order=order
+                    order=order,
                 )
         leftover -= loy_cov
 
         # cash
         if leftover > 0:
-            if not sr.payment_type or sr.payment_type == '':
-                sr.payment_type = 'Cash'
-            else:
-                sr.payment_type += ' + Cash'
+            sr.payment_type = (sr.payment_type + " + Cash") if sr.payment_type else "Cash"
             cash_total += leftover
 
         # subscription trail
@@ -683,7 +703,7 @@ def confirm_service(request, pk):
                 remaining_balance=remaining_sub,
                 date_used=timezone.now(),
                 customer=customer,
-                order=order
+                order=order,
             )
 
         sr.save()
@@ -696,20 +716,19 @@ def confirm_service(request, pk):
     if customer:
         customer.save()
 
-    # 5) discount on cash_total
-    d_type = request.POST.get('discount_type', 'amount')
+    # 5. discounts
+    d_type = request.POST.get("discount_type", "amount")
     try:
-        d_val = float(request.POST.get('discount_value', '0') or 0)
-    except:
+        d_val = float(request.POST.get("discount_value", "0") or 0)
+    except ValueError:
         d_val = 0.0
-    if d_type == 'percentage':
-        d_val = min(d_val, 100.0)
-        disc_amt = cash_total * (d_val / 100.0)
-    else:
-        disc_amt = min(cash_total, d_val)
+    disc_amt = (
+        min(cash_total, d_val) if d_type == "amount"
+        else cash_total * min(d_val, 100.0) / 100.0
+    )
     final_cash = max(0.0, cash_total - disc_amt)
 
-    # 6) finalize order
+    # 6. finalise order totals
     order.subscription_amount_used = used_sub_total
     order.loyalty_points_used = used_loyalty_pts
     order.loyalty_points_amount_deduction = loyalty_cover
@@ -717,36 +736,33 @@ def confirm_service(request, pk):
     order.discount_type = d_type
     order.discount_value = d_val
     order.final_amount = final_cash
-    order.save()
+    order.save()  # signal updates/creates Revenue here
 
-    # 7) arrears
-    if new_status == 'onCredit':
-        if not hasattr(order, 'arrears'):
-            Arrears.objects.create(service_order=order, branch=order.branch, amount_owed=final_cash)
+    # 7. arrears bookkeeping
+    if new_status == "onCredit":
+        Arrears.objects.get_or_create(
+            service_order=order,
+            branch=order.branch,
+            defaults={"amount_owed": final_cash},
+        )
     else:
-        if hasattr(order, 'arrears'):
+        # remove arrears if status no longer onCredit
+        if hasattr(order, "arrears"):
             order.arrears.delete()
 
-    # 8) commissions + revenue
+    # 8. commissions (unchanged, signal afterwards keeps Revenue up-to-date)
     for sr in sr_list:
         sr.remove_commission()
-    factor = ((order.subscription_amount_used or 0.0) +
-              (order.loyalty_points_amount_deduction or 0.0) +
-              (order.cash_paid or 0.0)) / max(order.total_amount, 1.0)
+    factor = (
+                     (order.subscription_amount_used or 0)
+                     + (order.loyalty_points_amount_deduction or 0)
+                     + (order.cash_paid or 0)
+             ) / max(order.total_amount, 1.0)
     for sr in sr_list:
         sr.allocate_commission(discount_factor=factor)
 
-    Revenue.objects.create(
-        service_rendered=order,
-        branch=order.branch,
-        amount=order.total_amount,
-        final_amount=order.final_amount,
-        user=user,
-        date=timezone.now().date()
-    )
-
-    # 9) award loyalty on complete
-    if new_status == 'completed' and customer:
+    # 9. loyalty earned
+    if new_status == "completed" and customer:
         earned = sum(float(sr.service.loyalty_points_earned) for sr in sr_list)
         if earned > 0:
             customer.loyalty_points += earned
@@ -754,33 +770,35 @@ def confirm_service(request, pk):
             LoyaltyTransaction.objects.create(
                 customer=customer,
                 points=int(earned),
-                transaction_type='gain',
+                transaction_type="gain",
                 description=f"Loyalty earned for {order.service_order_number}",
                 branch=order.branch,
-                order=order
+                order=order,
             )
 
+    # 10. SMS (unchanged)
     if customer and customer.user.phone_number:
         try:
-            if new_status == 'completed':
+            if new_status == "completed":
                 send_sms(
                     customer.user.phone_number,
                     f"Hello, Payment of GHS{order.total_amount} for"
-                    f"{order.vehicle.car_plate} is received. Thank you! Visit https://www.autodashgh.com\nCall 059 343 1421"
+                    f"{order.vehicle.car_plate} is received. Thank you! "
+                    "Visit https://www.autodashgh.com\nCall 059 343 1421",
                 )
-            elif new_status == 'onCredit':
+            elif new_status == "onCredit":
                 send_sms(
                     customer.user.phone_number,
-                    f"Hello your credit service"
-                    f"{order.service_order_number} has been completed. Get more details: https://management.autodashgh.com/service/{order.id}/receipt/ "
+                    f"Hello your credit service "
+                    f"{order.service_order_number} has been completed. "
+                    "Get more details: "
+                    f"https://management.autodashgh.com/service/{order.id}/receipt/",
                 )
-        except Exception as e:
-            print(e)
-            # swallow any SMS errors
-            pass
+        except Exception:
+            pass  # swallow SMS errors
 
     messages.success(request, f"Service updated to {new_status}.")
-    return redirect('service_receipt', pk=order.pk)
+    return redirect("service_receipt", pk=order.pk)
 
 
 def service_receipt(request, pk):
@@ -1257,140 +1275,144 @@ def send_password_reset(user):
         print("Password reset email content:", email_content)
 
 
+# ───────────────────────────────────────────────────────────────────────
+# 2. service_history  (bulk-update flow)
+# ───────────────────────────────────────────────────────────────────────
 @login_required(login_url='login')
 def service_history(request):
+    """
+    List & bulk-update ServiceRenderedOrder rows.
+    Revenue rows are synchronised by the post-save signal,
+    so this view no longer writes to the Revenue table.
+    """
     user = request.user
 
-    # Authorization: only workers, admins, staff
+    # authorisation
     if user.role not in ["worker", "Admin"] and not user.is_staff:
         messages.error(request, "You are not authorized to view this page.")
-        return redirect('index')
+        return redirect("index")
 
-    # Base queryset
-    services_rendered = ServiceRenderedOrder.objects.all().order_by('-date')
+    services_rendered = ServiceRenderedOrder.objects.all().order_by("-date")
 
-    # If user is worker => filter by worker's branch
+    # branch scoping for workers
     if not user.is_staff and not user.is_superuser:
         try:
             worker = Worker.objects.get(user=user)
         except Worker.DoesNotExist:
             messages.error(request, "No worker profile found.")
-            return redirect('index')
+            return redirect("index")
         services_rendered = services_rendered.filter(branch=worker.branch)
 
-    # Filters: status, payment method
+    # filters
     statuses = ServiceRenderedOrder.STATUS_CHOICES
-    payment_methods = ['all', 'cash', 'momo', 'loyalty', 'subscription',
-                       'subscription-cash', 'subscription-momo']
+    payment_methods = [
+        "all", "cash", "momo", "loyalty",
+        "subscription", "subscription-cash", "subscription-momo"
+    ]
 
-    status_filter = request.GET.get('status', 'all')
-    payment_filter = request.GET.get('payment_method', 'all')
+    status_filter = request.GET.get("status", "all")
+    payment_filter = request.GET.get("payment_method", "all")
 
-    if status_filter != 'all':
+    if status_filter != "all":
         services_rendered = services_rendered.filter(status=status_filter)
-    if payment_filter != 'all':
+    if payment_filter != "all":
         services_rendered = services_rendered.filter(payment_method=payment_filter)
 
-    # Date range filter
-    start_date_str = request.GET.get('start_date', '')
-    end_date_str = request.GET.get('end_date', '')
-    from datetime import datetime as dt
+    # date range filter
+    start_date_str = request.GET.get("start_date", "")
+    end_date_str = request.GET.get("end_date", "")
 
     today_date = timezone.now().date()
     if not start_date_str and not end_date_str:
         services_rendered = services_rendered.filter(date__date=today_date)
-        start_date_str = end_date_str = today_date.strftime('%Y-%m-%d')
+        start_date_str = end_date_str = today_date.strftime("%Y-%m-%d")
     else:
         try:
-            start_dt = dt.strptime(start_date_str, '%Y-%m-%d').date() if start_date_str else today_date
-            end_dt = dt.strptime(end_date_str, '%Y-%m-%d').date() if end_date_str else today_date
+            start_dt = datetime.strptime(start_date_str, "%Y-%m-%d").date() if start_date_str else today_date
+            end_dt = datetime.strptime(end_date_str, "%Y-%m-%d").date() if end_date_str else today_date
             if end_dt < start_dt:
                 start_dt, end_dt = end_dt, start_dt
             services_rendered = services_rendered.filter(date__date__range=[start_dt, end_dt])
         except ValueError:
             messages.warning(request, "Invalid date format. Showing today's data.")
             services_rendered = services_rendered.filter(date__date=today_date)
-            start_date_str = end_date_str = today_date.strftime('%Y-%m-%d')
+            start_date_str = end_date_str = today_date.strftime("%Y-%m-%d")
 
-    # Branch filter for staff/superuser
+    # extra branch filter for staff / superusers
     branches = None
     selected_branch_id = None
     if user.is_staff or user.is_superuser:
-        from .models import Branch
         branches = Branch.objects.all()
-        selected_branch_id = request.GET.get('branch', '')
+        selected_branch_id = request.GET.get("branch", "")
         if selected_branch_id:
             services_rendered = services_rendered.filter(branch_id=selected_branch_id)
 
-    # Bulk status update
-    if request.method == 'POST':
-        selected_order_ids = request.POST.getlist('selected_orders')
-        new_status = request.POST.get('new_status')
+    # ────────────────────────────────────
+    #  bulk status update
+    # ────────────────────────────────────
+    if request.method == "POST":
+        selected_order_ids = request.POST.getlist("selected_orders")
+        new_status = request.POST.get("new_status")
         valid_statuses = [choice[0] for choice in ServiceRenderedOrder.STATUS_CHOICES]
 
-        if selected_order_ids and new_status in valid_statuses:
-            for order_id in selected_order_ids:
-                order = get_object_or_404(ServiceRenderedOrder, id=order_id)
-                old_status = order.status
-
-                # Commission adjustments
-                for sr in order.rendered.all():
-                    if old_status not in ['completed', 'onCredit'] and new_status in ['completed', 'onCredit']:
-                        sr.allocate_commission()
-                    elif old_status in ['completed', 'onCredit'] and new_status in ['pending', 'canceled']:
-                        sr.remove_commission()
-
-                # Update status
-                order.status = new_status
-                order.save()
-
-                # Record revenue if now completed or on credit, avoid duplicates
-                if new_status in ('completed', 'onCredit'):
-                    if not Revenue.objects.filter(service_rendered=order).exists():
-                        Revenue.objects.create(
-                            service_rendered=order,
-                            branch=order.branch,
-                            amount=order.total_amount,
-                            final_amount=order.final_amount,
-                            user=request.user,
-                            date=timezone.now().date()
-                        )
-
-                # Create arrears entry for onCredit if needed
-                if new_status == 'onCredit':
-                    if not hasattr(order, 'arrears'):
-                        Arrears.objects.create(
-                            service_order=order,
-                            branch=order.branch,
-                            amount_owed=order.final_amount or 0
-                        )
-
-            messages.success(request, "Selected orders have been updated.")
-            return redirect('service_history')
-        else:
+        if not selected_order_ids or new_status not in valid_statuses:
             messages.error(request, "Please select orders and a valid status to update.")
+            return redirect("service_history")
 
+        for order_id in selected_order_ids:
+            order = get_object_or_404(ServiceRenderedOrder, id=order_id)
+            old_status = order.status
+
+            # commission adjustments
+            for sr in order.rendered.all():
+                if old_status not in ("completed", "onCredit") and new_status in ("completed", "onCredit"):
+                    sr.allocate_commission()
+                elif old_status in ("completed", "onCredit") and new_status in ("pending", "canceled"):
+                    sr.remove_commission()
+
+            # status change  ➔ post-save signal keeps Revenue/Arrears correct
+            order.status = new_status
+            order.save()
+
+            # arrears bookkeeping
+            if new_status == "onCredit":
+                Arrears.objects.get_or_create(
+                    service_order=order,
+                    branch=order.branch,
+                    defaults={"amount_owed": order.final_amount or 0},
+                )
+            else:
+                if hasattr(order, "arrears"):
+                    order.arrears.delete()
+
+        messages.success(request, "Selected orders have been updated.")
+        return redirect("service_history")
+
+    # aggregates for footer
     aggregates = services_rendered.aggregate(
-        total_amount=Sum('total_amount'),
-        total_final=Sum('final_amount'),
+        total_amount=Sum("total_amount"),
+        total_final=Sum("final_amount"),
     )
-    total_amount = aggregates['total_amount'] or 0
-    total_final = aggregates['total_final'] or 0
+    total_amount = aggregates["total_amount"] or 0
+    total_final = aggregates["total_final"] or 0
 
-    context = {
-        'services_rendered': services_rendered,
-        'statuses': statuses,
-        'status_filter': status_filter,
-        'payment_methods': payment_methods,
-        'payment_filter': payment_filter,
-        'start_date_str': start_date_str,
-        'end_date_str': end_date_str,
-        'branches': branches,
-        'selected_branch_id': selected_branch_id,
-        'total_amount': total_amount,
-        'total_final': total_final,
-    }
-    return render(request, 'layouts/workers/service_history.html', context)
+    return render(
+        request,
+        "layouts/workers/service_history.html",
+        {
+            "services_rendered": services_rendered,
+            "statuses": statuses,
+            "status_filter": status_filter,
+            "payment_methods": payment_methods,
+            "payment_filter": payment_filter,
+            "start_date_str": start_date_str,
+            "end_date_str": end_date_str,
+            "branches": branches,
+            "selected_branch_id": selected_branch_id,
+            "total_amount": total_amount,
+            "total_final": total_final,
+        },
+    )
 
 
 def _get_filtered_services(request):

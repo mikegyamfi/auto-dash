@@ -584,8 +584,13 @@ class Revenue(models.Model):
     If the service was onCredit or loyalty, the 'final_amount' might be 0 here
     or might not exist at all (since no real payment).
     """
-    service_rendered = models.ForeignKey(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='revenues',
-                                         null=True, blank=True)
+    service_rendered = models.OneToOneField(
+        "ServiceRenderedOrder",
+        on_delete=models.CASCADE,
+        related_name="revenues",
+        null=True, blank=True,
+        unique=True
+    )
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='revenues')
     amount = models.FloatField()
     discount = models.FloatField(null=True, blank=True)
@@ -628,13 +633,15 @@ class Arrears(models.Model):
         self.save()
 
         # Potentially create revenue record if the customer finally pays
-        Revenue.objects.create(
+        Revenue.objects.update_or_create(
             service_rendered=self.service_order,
-            branch=self.branch,
-            amount=self.amount_owed,
-            final_amount=self.amount_owed,
-            user=self.service_order.user,
-            date=timezone.now().date()
+            defaults=dict(
+                branch=self.branch,
+                amount=self.amount_owed,
+                final_amount=self.amount_owed,
+                user=self.service_order.user,
+                date=timezone.now(),
+            )
         )
 
 
