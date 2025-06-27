@@ -182,7 +182,7 @@ class LoyaltyTransactionAdmin(admin.ModelAdmin):
 class ServiceRenderedOrderAdmin(admin.ModelAdmin):
     list_display = (
         'service_order_number', 'customer',
-        'status', 'total_amount', 'final_amount',
+        'status', 'cash_paid', 'total_amount', 'final_amount',
         'branch', 'date'
     )
     search_fields = (
