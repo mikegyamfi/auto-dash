@@ -342,6 +342,29 @@ def home(request):
         date__date__range=[start_dt, end_dt]
     ).order_by('-date')
 
+    # product sales
+    ps_qs = ProductSale.objects.filter(
+        branch=branch,
+        date_sold__date__range=[start_dt, end_dt]
+    )
+    products_sold_qty = ps_qs.aggregate(sum_qty=Sum('quantity'))['sum_qty'] or 0
+    products_sold_amt = ps_qs.aggregate(sum_amt=Sum('total_price'))['sum_amt'] or 0
+
+    # category breakdown
+    cat_agg = ps_qs.values('product__category').annotate(
+        cat_qty=Sum('quantity'),
+        cat_amt=Sum('total_price')
+    )
+    product_categories_today = []
+    for row in cat_agg:
+        cid = row['product__category']
+        product_categories_today.append({
+            'category_name': ProductCategory.objects.filter(id=cid).first().name
+            if cid else "Uncategorized",
+            'total_qty': row['cat_qty'] or 0,
+            'total_amount': row['cat_amt'] or 0
+        })
+
     def count_status(status):
         return ServiceRenderedOrder.objects.filter(
             branch=branch,
@@ -365,6 +388,10 @@ def home(request):
         'total_commission': commission_total,
         'gross_sales': gross_sales,
         'net_sales': net_sales,
+
+        'products_sold_today': products_sold_qty,
+        'products_sold_amount_today': products_sold_amt,
+        'product_categories_today': product_categories_today,
 
         # cash flow
         'cash_flow_cash': cash_flow_cash,
@@ -2895,6 +2922,10 @@ def commissions_by_date(request):
 
     hide_branch_selector = getattr(request.user, 'worker_profile', None) and request.user.worker_profile.is_branch_admin
 
+    total_services_ct = sum(r["num_services"] for r in results)
+    total_vehicles_ct = sum(r["num_vehicles"] for r in results)
+    total_commission_gt = sum(r["total_commission"] for r in results)
+
     context = {
         'branches': branches,
         'selected_branch_id': selected_branch_id,
@@ -2903,6 +2934,9 @@ def commissions_by_date(request):
         'selected_date': selected_date,
         'hide_branch_selector': hide_branch_selector,
         'commissions': results,  # each item => {worker, position, num_services, num_vehicles, total_commission}
+        'total_services_ct': total_services_ct,
+        'total_vehicles_ct': total_vehicles_ct,
+        'total_commission_gt': total_commission_gt,
     }
     return render(request, 'layouts/commissions_by_date.html', context)
 

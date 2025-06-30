@@ -112,6 +112,14 @@
                       </tr>
                     {% endif %}
                   </tbody>
+                    <tfoot>
+                    <tr class="table-light fw-bold">
+                      <td colspan="2" class="text-end">Totals :</td>
+                      <td>{{ total_services_ct }}</td>
+                      <td>{{ total_vehicles_ct }}</td>
+                      <td>{{ total_commission_gt|floatformat:2 }}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
