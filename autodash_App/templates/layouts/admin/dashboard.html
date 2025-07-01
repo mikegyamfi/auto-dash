@@ -270,128 +270,82 @@
 
 
 
-          <!-- =========================== PRODUCTS SECTION =========================== -->
-          <h5 class="mb-3">Products</h5>
-          <div class="row mb-4">
-            <!-- Total quantity sold today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Total Qty Sold</h6>
-                  <p class="display-6">{{ products_sold_today|default:0 }}</p>
-                </div>
-              </div>
-            </div>
+          {# ░░░░░ PRODUCTS SECTION ░░░░░ #}
+<h5 class="mb-3">Products</h5>
 
-            <!-- Total amount from product sales today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Total Amount</h6>
-                  <p class="display-6">
-                    GHS {{ products_sold_amount_today|default:0|floatformat:2 }}
-                  </p>
-                </div>
-              </div>
-            </div>
+<!-- ── total-line cards ─────────────────────────────────────────────── -->
+<div class="row g-4 mb-4 text-center">
+  <div class="col-md-3 col-6">
+    <div class="card border-dark h-100">
+      <div class="card-body">
+        <h6 class="card-title text-muted fw-bold">Total&nbsp;Qty</h6>
+        <div class="display-5 fw-bold">{{ prod_qty }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card border-dark h-100">
+      <div class="card-body">
+        <h6 class="card-title text-muted fw-bold">Total&nbsp;Sales</h6>
+        <div class="display-5 fw-bold">{{ prod_sales|floatformat:0 }}</div>
+      </div>
+    </div>
+  </div>
+  {% if show_margin %}
+  <div class="col-md-3 col-6">
+    <div class="card border-dark h-100">
+      <div class="card-body">
+        <h6 class="card-title text-muted fw-bold">Total&nbsp;Margins</h6>
+        <div class="display-5 fw-bold">{{ prod_margin|floatformat:0 }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
 
-            <!-- Category total qty -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card position-relative">
-                <div class="card-body">
-                  <h6 class="card-title">Category Total Qty</h6>
-                  <p class="display-6">{{ product_category_total_qty|default:0 }}</p>
-                  <!-- Make the entire card clickable with a link that opens the modal -->
-                  <a
-                    href="#"
-                    class="stretched-link"
-                    data-bs-toggle="modal"
-                    data-bs-target="#categoryModal"
-                  >
-                    View Breakdown
-                  </a>
-                </div>
-              </div>
-            </div>
+<!-- ── category performance cards ───────────────────────────────────── -->
+<h5 class="mb-3">Category&nbsp;Performance</h5>
+<div class="row g-4 mb-4">
+  {% for c in prod_cat_cards %}
+  <div class="col-md-4">
+    <div class="card border-primary h-100">
+      <div class="card-body text-center">
+        <h6 class="fw-bold text-decoration-underline">{{ c.name }}</h6>
+        <p class="mb-0">Sales&nbsp;Qty: <strong>{{ c.qty }}</strong></p>
+        <p class="mb-2">Sales&nbsp;Value: <strong>{{ c.amt|floatformat:0 }}</strong></p>
+        <a href="#"
+           class="stretched-link fw-bold text-primary view-breakdown"
+           data-cat="{{ c.id }}">
+           View&nbsp;Break&nbsp;down
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
 
-            <!-- Category total amt -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card position-relative">
-                <div class="card-body">
-                  <h6 class="card-title">Category Total Amt</h6>
-                  <p class="display-6">
-                    GHS {{ product_category_total_amt|default:0|floatformat:2 }}
-                  </p>
-                  <!-- Same modal or a separate one if you prefer -->
-                  <a
-                    href="#"
-                    class="stretched-link"
-                    data-bs-toggle="modal"
-                    data-bs-target="#categoryModal"
-                  >
-                    View Breakdown
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
+<!-- ── breakdown table container (filled by JS) ─────────────────────── -->
+<div id="cat-breakdown-wrapper" class="d-none">
+  <h5 class="mb-2" id="cat-breakdown-title"></h5>
+  <div class="table-responsive">
+    <table class="table table-bordered align-middle">
+      <thead class="table-primary">
+        <tr>
+          <th>Products</th>
+          <th>Sales&nbsp;Qty</th>
+          <th>Sales&nbsp;Value</th>
+          {% if show_margin %}
+          <th>Margins</th>
+          {% endif %}
+          <th>Stock&nbsp;Qty</th>
+        </tr>
+      </thead>
+      <tbody id="cat-breakdown-body"></tbody>
+    </table>
+  </div>
+</div>
 
-          <!-- Category Breakdown Modal -->
-          <div
-            class="modal fade"
-            id="categoryModal"
-            tabindex="-1"
-            aria-labelledby="categoryModalLabel"
-            aria-hidden="true"
-          >
-            <div class="modal-dialog modal-lg">
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h5 class="modal-title" id="categoryModalLabel">Product Category Breakdown</h5>
-                  <button
-                    type="button"
-                    class="btn-close"
-                    data-bs-dismiss="modal"
-                    aria-label="Close"
-                  ></button>
-                </div>
-                <div class="modal-body">
-                  {% if product_categories_today %}
-                    <table class="table table-bordered">
-                      <thead>
-                        <tr>
-                          <th>Category</th>
-                          <th>Qty Sold</th>
-                          <th>Total Amount (GHS)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for cat in product_categories_today %}
-                        <tr>
-                          <td>{{ cat.category_name }}</td>
-                          <td>{{ cat.total_qty }}</td>
-                          <td>{{ cat.total_amount|floatformat:2 }}</td>
-                        </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  {% else %}
-                    <p>No category data available for today.</p>
-                  {% endif %}
-                </div>
-                <div class="modal-footer">
-                  <button
-                    type="button"
-                    class="btn btn-secondary"
-                    data-bs-dismiss="modal"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- End Category Breakdown Modal -->
+          <hr>
 
           <!-- =========================== RECENT SERVICES =========================== -->
           <div class="row">
@@ -629,4 +583,39 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+<script>
+(() => {
+  const byCat   = JSON.parse('{{ prod_cat_tables|safe }}');  // passed from context
+  const bodyEl  = document.getElementById('cat-breakdown-body');
+  const titleEl = document.getElementById('cat-breakdown-title');
+  const wrapEl  = document.getElementById('cat-breakdown-wrapper');
+
+  document.querySelectorAll('.view-breakdown').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const cid   = a.dataset.cat;
+      const rows  = byCat[cid] || [];
+      if (!rows.length) return;
+
+      const showMargin = {{ show_margin|yesno:"true,false" }};
+
+      // fill table
+      bodyEl.innerHTML = rows.map(r => `
+        <tr>
+          <td>${r.name}</td>
+          <td>${r.qty}</td>
+          <td>${Number(r.sales).toFixed(0)}</td>
+           ${ showMargin ? `<td>${Number(r.margin || 0).toFixed(0)}</td>` : '' }
+          <td>${r.stock}</td>
+        </tr>`).join('');
+      titleEl.textContent = a.textContent.trim();  // category name
+      wrapEl.classList.remove('d-none');
+      // scroll into view
+      wrapEl.scrollIntoView({behavior:'smooth'});
+    });
+  });
+})();
+</script>
+
 {% endblock scripts %}

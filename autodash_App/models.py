@@ -741,13 +741,51 @@ class DailySalesTarget(models.Model):
 
     class Meta:
         unique_together = ('branch', 'weekday')
-        ordering = ['branch__name','weekday']
+        ordering = ['branch__name', 'weekday']
 
     def __str__(self):
         return f"{self.branch.name} – {self.get_weekday_display()}: GHS {self.target_amount:.2f}"
 
 
+class WorkerDailyAdjustment(models.Model):
+    """
+    Bonus / deduction the manager keys in for a given worker-day.
+    `branch` is filled automatically from the worker.
+    """
+    worker = models.ForeignKey(
+        Worker, on_delete=models.CASCADE, related_name="daily_adjustments"
+    )
+    date = models.DateField()
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
 
+    bonus = models.FloatField(default=0.0)
+    deduction = models.FloatField(default=0.0)
 
+    class Meta:
+        unique_together = ("worker", "date")
+        ordering = ["-date", "worker__user__last_name"]
 
+    @property
+    def total_earnings(self):
+        commission = (
+                Commission.objects
+                .filter(worker=self.worker, date=self.date)
+                .aggregate(total=Sum("amount"))["total"] or 0
+        )
+        return commission - self.deduction + self.bonus
 
+    # ────────────────────────────────────────────────────────────────
+    # automatically copy worker.branch → branch on save
+    # ────────────────────────────────────────────────────────────────
+    def save(self, *args, **kwargs):
+        # When the worker is set/changed, default branch from it
+        if self.worker_id and (self.branch_id is None or self.branch_id != self.worker.branch_id):
+            self.branch = self.worker.branch
+
+            # If the caller passed update_fields, make sure "branch"
+            # is included so Django actually writes the column.
+            uf = kwargs.get("update_fields")
+            if uf is not None:
+                kwargs["update_fields"] = set(uf) | {"branch"}
+
+        super().save(*args, **kwargs)

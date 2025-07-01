@@ -1,201 +1,167 @@
 {% extends "base.html" %}
+{% load static %}
+
+{% block style %}
+<style>
+  .dash-card{
+    border:2px solid #002b5c;border-radius:.75rem;
+    padding:1rem;text-align:center;margin-bottom:1rem
+  }
+  .dash-card h6{margin:0;font-weight:700}
+  .dash-card .fig{font-size:2rem;font-weight:700}
+  .nav-pill{background:#306ec5;color:#fff;padding:.5rem 2rem;margin:.25rem;
+            border-radius:.25rem;display:inline-block}
+  .nav-pill:hover{background:#004fa3;color:#fff;text-decoration:none}
+</style>
+{% endblock style %}
+
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-
-    <!-- Side Nav -->
     {% include "inc/side_nav.html" %}
-    <!-- / Side Nav -->
 
     <div class="layout-page">
-      <!-- Navbar -->
       {% include "inc/header.html" %}
-      <!-- / Navbar -->
 
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
 
-          <h4 class="fw-bold py-3 mb-4">
-            Worker Dashboard - {{ worker.user.get_full_name }} ({{ branch.name }})
-          </h4>
+          <h4 class="fw-bold mb-3">Workers&nbsp;Dashboard</h4>
 
-          <!-- Custom style for glass effect -->
-          <style>
-          </style>
+          <!-- top nav pills -->
+          <!-- top nav pills -->
+<div class="mb-4">
+  <!-- 1. full service history for this worker -->
+  <a class="nav-pill" href="{% url 'service_history' %}?worker={{ worker.id }}">
+    Service&nbsp;History
+  </a>
 
-          <!-- Row 0: Worker Rating (Glassy Card + Star Icons) -->
+  <!-- 2. the line-chart / table of commissions we built -->
+  <a class="nav-pill" href="{% url 'worker_commissions' %}">
+    My&nbsp;Commission
+  </a>
+
+  <!-- 3. today’s / historical deductions only
+         → same view with ?show=deductions -->
+  <a class="nav-pill"
+     href="{% url 'worker_commissions' %}">
+    My&nbsp;Deductions
+  </a>
+
+  <!-- 4. today’s / historical bonuses only -->
+  <a class="nav-pill"
+     href="{% url 'worker_commissions' %}">
+    My&nbsp;Bonus
+  </a>
+
+  <!-- 5. personal profile page -->
+  <a class="nav-pill" href="{% url 'worker_profile' %}">
+    My&nbsp;Profile
+  </a>
+</div>
+
+          <!-- Rating card -->
+          <div class="dash-card" style="max-width:220px">
+            <h6>Ratings</h6>
+            <div class="mb-1">
+              {% for _ in full_stars %}<i class="fa fa-star text-warning"></i>{% endfor %}
+              {% if has_half %}<i class="fa fa-star-half-o text-warning"></i>{% endif %}
+              {% for _ in empty_stars %}<i class="fa fa-star-o text-warning"></i>{% endfor %}
+            </div>
+            <div class="fig">{{ average_rating|floatformat:1 }}</div>
+          </div>
+
+          <!-- Services row -->
+          <h5 class="mt-4">Services</h5>
           <div class="row">
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card glass-card">
-                <div class="card-body text-center">
-                  <h5 class="card-title">My Average Rating</h5>
-                  <div class="display-6 mb-2">{{ average_rating }}</div>
-                  <!-- Star Icons -->
-                  <div>
-                    {% comment %}
-                    Loop over full_stars_list => <i class="fa fa-star text-warning"></i>
-                    If has_half_star => <i class="fa fa-star-half-o text-warning"></i>
-                    Loop over empty_stars_list => <i class="fa fa-star-o text-warning"></i>
-                    {% endcomment %}
-                    {% for i in full_stars_list %}
-                      <i class="fa fa-star text-warning"></i>
-                    {% endfor %}
-                    {% if has_half_star %}
-                      <i class="fa fa-star-half-o text-warning"></i>
-                    {% endif %}
-                    {% for i in empty_stars_list %}
-                      <i class="fa fa-star-o text-warning"></i>
-                    {% endfor %}
-                  </div>
-                </div>
+            <div class="col-md-2 col-6">
+              <div class="dash-card">
+                <h6>Service&nbsp;Orders</h6>
+                <div class="fig">{{ service_orders_today }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-6">
+              <div class="dash-card">
+                <h6>Service&nbsp;Count</h6>
+                <div class="fig">{{ services_count_today }}</div>
               </div>
             </div>
           </div>
 
-          <!-- Row 1: Revenue, Expenses, Profit, Commission -->
+          <!-- Revenue row -->
+          <h5 class="mt-4">Revenue</h5>
           <div class="row">
-            <!-- Revenue Today -->
-{#            <div class="col-md-3 col-sm-6 mb-4">#}
-{#              <div class="card bg-warning text-white">#}
-{#                <div class="card-body">#}
-{#                  <h5 class="card-title text-white">Today's Revenue</h5>#}
-{#                  <p class="card-text display-6">GHS {{ revenue_today|floatformat:2 }}</p>#}
-{#                </div>#}
-{#              </div>#}
-{#            </div>#}
-
-            <!-- Expenses Today -->
-{#            <div class="col-md-3 col-sm-6 mb-4">#}
-{#              <div class="card bg-danger text-white">#}
-{#                <div class="card-body">#}
-{#                  <h5 class="card-title text-white">Today's Expenses</h5>#}
-{#                  <p class="card-text display-6">GHS {{ expenses_today|floatformat:2 }}</p>#}
-{#                </div>#}
-{#              </div>#}
-{#            </div>#}
-
-            <!-- Profit Today -->
-{#            <div class="col-md-3 col-sm-6 mb-4">#}
-{#              <div class="card bg-success text-white">#}
-{#                <div class="card-body">#}
-{#                  <h5 class="card-title text-white">Profit Today</h5>#}
-{#                  <p class="card-text display-6">GHS {{ profit_today|floatformat:2 }}</p>#}
-{#                </div>#}
-{#              </div>#}
-{#            </div>#}
-
-            <!-- My Commission Today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card bg-primary text-white">
-                <div class="card-body">
-                  <h5 class="card-title text-white">My Commission Today</h5>
-                  <p class="card-text display-6">GHS {{ worker_commission_today|floatformat:2 }}</p>
-                </div>
+            <div class="col-md-2 col-6">
+              <div class="dash-card">
+                <h6>Total&nbsp;Sales</h6>
+                <div class="fig">{{ sales_today|floatformat:0 }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-6">
+              <div class="dash-card">
+                <h6>Commission</h6>
+                <div class="fig">{{ commission_today|floatformat:1 }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-6">
+              <div class="dash-card">
+                <h6>Deduction</h6>
+                <div class="fig">{{ deduction_today|floatformat:0 }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-6">
+              <div class="dash-card">
+                <h6>Bonus</h6>
+                <div class="fig">{{ bonus_today|floatformat:0 }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-6">
+              <div class="dash-card">
+                <h6>My Earnings</h6>
+                <div class="fig">{{ earnings_today|floatformat:1 }}</div>
               </div>
             </div>
           </div>
 
-          <!-- Row 2: Services Rendered Today, Products Sold, Budget Check -->
-          <div class="row">
-            <!-- Services Rendered Today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card bg-info text-white">
-                <div class="card-body">
-                  <h5 class="card-title text-white">Services Rendered (Today)</h5>
-                  <p class="card-text display-6">{{ services_rendered_today }}</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Products Sold Today -->
-{#            <div class="col-md-3 col-sm-6 mb-4">#}
-{#              <div class="card bg-black text-white">#}
-{#                <div class="card-body">#}
-{#                  <h5 class="card-title text-white">Products Sold Today</h5>#}
-{#                  <p class="card-text display-6">{{ products_sold_today }}</p>#}
-{#                </div>#}
-{#              </div>#}
-{#            </div>#}
-
-            <!-- Daily Expense Budget Check -->
-{#            <div class="col-md-6 mb-4">#}
-{#              <div class="card bg-gradient bg-gray text-white">#}
-{#                <div class="card-body">#}
-{#                  <h5 class="card-title text-white">Daily Expense Budget</h5>#}
-{#                  <p>Budget: GHS {{ daily_expense_budget|floatformat:2 }}</p>#}
-{#                  <p>Expenses: GHS {{ expenses_today|floatformat:2 }}</p>#}
-{#                  {% if expenses_over_budget %}#}
-{#                    <p>Over Budget by GHS {{ budget_difference|floatformat:2 }}</p>#}
-{#                  {% else %}#}
-{#                    <p>Under Budget by GHS {{ budget_difference|floatformat:2 }}</p>#}
-{#                  {% endif %}#}
-{#                </div>#}
-{#              </div>#}
-{#            </div>#}
-          </div>
-
-          <!-- Row 3: Recent & Pending Services for this worker -->
-          <div class="row">
-            <!-- Recent Services -->
+          <!-- Recent & pending tables -->
+          <div class="row mt-5">
             <div class="col-md-6">
-              <h5>Recent Services</h5>
-              <table class="table table-bordered">
-                <thead>
-                  <tr>
-                    <th>Order #</th>
-                    <th>Customer</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
+              <h5>Recent&nbsp;Services</h5>
+              <table class="table table-bordered small">
+                <thead class="table-light"><tr>
+                  <th>#</th><th>Customer</th><th>Date</th><th>Status</th>
+                </tr></thead>
                 <tbody>
                   {% for s in recent_services %}
-                  <tr>
-                    <td>
-                      <a href="{% url 'confirm_service_rendered' pk=s.id %}">
-                        {{ s.service_order_number }}
-                      </a>
-                    </td>
-                    <td>{{ s.customer.user.get_full_name }}</td>
-                    <td>{{ s.date|date:"Y-m-d H:i" }}</td>
-                    <td>{{ s.get_status_display }}</td>
-                    <td>
-                      <a class="btn btn-sm btn-primary"
-                         href="{% url 'confirm_service_rendered' pk=s.id %}">
-                        Details
-                      </a>
-                    </td>
-                  </tr>
+                    <tr>
+                      <td>{{ s.service_order_number }}</td>
+                      <td>{{ s.customer.user.get_full_name }}</td>
+                      <td>{{ s.date|date:"d M H:i" }}</td>
+                      <td>{{ s.get_status_display }}</td>
+                    </tr>
                   {% empty %}
-                  <tr><td colspan="5">No recent services.</td></tr>
+                    <tr><td colspan="4">None today.</td></tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
 
-            <!-- Pending Services -->
             <div class="col-md-6">
-              <h5>Pending Services</h5>
-              <table class="table table-bordered">
-                <thead>
-                  <tr>
-                    <th>Order #</th>
-                    <th>Customer</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+              <h5>Pending&nbsp;Services</h5>
+              <table class="table table-bordered small">
+                <thead class="table-light"><tr>
+                  <th>#</th><th>Customer</th><th>Date</th><th>Status</th>
+                </tr></thead>
                 <tbody>
                   {% for s in pending_services %}
-                  <tr>
-                    <td>{{ s.service_order_number }}</td>
-                    <td>{{ s.customer.user.get_full_name }}</td>
-                    <td>{{ s.date|date:"Y-m-d H:i" }}</td>
-                    <td>{{ s.get_status_display }}</td>
-                  </tr>
+                    <tr>
+                      <td>{{ s.service_order_number }}</td>
+                      <td>{{ s.customer.user.get_full_name }}</td>
+                      <td>{{ s.date|date:"d M H:i" }}</td>
+                      <td>{{ s.get_status_display }}</td>
+                    </tr>
                   {% empty %}
-                  <tr><td colspan="4">No pending services.</td></tr>
+                    <tr><td colspan="4">No pending services.</td></tr>
                   {% endfor %}
                 </tbody>
               </table>
@@ -203,13 +169,9 @@
           </div>
 
         </div>
-        <!-- /container-xxl -->
         {% include "inc/footer.html" %}
       </div>
-      <!-- /content-wrapper -->
     </div>
-    <!-- /layout-page -->
   </div>
-  <!-- /layout-container -->
 </div>
-{% endblock %}
+{% endblock content %}

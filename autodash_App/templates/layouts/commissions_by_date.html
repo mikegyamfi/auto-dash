@@ -1,136 +1,162 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
     <!-- Sidebar -->
-    {% include 'inc/side_nav.html' %}
+    {% include "inc/side_nav.html" %}
     <!-- / Sidebar -->
 
     <!-- Layout page -->
     <div class="layout-page">
       <!-- Navbar -->
-      {% include 'inc/header.html' %}
+      {% include "inc/header.html" %}
       <!-- / Navbar -->
 
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
           <h4 class="fw-bold py-3 mb-4">Commissions by Date</h4>
 
-          <!-- Filter Form -->
+          <!-- ░░░░░░░  FILTER FORM  ░░░░░░░ -->
           <form method="GET" class="row mb-4 align-items-end">
             <div class="col-md-3">
-              <label for="date" class="form-label">Select Date</label>
-              <input 
-                type="date" 
-                name="date" 
-                id="date" 
-                class="form-control"
-                value="{{ selected_date|date:'Y-m-d' }}"
-              >
+              <label class="form-label" for="date">Select Date</label>
+              <input  type="date"   id="date" name="date"
+                      class="form-control"
+                      value="{{ selected_date|date:'Y-m-d' }}">
             </div>
-          {% if not hide_branch_selector %}
+
+            {% if not hide_branch_selector %}
             <div class="col-md-3">
-              <label for="branch" class="form-label">Branch (optional)</label>
-              <select name="branch" id="branch" class="form-control">
+              <label class="form-label" for="branch">Branch (optional)</label>
+              <select id="branch" name="branch" class="form-control">
                 <option value="">All Branches</option>
                 {% for b in branches %}
-                  <option 
-                    value="{{ b.id }}"
-                    {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}
-                  >
+                  <option value="{{ b.id }}"
+                          {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}>
                     {{ b.name }}
                   </option>
                 {% endfor %}
               </select>
             </div>
             {% endif %}
-              <!-- Worker Filter -->
+
             <div class="col-md-3">
-              <label for="worker" class="form-label">Worker (optional)</label>
-              <select name="worker" id="worker" class="form-control">
+              <label class="form-label" for="worker">Worker (optional)</label>
+              <select id="worker" name="worker" class="form-control">
                 <option value="">All Workers</option>
                 {% for w in workers %}
-                  <option
-                    value="{{ w.id }}"
-                    {% if w.id|stringformat:'s' == selected_worker_id %}selected{% endif %}
-                  >
+                  <option value="{{ w.id }}"
+                          {% if w.id|stringformat:'s' == selected_worker_id %}selected{% endif %}>
                     {{ w.user.get_full_name }} ({{ w.branch.name }})
                   </option>
                 {% endfor %}
               </select>
             </div>
+
             <div class="col-md-3 d-flex align-items-end">
-              <button type="submit" class="btn btn-primary w-100">
-                Filter
-              </button>
+              <button type="submit" class="btn btn-primary w-100">Filter</button>
             </div>
           </form>
-          <!-- / Filter Form -->
+          <!-- ░░░░░░░  /FILTER FORM  ░░░░░░░ -->
 
-          <!-- "Commission Chart" Table -->
+          <!-- ░░░░░░░  COMMISSION TABLE  ░░░░░░░ -->
           <div class="card">
             <div class="card-body">
               <h5 class="card-title">
                 Commissions for {{ selected_date|date:'Y-m-d' }}
               </h5>
+
               <div class="table-responsive">
-                <table class="table table-bordered">
-                  <thead class="table-light">
-                    <tr>
-                      <th>Worker</th>
-                      <th>Position</th>
-                      <th># Services</th>
-                      <th># Vehicles</th>
-                      <th>Total Commission (GHS)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <form method="POST">
+                  {% csrf_token %}
+                  <button class="btn btn-outline-success mb-3" type="submit">
+                    Save&nbsp;Adjustments
+                  </button>
+
+                  <table class="table table-bordered">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Worker</th>
+                        <th>Position</th>
+                        <th># Services</th>
+                        <th># Vehicles</th>
+                        <th>Total&nbsp;Commission&nbsp;(GHS)</th>
+                        <th>Deductions</th>
+                        <th>Bonus</th>
+                        <th>Total&nbsp;Earnings</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
                     {% if commissions %}
                       {% for row in commissions %}
-                      <tr>
-                        <td>{{ row.worker.user.get_full_name }}</td>
-                        <td>{{ row.position }}</td>
-                        <td>{{ row.num_services }}</td>
-                        <td>{{ row.num_vehicles }}</td>
-                        <td>
-                          <!-- Clickable link for breakdown -->
-                          <a
-                            href="#"
-                            class="commission-breakdown-link"
-                            data-worker-id="{{ row.worker.id }}"
-                            data-date="{{ selected_date|date:'Y-m-d' }}"
-                          >
-                            {{ row.total_commission|floatformat:2 }}
-                          </a>
-                        </td>
-                      </tr>
+                        <tr data-row-worker="{{ row.worker.id }}"
+                            data-commission="{{ row.total_commission }}">
+                          <td>{{ row.worker.user.get_full_name }}</td>
+                          <td>{{ row.position }}</td>
+                          <td>{{ row.num_services }}</td>
+                          <td>{{ row.num_vehicles }}</td>
+
+                          <!-- Commission link -->
+                          <td>
+                            <a href="#"
+                               class="commission-breakdown-link"
+                               data-worker-id="{{ row.worker.id }}"
+                               data-date="{{ selected_date|date:'Y-m-d' }}">
+                              {{ row.total_commission|floatformat:2 }}
+                            </a>
+                          </td>
+
+                          <!-- Deduction input -->
+                          <td>
+                            <input type="number" step="0.01"
+                                   name="deduction_{{ row.worker.id }}"
+                                   class="form-control form-control-sm deduction-input"
+                                   value="{{ row.deduction|floatformat:2 }}">
+                          </td>
+
+                          <!-- Bonus input -->
+                          <td>
+                            <input type="number" step="0.01"
+                                   name="bonus_{{ row.worker.id }}"
+                                   class="form-control form-control-sm bonus-input"
+                                   value="{{ row.bonus|floatformat:2 }}">
+                          </td>
+
+                          <!-- Calculated earnings -->
+                          <td class="row-total">
+                            {{ row.total_earnings|floatformat:2 }}
+                          </td>
+                        </tr>
                       {% endfor %}
                     {% else %}
                       <tr>
-                        <td colspan="5">No commission data found for this date.</td>
+                        <td colspan="8">No commission data found for this date.</td>
                       </tr>
                     {% endif %}
-                  </tbody>
-                    <tfoot>
-                    <tr class="table-light fw-bold">
-                      <td colspan="2" class="text-end">Totals :</td>
-                      <td>{{ total_services_ct }}</td>
-                      <td>{{ total_vehicles_ct }}</td>
-                      <td>{{ total_commission_gt|floatformat:2 }}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tbody>
+
+                    <tfoot class="table-light fw-bold">
+                      <tr>
+                        <td colspan="2" class="text-end">Totals&nbsp;:</td>
+                        <td id="tot-services">{{ tot_services }}</td>
+                        <td id="tot-vehicles">{{ tot_vehicles }}</td>
+                        <td id="tot-commission">{{ tot_commission|floatformat:2 }}</td>
+                        <td id="tot-deduction">{{ tot_deduction|floatformat:2 }}</td>
+                        <td id="tot-bonus">{{ tot_bonus|floatformat:2 }}</td>
+                        <td id="tot-earnings">{{ tot_earnings|floatformat:2 }}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </form>
               </div>
             </div>
           </div>
-          <!-- / "Commission Chart" Table -->
-
+          <!-- ░░░░░░░  /COMMISSION TABLE  ░░░░░░░ -->
         </div>
-        <!-- /container -->
 
-        <!-- Footer -->
-        {% include 'inc/footer.html' %}
+        {% include "inc/footer.html" %}
       </div>
       <div class="content-backdrop fade"></div>
     </div>
@@ -138,24 +164,17 @@
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
 
-<!-- Modal for Commission Breakdown -->
-<div
-  class="modal fade"
-  id="commissionBreakdownModal"
-  tabindex="-1"
-  aria-labelledby="commissionBreakdownModalLabel"
-  aria-hidden="true"
->
+<!-- ██████████████  BREAKDOWN MODAL  ██████████████ -->
+<div class="modal fade" id="commissionBreakdownModal" tabindex="-1"
+     aria-labelledby="commissionBreakdownModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="commissionBreakdownModalLabel">Commission Breakdown</h5>
-        <button
-          type="button"
-          class="btn-close"
-          data-bs-dismiss="modal"
-          aria-label="Close"
-        ></button>
+        <h5 class="modal-title" id="commissionBreakdownModalLabel">
+          Commission Breakdown
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <p><strong>Worker’s services on this date:</strong></p>
@@ -164,57 +183,87 @@
     </div>
   </div>
 </div>
-<!-- /Modal -->
-
+<!-- █████████████  /BREAKDOWN MODAL  ██████████████ -->
 {% endblock content %}
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  // Hook up the breakdown links
-  const breakdownLinks = document.querySelectorAll('.commission-breakdown-link');
-  const modalElement = document.getElementById('commissionBreakdownModal');
-  const breakdownList = document.getElementById('commission-breakdown-list');
-  const bootstrapModal = new bootstrap.Modal(modalElement);
+(function () {
+  /* ──────────────────────────────────────────────────────────
+     1. Live row & footer calculator (unchanged)
+  ────────────────────────────────────────────────────────── */
+  const toFloat = v => parseFloat(v) || 0;
 
-  breakdownLinks.forEach(function(link) {
-    link.addEventListener('click', function(e) {
-      e.preventDefault();
-      const workerId = this.getAttribute('data-worker-id');
-      const dateValue = this.getAttribute('data-date');
+  function recalcRow(tr) {
+    const commission = toFloat(tr.dataset.commission);
+    const deduction  = toFloat(tr.querySelector('.deduction-input').value);
+    const bonus      = toFloat(tr.querySelector('.bonus-input').value);
+    const earnings   = commission - deduction + bonus;
 
-      // AJAX call to your commission_breakdown view
-      fetch(`/elevated/commission_breakdown?worker_id=${workerId}&date=${dateValue}`)
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            // Clear old data
-            breakdownList.innerHTML = '';
-            if (data.commissions.length === 0) {
-              const li = document.createElement('li');
-              li.classList.add('list-group-item');
-              li.textContent = 'No breakdown found.';
-              breakdownList.appendChild(li);
-            } else {
-              data.commissions.forEach(item => {
-                const li = document.createElement('li');
-                li.classList.add('list-group-item');
-                // Show service + vehicle + commission
-                li.textContent = `${item.service} [${item.vehicle}] => GHS ${item.amount.toFixed(2)}`;
-                breakdownList.appendChild(li);
-              });
-            }
-            bootstrapModal.show();
-          } else {
-            alert('Unable to fetch commission breakdown.');
-          }
-        })
-        .catch(err => {
-          console.error(err);
-          alert('Error fetching commission breakdown.');
-        });
+    tr.querySelector('.row-total').textContent = earnings.toFixed(2);
+    return {commission, deduction, bonus, earnings};
+  }
+
+  function recalcFooter() {
+    let totC = 0, totD = 0, totB = 0, totE = 0;
+    document.querySelectorAll('tbody tr[data-row-worker]').forEach(tr => {
+      const r = recalcRow(tr);
+      totC += r.commission;
+      totD += r.deduction;
+      totB += r.bonus;
+      totE += r.earnings;
     });
+    document.getElementById('tot-commission').textContent = totC.toFixed(2);
+    document.getElementById('tot-deduction' ).textContent = totD.toFixed(2);
+    document.getElementById('tot-bonus'     ).textContent = totB.toFixed(2);
+    document.getElementById('tot-earnings'  ).textContent = totE.toFixed(2);
+  }
+
+  document.addEventListener('input', e => {
+    if (e.target.matches('.deduction-input, .bonus-input')) {
+      recalcRow(e.target.closest('tr'));
+      recalcFooter();
+    }
   });
-});
+  recalcFooter();
+
+  /* ──────────────────────────────────────────────────────────
+     2. Commission-breakdown modal (original working pattern)
+  ────────────────────────────────────────────────────────── */
+  document.querySelectorAll('.commission-breakdown-link')
+    .forEach(link => link.addEventListener('click', e => {
+      e.preventDefault();
+
+      const worker = link.getAttribute('data-worker-id'),
+            date   = link.getAttribute('data-date');
+
+      fetch(`/elevated/commission_breakdown?worker_id=${worker}&date=${date}`)
+        .then(r => r.json())
+        .then(data => {
+          const list = document.getElementById('commission-breakdown-list');
+          list.innerHTML = '';
+
+          if (!data.success || !data.commissions.length) {
+            list.innerHTML = '<li class="list-group-item">No breakdown found.</li>';
+          } else {
+            data.commissions.forEach(item => {
+              const li = document.createElement('li');
+              li.className = 'list-group-item';
+              li.textContent =
+                `${item.service} [${item.vehicle}] => GHS ${item.amount.toFixed(2)}`;
+              list.appendChild(li);
+            });
+          }
+
+          /* create the Modal *inside* the success block, like before */
+          const modal = new bootstrap.Modal(
+            document.getElementById('commissionBreakdownModal')
+          );
+          modal.show();
+        })
+        .catch(() => alert('Error fetching commission breakdown.'));
+    }));
+})();
 </script>
 {% endblock scripts %}
+
