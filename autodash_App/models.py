@@ -219,16 +219,15 @@ class ProductSale(models.Model):
     customer = models.ForeignKey('Customer', null=True, blank=True, on_delete=models.SET_NULL)
 
     def save(self, *args, **kwargs):
-        # Auto-set total price if not specified
         if not self.total_price:
             self.total_price = self.product.price * self.quantity
 
-        # Decrement stock
-        if self.pk is None:  # only reduce stock on initial creation
-            if self.product.stock < self.quantity:
-                raise ValueError("Not enough stock to complete this sale.")
-            self.product.stock -= self.quantity
-            self.product.save()
+        # # Decrement stock
+        # if self.pk is None:  # only reduce stock on initial creation
+        #     if self.product.stock < self.quantity:
+        #         raise ValueError("Not enough stock to complete this sale.")
+        #     self.product.stock -= self.quantity
+        #     self.product.save()
 
         super().save(*args, **kwargs)
 

@@ -1,156 +1,180 @@
-{% extends 'base.html' %}
-{% load custom_filters %}
+{# templates/layouts/sell_product.html #}
+{% extends "base.html" %}
+{% load static custom_filters %}
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    {% include 'inc/side_nav.html' %}
+
+    <!-- side nav -->
+    {% include "inc/side_nav.html" %}
+
     <div class="layout-page">
-      {% include 'inc/header.html' %}
+      {% include "inc/header.html" %}
+
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
+
           <h4 class="fw-bold py-3 mb-4">Standalone Product Sale</h4>
 
-          <div class="row">
-            <!-- Left Column: Product Selection -->
+          <!-- ░░░░░░░░░░░░ MAIN ROW ░░░░░░░░░░░░ -->
+          <div class="row g-4">
+
+            <!-- ───────────────────────── LEFT: product picker ───────────────────────── -->
             <div class="col-lg-6">
-              <div class="card">
+              <div class="card h-100">
                 <div class="card-body">
+
                   <h5 class="card-title text-primary">Sell Products</h5>
-                    <form method="GET" action="{% url 'sell_product' %}">
-  <div class="row mb-3">
-    <div class="col-8">
-      <label for="category_filter" class="form-label">Filter by Category</label>
-      <select name="category" id="category_filter" class="form-select">
-        <option value="">All Categories</option>
-        {% for cat in categories %}
-          <option value="{{ cat.id }}" {% if cat.id|stringformat:"s" == request.GET.category %}selected{% endif %}>
-            {{ cat.name }}
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-4 d-flex align-items-end">
-      <button type="submit" class="btn btn-secondary mb-0">Filter</button>
-    </div>
-  </div>
-</form>
+
+                  <!-- category filter -->
+                  <form method="GET" action="{% url 'sell_product' %}" class="mb-4">
+                    <div class="row g-3 align-items-end">
+                      <div class="col-8">
+                        <label class="form-label mb-1" for="category_filter">Filter by Category</label>
+                        <select id="category_filter" name="category" class="form-select">
+                          <option value="">All Categories</option>
+                          {% for cat in categories %}
+                            <option value="{{ cat.id }}"
+                                    {% if cat.id|stringformat:"s" == request.GET.category %}selected{% endif %}>
+                              {{ cat.name }}
+                            </option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                      <div class="col-4 d-grid">
+                        <button class="btn btn-secondary" type="submit">
+                          <i class="bx bx-filter-alt me-1"></i>Filter
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+
+                  <!-- sale form -->
                   <form method="POST" action="{% url 'sell_product' %}">
                     {% csrf_token %}
-                    <p class="mb-3">Select products to sell:</p>
 
-                    <table id="myTable" class="table table-bordered">
-                      <thead class="table-light">
-                        <tr>
-                          <th style="width: 40px;">✓</th>
-                          <th>Product</th>
-                          <th>Price</th>
-                          <th>Stock</th>
-                          <th>Quantity</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for product in products %}
-                        <tr>
-                          <td>
-                            <input type="checkbox"
-                                   name="selected_products"
-                                   value="{{ product.id }}"
-                                   class="form-check-input">
-                          </td>
-                          <td>{{ product.name }}</td>
-                          <td>GHS {{ product.price|floatformat:2 }}</td>
-                          <td>{{ product.stock }}</td>
-                          <td>
-                            <input type="number"
-                                   name="quantity_{{ product.id }}"
-                                   min="1"
-                                   max="{{ product.stock }}"
-                                   value="1"
-                                   class="form-control form-control-sm"
-                                   {% if product.stock < 1 %}disabled{% endif %}>
-                          </td>
-                        </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-
-                    <div class="mt-3">
-                      <label for="customer_phone" class="form-label">Customer Phone</label>
-                      <input type="text"
-                             name="customer_phone"
-                             class="form-control"
-                             placeholder="0200000000">
-                      <div class="form-text">Optional - 0200000000</div>
+                    <div class="table-responsive mb-3" style="max-height:48vh;overflow:auto;">
+                      <table class="table table-bordered align-middle" id="productTable">
+                        <thead class="table-light">
+                          <tr>
+                            <th style="width:42px">✓</th>
+                            <th>Product</th>
+                            <th>Price</th>
+                            <th>Stock</th>
+                            <th style="width:95px">Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for product in products %}
+                          <tr>
+                            <td class="text-center">
+                              <input type="checkbox"
+                                     class="form-check-input sel-prod"
+                                     name="selected_products"
+                                     value="{{ product.id }}"
+                                     {% if product.stock < 1 %}disabled{% endif %}>
+                            </td>
+                            <td>{{ product.name }}</td>
+                            <td>GHS {{ product.price|floatformat:2 }}</td>
+                            <td>{{ product.stock }}</td>
+                            <td>
+                              <input type="number"
+                                     name="quantity_{{ product.id }}"
+                                     value="1"
+                                     min="1"
+                                     max="{{ product.stock }}"
+                                     class="form-control form-control-sm qty-input"
+                                     {% if product.stock < 1 %}disabled{% else %}disabled{% endif %}>
+                            </td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
                     </div>
 
-                    <button type="submit" class="btn btn-primary mt-3 w-100">
-                      <i class="bx bx-cart-add me-2"></i>Process Sale
+                    <!-- customer phone -->
+                    <div class="mb-3">
+                      <label class="form-label" for="customer_phone">Customer Phone (optional)</label>
+                      <input type="text" id="customer_phone" name="customer_phone"
+                             class="form-control" placeholder="0200000000">
+                    </div>
+
+                    <!-- submit -->
+                    <button class="btn btn-primary w-100" type="submit">
+                      <i class="bx bx-cart-add me-1"></i>Process Sale
                     </button>
                   </form>
+
                 </div>
               </div>
             </div>
 
-            <!-- Right Column: Recent Sales -->
+            <!-- ───────────────────────── RIGHT: recent sales ───────────────────────── -->
             <div class="col-lg-6">
-              <div class="card">
+              <div class="card h-100">
                 <div class="card-body">
+
                   <h5 class="card-title text-primary">Recent Sales</h5>
 
                   {% if recent_batches %}
-                  <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                      <thead class="table-light">
-                        <tr>
-                          <th>Date & Time</th>
-                          <th>Total</th>
-                          <th>Items</th>
-                          <th>Details</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for batch in recent_batches %}
-                        <tr>
-                          <td>{{ batch.date_sold|date:"M j, H:i" }}</td>
-                          <td>GHS {{ batch.total_price|floatformat:2 }}</td>
-                          <td>{{ batch.sales|length }}</td>
-                          <td>
-                            <button class="btn btn-sm btn-outline-primary py-1"
-                                    data-bs-toggle="modal"
-                                    data-bs-target="#batch-{{ batch.batch_id }}">
-                              <i class="bx bx-show me-1"></i>View
-                            </button>
-                          </td>
-                        </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  </div>
+                    <div class="table-responsive">
+                      <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                          <tr>
+                            <th>Date / Time</th>
+                            <th>Total (GHS)</th>
+                            <th>Items</th>
+                            <th>Details</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for batch in recent_batches %}
+                          <tr>
+                            <td>{{ batch.date_sold|date:"M j;· H:i" }}</td>
+                            <td>{{ batch.total_price|floatformat:2 }}</td>
+                            <td>{{ batch.sales|length }}</td>
+                            <td>
+                              <button class="btn btn-sm btn-outline-primary"
+                                      data-bs-toggle="modal"
+                                      data-bs-target="#batch-{{ batch.batch_id }}">
+                                <i class="bx bx-show me-1"></i>View
+                              </button>
+                            </td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
                   {% else %}
-                  <div class="alert alert-info mt-3">No recent sales transactions</div>
+                    <div class="alert alert-info mb-0">No recent sales transactions.</div>
                   {% endif %}
+
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Batch Detail Modals -->
+          </div><!-- /row -->
+
+          <!-- ──────────── Batch-detail modals ──────────── -->
           {% for batch in recent_batches %}
           <div class="modal fade" id="batch-{{ batch.batch_id }}" tabindex="-1">
             <div class="modal-dialog modal-dialog-centered modal-lg">
               <div class="modal-content">
+
                 <div class="modal-header">
                   <h5 class="modal-title">
-                    <i class="bx bx-receipt me-2"></i>
-                    Sale Details - {{ batch.date_sold|date:"M j, Y H:i" }}
+                    <i class="bx bx-receipt me-1"></i>
+                    Sale Details – {{ batch.date_sold|date:"M j, Y H:i" }}
                   </h5>
                   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
+
                 <div class="modal-body">
                   <div class="receipt-container bg-light p-3 rounded">
+
                     <div class="text-center mb-3">
-                      <h6>{{ worker.branch.name }}</h6>
+                      <h6 class="mb-0">{{ worker.branch.name }}</h6>
                       <small class="text-muted">{{ worker.branch.address }}</small>
                     </div>
 
@@ -179,77 +203,63 @@
                       </tfoot>
                     </table>
 
-                    <div class="text-center mt-4">
-                      <small class="text-muted">Batch ID: {{ batch.batch_id }}</small> <br>
-                        <small class="text-muted">Worker: {{ batch.user }}</small>
+                    <div class="text-center mt-3">
+                      <small class="text-muted">Batch ID: {{ batch.batch_id }}</small><br>
+                      <small class="text-muted">Worker: {{ worker.user.get_full_name }}</small>
                     </div>
-                  </div>
+
+                  </div><!-- /receipt -->
                 </div>
+
                 <div class="modal-footer">
-                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                  <button type="button" class="btn btn-primary"
-                          onclick="printReceipt('{{ batch.batch_id }}')">
-                    <i class="bx bx-printer me-1"></i>Print Receipt
+                  <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                  <button class="btn btn-primary" onclick="printReceipt('{{ batch.batch_id }}')">
+                    <i class="bx bx-printer me-1"></i>Print
                   </button>
                 </div>
+
               </div>
             </div>
           </div>
           {% endfor %}
 
-        </div>
-        {% include 'inc/footer.html' %}
+        </div><!-- /container -->
+        {% include "inc/footer.html" %}
       </div>
     </div>
   </div>
 </div>
 
+<!-- ─────────────── small helper scripts ─────────────── -->
 <script>
-function printReceipt(batchId) {
-  const modalContent = document.querySelector(`#batch-${batchId} .receipt-container`).cloneNode(true);
-  const printWindow = window.open('', '_blank', 'width=400,height=600');
+/* enable / disable qty input when checkbox toggles */
+document.addEventListener('change', e => {
+  if (e.target.classList.contains('sel-prod')) {
+    const row = e.target.closest('tr');
+    const qty = row.querySelector('.qty-input');
+    qty.disabled = !e.target.checked;
+  }
+});
 
-  printWindow.document.write(`
-    <html>
-      <head>
-        <title>Receipt ${batchId}</title>
-        <style>
-          body {
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            padding: 15px;
-            margin: 0;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-          th, td {
-            padding: 4px 0;
-          }
-          .border-bottom {
-            border-bottom: 2px dashed #000;
-          }
-          .border-top {
-            border-top: 2px dashed #000;
-          }
-          .text-end {
-            text-align: right;
-          }
-        </style>
-      </head>
-      <body>
-        ${modalContent.innerHTML}
-        <script>
-          setTimeout(() => {
-            window.print();
-            window.close();
-          }, 300);
-        <\/script>
-      </body>
-    </html>
-  `);
-  printWindow.document.close();
+/* print receipt from modal */
+function printReceipt(batchId) {
+  const receipt = document.querySelector(`#batch-${batchId} .receipt-container`).cloneNode(true);
+  const win     = window.open('', '_blank', 'width=380,height=600');
+  win.document.write(`
+    <html><head><title>Receipt ${batchId}</title>
+      <style>
+        body{font-family:Courier,monospace;font-size:13px;margin:0;padding:15px}
+        table{width:100%;border-collapse:collapse}
+        th,td{padding:4px 0}
+        .border-bottom{border-bottom:2px dashed #000}
+        .border-top{border-top:2px dashed #000}
+        .text-end{text-align:right}
+      </style>
+    </head><body>${receipt.innerHTML}
+      <script>setTimeout(()=>{window.print();window.close()},300)<\/script>
+    </body></html>`
+  );
+  win.document.close();
 }
 </script>
 {% endblock %}

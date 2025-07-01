@@ -347,46 +347,46 @@
 
           <hr>
 
-          <!-- =========================== RECENT SERVICES =========================== -->
-          <div class="row">
-            <div class="col-md-12">
-              <h5>Recent Services</h5>
-              <table class="table table-bordered">
-                <thead>
-                  <tr>
-                    <th>Service Number</th>
-                    <th>Customer</th>
-                    <th>Workers</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th>Total Amount</th>
-                    <th>Final Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for service in recent_services %}
-                  <tr>
-                    <td>{{ service.service_order_number }}</td>
-                    <td>{{ service.customer.user.get_full_name }}</td>
-                    <td>
-                      {% for worker in service.workers.all %}
-                        {{ worker.user.get_full_name }}{% if not forloop.last %}, {% endif %}
-                      {% endfor %}
-                    </td>
-                    <td>{{ service.get_status_display }}</td>
-                    <td>{{ service.date|date:"Y-m-d H:i" }}</td>
-                    <td>GHS {{ service.total_amount|floatformat:2 }}</td>
-                    <td>GHS {{ service.final_amount|floatformat:2 }}</td>
-                  </tr>
-                  {% empty %}
-                  <tr>
-                    <td colspan="7">No recent services.</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
+<!--          &lt;!&ndash; =========================== RECENT SERVICES =========================== &ndash;&gt;-->
+<!--          <div class="row">-->
+<!--            <div class="col-md-12">-->
+<!--              <h5>Recent Services</h5>-->
+<!--              <table class="table table-bordered">-->
+<!--                <thead>-->
+<!--                  <tr>-->
+<!--                    <th>Service Number</th>-->
+<!--                    <th>Customer</th>-->
+<!--                    <th>Workers</th>-->
+<!--                    <th>Status</th>-->
+<!--                    <th>Date</th>-->
+<!--                    <th>Total Amount</th>-->
+<!--                    <th>Final Amount</th>-->
+<!--                  </tr>-->
+<!--                </thead>-->
+<!--                <tbody>-->
+<!--                  {% for service in recent_services %}-->
+<!--                  <tr>-->
+<!--                    <td>{{ service.service_order_number }}</td>-->
+<!--                    <td>{{ service.customer.user.get_full_name }}</td>-->
+<!--                    <td>-->
+<!--                      {% for worker in service.workers.all %}-->
+<!--                        {{ worker.user.get_full_name }}{% if not forloop.last %}, {% endif %}-->
+<!--                      {% endfor %}-->
+<!--                    </td>-->
+<!--                    <td>{{ service.get_status_display }}</td>-->
+<!--                    <td>{{ service.date|date:"Y-m-d H:i" }}</td>-->
+<!--                    <td>GHS {{ service.total_amount|floatformat:2 }}</td>-->
+<!--                    <td>GHS {{ service.final_amount|floatformat:2 }}</td>-->
+<!--                  </tr>-->
+<!--                  {% empty %}-->
+<!--                  <tr>-->
+<!--                    <td colspan="7">No recent services.</td>-->
+<!--                  </tr>-->
+<!--                  {% endfor %}-->
+<!--                </tbody>-->
+<!--              </table>-->
+<!--            </div>-->
+<!--          </div>-->
 
           <!-- =========================== PENDING SERVICES =========================== -->
           <div class="row">
@@ -436,71 +436,71 @@
             </div>
           </div>
 
-          <!-- =========================== WORKER STATISTICS =========================== -->
-          <div class="row">
-            <div class="col-md-12">
-              <h5>Services by Worker (Past {{ days }} Days)</h5>
-              <table class="table table-bordered">
-                <thead>
-                  <tr>
-                    <th>Worker</th>
-                    <th>Total Services</th>
-                    <th>Total Commission (GHS)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for worker in services_by_worker %}
-                  <tr>
-                    <td>{{ worker.user.get_full_name }}</td>
-                    <td>{{ worker.total_services }}</td>
-                    <td>
-                      GHS {{ worker.total_commission|default_if_none:"0"|floatformat:2 }}
-                    </td>
-                  </tr>
-                  {% empty %}
-                  <tr>
-                    <td colspan="3">No data available.</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {# ░░░░░  TOP-5 & STOCK OUT  ░░░░░ #}
+<div class="row mt-4">
 
-          <!-- =========================== EXPENSES IN RANGE =========================== -->
-          <div class="row">
-            <div class="col-md-12">
-              <h5>Expenses from {{ expense_end_date|date:"Y-m-d" }} to {{ expense_start_date|date:"Y-m-d" }}</h5>
-              <table class="table table-bordered">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th>Amount (GHS)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for expense in expenses_in_range %}
-                  <tr>
-                    <td>{{ expense.date|date:"Y-m-d" }}</td>
-                    <td>{{ expense.description }}</td>
-                    <td>{{ expense.amount|floatformat:2 }}</td>
-                  </tr>
-                  {% empty %}
-                  <tr>
-                    <td colspan="3">No expenses in this period.</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <th colspan="2">Total Expenses</th>
-                    <th>GHS {{ total_expenses_in_range|floatformat:2 }}</th>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
+  <!--  TOP 5 SALES (CUSTOMERS)  -->
+  <div class="col-lg-6 mb-4">
+    <h5>Top 5 Customers (by Revenue)</h5>
+    <table class="table table-bordered">
+      <thead class="table-light"><tr><th>Customer</th><th>Revenue (GHS)</th></tr></thead>
+      <tbody>
+        {% for c in top5_customers %}
+          <tr><td>{{ c.cust_name }}</td><td>{{ c.revenue|floatformat:2 }}</td></tr>
+        {% empty %}
+          <tr><td colspan="2">No data.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!--  TOP 5 SERVICES  -->
+  <div class="col-lg-6 mb-4">
+    <h5>Top 5 Services (by Revenue)</h5>
+    <table class="table table-bordered">
+      <thead class="table-light"><tr><th>Service</th><th>Revenue (GHS)</th></tr></thead>
+      <tbody>
+        {% for s in top5_services %}
+          <tr><td>{{ s.svc }}</td><td>{{ s.revenue|floatformat:2 }}</td></tr>
+        {% empty %}
+          <tr><td colspan="2">No data.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!--  TOP 5 WORKERS  -->
+  <div class="col-lg-6 mb-4">
+    <h5>Top 5 Workers (by Revenue)</h5>
+    <table class="table table-bordered">
+      <thead class="table-light"><tr><th>Worker</th><th>Revenue (GHS)</th></tr></thead>
+      <tbody>
+        {% for w in top5_workers %}
+          <tr><td>{{ w.worker_name }}</td><td>{{ w.revenue|floatformat:2 }}</td></tr>
+        {% empty %}
+          <tr><td colspan="2">No data.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!--  STOCK-OUT LIST  -->
+  <div class="col-lg-6 mb-4">
+    <h5>Products Out of Stock</h5>
+    <table class="table table-bordered">
+      <thead class="table-light"><tr><th>Product</th><th>Stock</th></tr></thead>
+      <tbody>
+        {% for p in stock_out %}
+          <tr><td>{{ p.name }}</td><td>{{ p.stock }}</td></tr>
+        {% empty %}
+          <tr><td colspan="2">Nothing out of stock 🎉</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{# ░░░░░  /END  TOP-5 & STOCK OUT  ░░░░░ #}
 
         </div>
         <!-- / Content -->
