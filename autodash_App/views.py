@@ -308,7 +308,7 @@ def home(request):
     completed_qs = ServiceRenderedOrder.objects.filter(
         branch=branch,
         status='completed',
-        # date__date__range=[start_dt, end_dt]
+        date__date__range=[start_dt, end_dt]
     )
 
     #  TOP-5 CUSTOMERS (BY REVENUE)
