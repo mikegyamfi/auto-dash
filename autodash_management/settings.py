@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'autodash_App',
+    'django.contrib.humanize',
 ]
 
 MIDDLEWARE = [

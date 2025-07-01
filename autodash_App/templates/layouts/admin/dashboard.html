@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
@@ -127,7 +128,7 @@
                 <div class="card-body">
                   <h6 class="card-title">Revenue</h6>
                   <p class="display-6">
-                    GHS {{ revenue_today|floatformat:2 }}
+                    GHS {{ revenue_today|floatformat:2|intcomma }}
                   </p>
                 </div>
               </div>
@@ -138,7 +139,7 @@
                 <div class="card-body">
                   <h6 class="card-title">Commission</h6>
                   <p class="display-6">
-                    GHS {{ total_commission|default:0|floatformat:2 }}
+                    GHS {{ total_commission|default:0|floatformat:2|intcomma }}
                   </p>
                 </div>
               </div>
@@ -149,7 +150,7 @@
                 <div class="card-body">
                   <h6 class="card-title">Gross Sales</h6>
                   <p class="display-6">
-                    GHS {{ gross_sales|default:0|floatformat:2 }}
+                    GHS {{ gross_sales|default:0|floatformat:2|intcomma }}
                   </p>
                 </div>
               </div>
@@ -160,7 +161,7 @@
                 <div class="card-body">
                   <h6 class="card-title">Expenses</h6>
                   <p class="display-6">
-                    GHS {{ expenses_today|floatformat:2 }}
+                    GHS {{ expenses_today|floatformat:2|intcomma }}
                   </p>
                 </div>
               </div>
@@ -171,7 +172,7 @@
                 <div class="card-body">
                   <h6 class="card-title">Net Sales</h6>
                   <p class="display-6">
-                    GHS {{ net_sales|default:0|floatformat:2 }}
+                    GHS {{ net_sales|default:0|floatformat:2|intcomma }}
                   </p>
                 </div>
               </div>
@@ -185,7 +186,7 @@
   <div class="col-md-2 col-sm-6 mb-4">
     <div class="card"><div class="card-body">
       <h6 class="card-title">Cash</h6>
-      <p class="display-6">GHS {{ cash_flow_cash|floatformat:2 }}</p>
+      <p class="display-6">GHS {{ cash_flow_cash|floatformat:2|intcomma }}</p>
     </div></div>
   </div>
 
@@ -193,7 +194,7 @@
   <div class="col-md-2 col-sm-6 mb-4">
     <div class="card"><div class="card-body">
       <h6 class="card-title">MoMo</h6>
-      <p class="display-6">GHS {{ cash_flow_momo|floatformat:2 }}</p>
+      <p class="display-6">GHS {{ cash_flow_momo|floatformat:2|intcomma }}</p>
     </div></div>
   </div>
 
@@ -209,7 +210,7 @@
   <div class="col-md-2 col-sm-6 mb-4">
     <div class="card"><div class="card-body">
       <h6 class="card-title">Subscription</h6>
-      <p class="display-6">GHS {{ cash_flow_subscription|floatformat:2 }}</p>
+      <p class="display-6">GHS {{ cash_flow_subscription|floatformat:2|intcomma }}</p>
     </div></div>
   </div>
 
@@ -217,7 +218,7 @@
   <div class="col-md-2 col-sm-6 mb-4">
     <div class="card"><div class="card-body">
       <h6 class="card-title">Loyalty</h6>
-      <p class="display-6">GHS {{ cash_flow_loyalty|floatformat:2 }}</p>
+      <p class="display-6">GHS {{ cash_flow_loyalty|floatformat:2|intcomma }}</p>
     </div></div>
   </div>
 </div>
@@ -228,8 +229,8 @@
     <div class="card">
       <div class="card-body">
         <h6 class="card-title">Sales Performance Summary</h6>
-        <p>Target: GHS {{ sales_target|floatformat:2 }}</p>
-        <p>Actual: GHS {{ revenue_today|floatformat:2 }}</p>
+        <p>Target: GHS {{ sales_target|floatformat:2|intcomma }}</p>
+        <p>Actual: GHS {{ revenue_today|floatformat:2|intcomma }}</p>
         <p>
           Status:
           <span
@@ -246,8 +247,8 @@
     <div class="card">
       <div class="card-body">
         <h6 class="card-title">Expense Summary</h6>
-       <p>Expense Budget: GHS {{ expense_budget|floatformat:2 }}</p>
-<p>Actual Expenses: GHS {{ expenses_today|floatformat:2 }}</p>
+       <p>Expense Budget: GHS {{ expense_budget|floatformat:2|intcomma }}</p>
+<p>Actual Expenses: GHS {{ expenses_today|floatformat:2|intcomma }}</p>
 <p>
   Status:
         <strong>{{ expense_status_pct|floatformat:1 }}%</strong>
@@ -287,7 +288,7 @@
     <div class="card border-dark h-100">
       <div class="card-body">
         <h6 class="card-title text-muted fw-bold">Total&nbsp;Sales</h6>
-        <div class="display-5 fw-bold">{{ prod_sales|floatformat:0 }}</div>
+        <div class="display-5 fw-bold">{{ prod_sales|floatformat:0|intcomma }}</div>
       </div>
     </div>
   </div>
@@ -296,7 +297,7 @@
     <div class="card border-dark h-100">
       <div class="card-body">
         <h6 class="card-title text-muted fw-bold">Total&nbsp;Margins</h6>
-        <div class="display-5 fw-bold">{{ prod_margin|floatformat:0 }}</div>
+        <div class="display-5 fw-bold">{{ prod_margin|floatformat:0|intcomma }}</div>
       </div>
     </div>
   </div>
@@ -446,7 +447,7 @@
       <thead class="table-light"><tr><th>Customer</th><th>Revenue (GHS)</th></tr></thead>
       <tbody>
         {% for c in top5_customers %}
-          <tr><td>{{ c.cust_name }}</td><td>{{ c.revenue|floatformat:2 }}</td></tr>
+          <tr><td>{{ c.cust_name }}</td><td>{{ c.revenue|floatformat:2|intcomma }}</td></tr>
         {% empty %}
           <tr><td colspan="2">No data.</td></tr>
         {% endfor %}
@@ -461,7 +462,7 @@
       <thead class="table-light"><tr><th>Service</th><th>Revenue (GHS)</th></tr></thead>
       <tbody>
         {% for s in top5_services %}
-          <tr><td>{{ s.svc }}</td><td>{{ s.revenue|floatformat:2 }}</td></tr>
+          <tr><td>{{ s.svc }}</td><td>{{ s.revenue|floatformat:2|intcomma }}</td></tr>
         {% empty %}
           <tr><td colspan="2">No data.</td></tr>
         {% endfor %}
@@ -476,7 +477,7 @@
       <thead class="table-light"><tr><th>Worker</th><th>Revenue (GHS)</th></tr></thead>
       <tbody>
         {% for w in top5_workers %}
-          <tr><td>{{ w.worker_name }}</td><td>{{ w.revenue|floatformat:2 }}</td></tr>
+          <tr><td>{{ w.worker_name }}</td><td>{{ w.revenue|floatformat:2|intcomma }}</td></tr>
         {% empty %}
           <tr><td colspan="2">No data.</td></tr>
         {% endfor %}
