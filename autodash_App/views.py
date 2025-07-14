@@ -857,11 +857,14 @@ def confirm_service(request, pk):
     # 8. commissions (unchanged, signal afterwards keeps Revenue up-to-date)
     for sr in sr_list:
         sr.remove_commission()
-    factor = (
-                     (order.subscription_amount_used or 0)
-                     + (order.loyalty_points_amount_deduction or 0)
-                     + (order.cash_paid or 0)
-             ) / max(order.total_amount, 1.0)
+    if new_status == "onCredit":
+        factor = 1
+    else:
+        factor = (
+            (order.subscription_amount_used or 0)
+            + (order.loyalty_points_amount_deduction or 0)
+            + (order.cash_paid or 0)
+        ) / max(order.total_amount, 1.0)
     for sr in sr_list:
         sr.allocate_commission(discount_factor=factor)
 
@@ -1383,6 +1386,7 @@ def service_history(request):
     List & bulk-update ServiceRenderedOrder rows.
     Revenue rows are synchronised by the post-save signal,
     so this view no longer writes to the Revenue table.
+    Workers who are not branch admins only see orders they participated in.
     """
     user = request.user
 
@@ -1391,16 +1395,27 @@ def service_history(request):
         messages.error(request, "You are not authorized to view this page.")
         return redirect("index")
 
+    # base queryset
     services_rendered = ServiceRenderedOrder.objects.all().order_by("-date")
 
-    # branch scoping for workers
+    # branch scoping and per-worker scoping
     if not user.is_staff and not user.is_superuser:
         try:
             worker = Worker.objects.get(user=user)
         except Worker.DoesNotExist:
             messages.error(request, "No worker profile found.")
             return redirect("index")
+
+        # limit to branch
         services_rendered = services_rendered.filter(branch=worker.branch)
+
+        # if not a branch admin, limit to orders this worker rendered
+        if not worker.is_branch_admin:
+            services_rendered = (
+                services_rendered
+                .filter(rendered__workers=worker)
+                .distinct()
+            )
 
     # filters
     statuses = ServiceRenderedOrder.STATUS_CHOICES
@@ -1462,14 +1477,33 @@ def service_history(request):
             order = get_object_or_404(ServiceRenderedOrder, id=order_id)
             old_status = order.status
 
-            # commission adjustments
-            for sr in order.rendered.all():
-                if old_status not in ("completed", "onCredit") and new_status in ("completed", "onCredit"):
-                    sr.allocate_commission()
-                elif old_status in ("completed", "onCredit") and new_status in ("pending", "canceled"):
+            # moving into completed or onCredit → recompute commissions
+            if old_status not in ("completed", "onCredit") and new_status in ("completed", "onCredit"):
+                # remove existing commissions
+                for sr in order.rendered.all():
                     sr.remove_commission()
 
-            # status change  ➔ post-save signal keeps Revenue/Arrears correct
+                # decide multiplier: full-price for onCredit, otherwise based on actual payment coverage
+                if new_status == "onCredit":
+                    factor = 1
+                else:
+                    paid = (
+                        (order.subscription_amount_used or 0)
+                        + (order.loyalty_points_amount_deduction or 0)
+                        + (order.cash_paid or 0)
+                    )
+                    factor = paid / max(order.total_amount, 1.0)
+
+                # re-allocate
+                for sr in order.rendered.all():
+                    sr.allocate_commission(discount_factor=factor)
+
+            # moving out of a terminal state into pending/canceled → remove commissions
+            elif old_status in ("completed", "onCredit") and new_status in ("pending", "canceled"):
+                for sr in order.rendered.all():
+                    sr.remove_commission()
+
+            # apply status change
             order.status = new_status
             order.save()
 

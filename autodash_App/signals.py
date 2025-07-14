@@ -31,9 +31,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 from .models import ServiceRenderedOrder, Revenue
 
-TERMINAL = {"completed", "onCredit"}
-
-
 @receiver(pre_save, sender=ServiceRenderedOrder)
 def _remember_old_status(sender, instance, **kwargs):
     if instance.pk:
@@ -44,19 +41,21 @@ def _remember_old_status(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ServiceRenderedOrder)
 def _sync_revenue(sender, instance, created, **kwargs):
-    was_terminal = instance._old_status in TERMINAL
-    is_terminal = instance.status in TERMINAL
+    old = instance._old_status
+    new = instance.status
 
-    if is_terminal:
+    # 1) Only create/update revenue when status just became 'completed'
+    if new == "completed" and old != "completed":
         Revenue.objects.update_or_create(
             service_rendered=instance,
-            defaults=dict(
-                branch=instance.branch,
-                amount=instance.total_amount,
-                final_amount=instance.final_amount,
-                user=getattr(instance, "updated_by", None),
-                date=timezone.now(),
-            ),
+            defaults={
+                "branch": instance.branch,
+                "amount": instance.total_amount,
+                "final_amount": instance.final_amount,
+                "user": getattr(instance, "updated_by", None),
+                "date": timezone.now().date(),
+            },
         )
-    elif was_terminal and not is_terminal:
+
+    elif old == "completed" and new != "completed":
         Revenue.objects.filter(service_rendered=instance).delete()
