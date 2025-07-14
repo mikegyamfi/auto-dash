@@ -289,8 +289,10 @@ def home(request):
 
     # 7) Incentive calculation
     if revenue_total > sales_target:
-        excess_base = net_sales - max(sales_target - commission_total, 0)
-        incentive_amount = max(excess_base * 0.15, 0)
+         # base = how much revenue went over (target minus what you already paid in commission)
+        base = revenue_total - max(sales_target - commission_total, 0)
+        #15% of that surplus
+        incentive_amount = max(base * 0.15, 0)
     else:
         incentive_amount = 0
 
