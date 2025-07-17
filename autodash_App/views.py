@@ -289,9 +289,7 @@ def home(request):
 
     # 7) Incentive calculation
     if revenue_total > sales_target:
-         # base = how much revenue went over (target minus what you already paid in commission)
         base = revenue_total - max(sales_target - commission_total, 0)
-        #15% of that surplus
         incentive_amount = max(base * 0.15, 0)
     else:
         incentive_amount = 0
@@ -863,10 +861,10 @@ def confirm_service(request, pk):
         factor = 1
     else:
         factor = (
-            (order.subscription_amount_used or 0)
-            + (order.loyalty_points_amount_deduction or 0)
-            + (order.cash_paid or 0)
-        ) / max(order.total_amount, 1.0)
+                         (order.subscription_amount_used or 0)
+                         + (order.loyalty_points_amount_deduction or 0)
+                         + (order.cash_paid or 0)
+                 ) / max(order.total_amount, 1.0)
     for sr in sr_list:
         sr.allocate_commission(discount_factor=factor)
 
@@ -1490,9 +1488,9 @@ def service_history(request):
                     factor = 1
                 else:
                     paid = (
-                        (order.subscription_amount_used or 0)
-                        + (order.loyalty_points_amount_deduction or 0)
-                        + (order.cash_paid or 0)
+                            (order.subscription_amount_used or 0)
+                            + (order.loyalty_points_amount_deduction or 0)
+                            + (order.cash_paid or 0)
                     )
                     factor = paid / max(order.total_amount, 1.0)
 
@@ -5409,3 +5407,62 @@ def dormant_vehicles(request):
         'cutoff': cutoff,
         'vehicles': qs,
     })
+
+
+# All in one link views
+
+def receipt_link(request):
+    if request.method == "POST":
+        code = request.POST.get("code", "").strip()
+        if Customer.objects.filter(user__phone_number=code).exists():
+            # re-use your feedback/history lookup
+            orders = ServiceRenderedOrder.objects.filter(
+                customer__user__phone_number=code
+            ).order_by("-date")
+            return render(request, "layouts/customers/receipt_history.html", {
+                "orders": orders,
+                "phone": code,
+            })
+        messages.error(request, "Invalid code. Try again.")
+    return render(request, "layouts/customers/receipt_code_entry.html")
+
+
+def invoice_pdf(request, pk):
+    """
+    Generate a PDF invoice for a single ServiceRenderedOrder.
+    """
+    service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
+    services_rendered = service_order.rendered.select_related('service').all()
+
+    # Sum up service prices for display
+    def get_price(sr):
+        return sr.negotiated_price if sr.negotiated_price else sr.service.price
+
+    total_services_price = sum(get_price(sr) for sr in services_rendered)
+    final_amount = service_order.final_amount or 0
+
+    subscription_trails = CustomerSubscriptionTrail.objects.filter(order=service_order)
+    loyalty_transactions = LoyaltyTransaction.objects.filter(order=service_order)
+
+    context = {
+        'service_order': service_order,
+        'services_rendered': services_rendered,
+        'total_services_price': total_services_price,
+        'final_amount': final_amount,
+        'subscription_trails': subscription_trails,
+        'loyalty_transactions': loyalty_transactions,
+    }
+
+    # Render the HTML template
+    html = render_to_string('layouts/workers/service_receipt.html', context, request=request)
+
+    # Create a PDF
+    response = HttpResponse(content_type='application/pdf')
+    filename = service_order.service_order_number
+    response['Content-Disposition'] = f'attachment; filename="invoice_{filename}.pdf"'
+
+    pisa_status = pisa.CreatePDF(html, dest=response)
+    if pisa_status.err:
+        return HttpResponse("Error generating PDF, please try again.")
+
+    return response

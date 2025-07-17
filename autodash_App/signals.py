@@ -45,17 +45,18 @@ def _sync_revenue(sender, instance, created, **kwargs):
     new = instance.status
 
     # 1) Only create/update revenue when status just became 'completed'
-    if new == "completed" and old != "completed":
+    if instance.status == "completed":
         Revenue.objects.update_or_create(
             service_rendered=instance,
             defaults={
                 "branch": instance.branch,
                 "amount": instance.total_amount,
                 "final_amount": instance.final_amount,
+                "discount": instance.discount_value,
                 "user": getattr(instance, "updated_by", None),
                 "date": timezone.now().date(),
             },
         )
 
-    elif old == "completed" and new != "completed":
+    else:
         Revenue.objects.filter(service_rendered=instance).delete()

@@ -144,6 +144,27 @@ urlpatterns = [
                       views.export_service_history_pdf,
                       name='export_service_history_pdf'
                   ),
+
+                  # Customer Link for viewing history without account
+                  path(
+                      'receipt-link/',
+                      views.receipt_link,
+                      name='receipt_link'
+                  ),
+
+                  # 2) export PDF invoice (assumes you have a PDF view already)
+                  path(
+                      'receipt-link/<int:pk>/invoice.pdf',
+                      views.invoice_pdf,
+                      name='invoice_pdf'
+                  ),
+
+                  # 3) rate a specific ServiceRendered
+                  path(
+                      'receipt-link/rate/<int:sr_id>/',
+                      views.service_feedback_page,
+                      name='rate_service'
+                  )
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

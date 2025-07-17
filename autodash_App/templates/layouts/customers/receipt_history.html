@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% load static humanize %}
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+      <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h4 class="fw-bold mb-4">Service History for {{ phone }}</h4>
+
+          {% if orders %}
+          {% for order in orders %}
+          <div class="card mb-3">
+              <div class="card-body">
+                  <div class="row align-items-center">
+                      <div class="col-md-8">
+                          <h5 class="card-title mb-1">
+                              Order #{{ order.service_order_number }}
+                          </h5>
+                          <p class="text-muted mb-2">
+                              {{ order.date|date:"Y-m-d H:i" }}
+                          </p>
+                          <p class="mb-1"><strong>Services:</strong>
+                              {% for sr in order.rendered.all %}
+                              {{ sr.service.service_type }}{% if not forloop.last %}, {% endif %}
+                              {% endfor %}
+                          </p>
+                          <p class="mb-0">
+                              <strong>Total:</strong>
+                              GHS {{ order.total_amount|floatformat:2|intcomma }},
+                              <strong>Paid:</strong>
+                              GHS {{ order.final_amount|floatformat:2|intcomma }}
+                          </p>
+                      </div>
+                      <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                          <a href="{% url 'invoice_pdf' pk=order.id %}"
+                             class="btn btn-outline-secondary btn-sm mb-1">
+                              <i class="fa fa-file-pdf-o"></i> PDF Invoice
+                          </a>
+                          {% if not order.customer_rating %}
+                          <a href="{% url 'service_feedback' order.id %}"
+                             class="btn btn-outline-primary btn-sm mb-1">
+                              <i class="fa fa-star"></i> Rate Service
+                          </a>
+                          {% else %}
+                          <span class="badge bg-success mb-1">
+                          Rated {{ order.customer_rating }}★
+                        </span>
+                          {% endif %}
+                          <a href="{% url 'service_order_details' order.id %}"
+                             class="btn btn-outline-info btn-sm">
+                              <i class="fa fa-history"></i> Details
+                          </a>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="alert alert-info">
+              No service orders found for this phone number.
+          </div>
+          {% endif %}
+
+      </div>
+      <div class="content-backdrop fade"></div>
+  </div>
+  <div class="layout-overlay layout-menu-toggle"></div>
+</div>
+{% endblock content %}
