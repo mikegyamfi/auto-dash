@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<div class="container py-4">
+  <h4>Service History for {{ customer.user.phone_number }}</h4>
+  {% if orders %}
+  <table class="table table-striped mt-3">
+    <thead>
+      <tr>
+        <th>Order #</th>
+        <th>Date</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td>{{ order.service_order_number }}</td>
+        <td>{{ order.date|date:"M j, Y H:i" }}</td>
+        <td>{{ order.get_status_display }}</td>
+        <td>
+          <!-- Export PDF Invoice -->
+          <a
+            href="{% url 'service_receipt' order.id %}"
+            class="btn btn-sm btn-outline-secondary"
+            target="_blank">
+            PDF Invoice
+          </a>
+
+          <!-- Rate if not already rated -->
+          {% if not order.customer_rating %}
+            <a
+              href="{% url 'service_feedback' order.id %}"
+              class="btn btn-sm btn-outline-success">
+              Rate Service
+            </a>
+          {% else %}
+            <span class="badge bg-success">
+              Rated {{ order.customer_rating }}★
+            </span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p>No services found.</p>
+  {% endif %}
+</div>
+{% endblock content %}

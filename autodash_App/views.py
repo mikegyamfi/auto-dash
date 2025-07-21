@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.sites.shortcuts import get_current_site
 from django.core.mail import send_mail
+from django.core.signing import TimestampSigner
 from django.db import transaction
 from django.db.models.functions import TruncDate, Concat, Coalesce
 from django.forms import modelformset_factory
@@ -889,9 +890,9 @@ def confirm_service(request, pk):
             if new_status == "completed":
                 send_sms(
                     customer.user.phone_number,
-                    f"Hello, Payment of GHS{order.total_amount} for"
-                    f"{order.vehicle.car_plate} is received. Thank you! "
-                    "Visit https://www.autodashgh.com\nCall 059 343 1421",
+                    f"Hello, GHS{order.total_amount} received for "
+                    f"{order.vehicle.car_plate}. View invoice, rate service, & history: https://management.autodashgh.com/history/access/{customer.user.phone_number}/"
+                    "\nCall 0593431421.Thank you!",
                 )
             elif new_status == "onCredit":
                 send_sms(
@@ -901,7 +902,8 @@ def confirm_service(request, pk):
                     "Get more details: "
                     f"https://management.autodashgh.com/service/{order.id}/receipt/",
                 )
-        except Exception:
+        except Exception as e:
+            print(e)
             pass  # swallow SMS errors
 
     messages.success(request, f"Service updated to {new_status}.")
@@ -5409,60 +5411,37 @@ def dormant_vehicles(request):
     })
 
 
-# All in one link views
+# All in one-link views
 
-def receipt_link(request):
-    if request.method == "POST":
-        code = request.POST.get("code", "").strip()
-        if Customer.objects.filter(user__phone_number=code).exists():
-            # re-use your feedback/history lookup
-            orders = ServiceRenderedOrder.objects.filter(
-                customer__user__phone_number=code
-            ).order_by("-date")
-            return render(request, "layouts/customers/receipt_history.html", {
-                "orders": orders,
-                "phone": code,
-            })
-        messages.error(request, "Invalid code. Try again.")
-    return render(request, "layouts/customers/receipt_code_entry.html")
+from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
+
+SIGNER_SALT = 'customer-history-link'
+LINK_EXPIRY_SECONDS = 7 * 24 * 3600
 
 
-def invoice_pdf(request, pk):
+@login_required(login_url='login')
+@staff_or_branch_admin_required
+def generate_history_link(request, customer_id):
     """
-    Generate a PDF invoice for a single ServiceRenderedOrder.
+    Admin action: generate a signed, expiring link for this customer.
+    Returns JSON: { link: "https://..." }
     """
-    service_order = get_object_or_404(ServiceRenderedOrder, pk=pk)
-    services_rendered = service_order.rendered.select_related('service').all()
+    customer = get_object_or_404(Customer, id=customer_id)
+    signer = TimestampSigner(salt=SIGNER_SALT)
+    token = signer.sign(str(customer.id))
+    url = request.build_absolute_uri(
+        reverse('customer_history_access', args=[token])
+    )
+    messages.success(request, f"Link for {customer.user.get_full_name()} created.")
+    return redirect('')
 
-    # Sum up service prices for display
-    def get_price(sr):
-        return sr.negotiated_price if sr.negotiated_price else sr.service.price
 
-    total_services_price = sum(get_price(sr) for sr in services_rendered)
-    final_amount = service_order.final_amount or 0
+def customer_history_access(request, customer_phone):
+    user = get_object_or_404(CustomUser, phone_number=customer_phone)
+    customer = get_object_or_404(Customer, user=user)
+    orders = ServiceRenderedOrder.objects.filter(customer=customer).order_by('-date')
 
-    subscription_trails = CustomerSubscriptionTrail.objects.filter(order=service_order)
-    loyalty_transactions = LoyaltyTransaction.objects.filter(order=service_order)
-
-    context = {
-        'service_order': service_order,
-        'services_rendered': services_rendered,
-        'total_services_price': total_services_price,
-        'final_amount': final_amount,
-        'subscription_trails': subscription_trails,
-        'loyalty_transactions': loyalty_transactions,
-    }
-
-    # Render the HTML template
-    html = render_to_string('layouts/workers/service_receipt.html', context, request=request)
-
-    # Create a PDF
-    response = HttpResponse(content_type='application/pdf')
-    filename = service_order.service_order_number
-    response['Content-Disposition'] = f'attachment; filename="invoice_{filename}.pdf"'
-
-    pisa_status = pisa.CreatePDF(html, dest=response)
-    if pisa_status.err:
-        return HttpResponse("Error generating PDF, please try again.")
-
-    return response
+    return render(request, 'layouts/customers/customer_access_history.html', {
+        'customer': customer,
+        'orders': orders,
+    })
