@@ -5439,7 +5439,7 @@ def generate_history_link(request, customer_id):
 def customer_history_access(request, customer_phone):
     user = get_object_or_404(CustomUser, phone_number=customer_phone)
     customer = get_object_or_404(Customer, user=user)
-    orders = ServiceRenderedOrder.objects.filter(customer=customer).order_by('-date')
+    orders = ServiceRenderedOrder.objects.filter(customer=customer, status__in=['completed', 'onCredit']).order_by('-date')
 
     return render(request, 'layouts/customers/customer_access_history.html', {
         'customer': customer,
