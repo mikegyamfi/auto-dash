@@ -288,10 +288,13 @@ def home(request):
     sales_status_pct = (revenue_total / sales_target * 100) if sales_target else 0
     expense_status_pct = (expenses_total / expense_budget * 100) if expense_budget else 0
 
+    CAP = 100
+
     # 7) Incentive calculation
     if revenue_total > sales_target:
         base = revenue_total - max(sales_target - commission_total, 0)
         incentive_amount = max(base * 0.15, 0)
+        incentive_amount = min(incentive_amount, CAP)
     else:
         incentive_amount = 0
 
