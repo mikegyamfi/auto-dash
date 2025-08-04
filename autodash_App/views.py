@@ -664,13 +664,12 @@ def log_service(request):
                 try:
                     send_sms(phone, sms_text)
                 except Exception as e:
-                    # optional: logger.warning(...)
+                    print(f"Error: {e}")
                     pass
 
             transaction.on_commit(_send)
 
         messages.success(request, 'Service logged successfully (status=pending).')
-        # Make sure your urls.py has name="confirm_service_rendered"
         return redirect('confirm_service_rendered', pk=new_order.pk)
 
     # GET
