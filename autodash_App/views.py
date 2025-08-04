@@ -284,21 +284,18 @@ def home(request):
         if wb:
             expense_budget += wb.budget_amount
 
-    # 6) Performance % = (actual / target) * 100
     sales_status_pct = (revenue_total / sales_target * 100) if sales_target else 0
     expense_status_pct = (expenses_total / expense_budget * 100) if expense_budget else 0
 
     CAP = 100
 
-    # 7) Incentive calculation
     if revenue_total > sales_target:
         base = revenue_total - max(sales_target - commission_total, 0)
-        incentive_amount = max(base * 0.15, 0)
+        incentive_amount = max(base * 0.05, 0)
         incentive_amount = min(incentive_amount, CAP)
     else:
         incentive_amount = 0
 
-    # 8) Recent & Pending lists
     recent_services = ServiceRenderedOrder.objects.filter(
         branch=branch,
         date__date__range=[start_dt, end_dt]
