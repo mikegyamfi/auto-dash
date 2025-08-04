@@ -179,7 +179,8 @@ class Service(models.Model):
     commission_rate = models.FloatField(default=0.0)  # e.g. 10 => 10%
 
     def __str__(self):
-        return f"{self.service_type} - {self.vehicle_group.group_name}"
+        vg = self.vehicle_group.group_name if self.vehicle_group else "No Group"
+        return f"{self.service_type} - {vg}"
 
 
 class ProductCategory(models.Model):
@@ -480,7 +481,7 @@ class ServiceRendered(models.Model):
     payment_type = models.CharField(max_length=200, null=True, blank=True, choices=(
         ("Loyalty Reward", "Loyalty Reward"), ("Subscription", "Subscription"), ("Cash", "Cash")))
 
-    def __str_(self):
+    def __str__(self):
         return f"{self.service.service_type} on Vehicle {self.order.vehicle}"
 
     def get_effective_price(self):
@@ -496,12 +497,6 @@ class ServiceRendered(models.Model):
         Commission.objects.filter(service_rendered=self).delete()
         self.commission_amount = 0.0
         self.save()
-
-    def save(self, *args, **kwargs):
-        # Optionally, compute commission upon creation if not set
-        if self.service.commission_rate and self.commission_amount is None:
-            self.commission_amount = (self.service.price * self.service.commission_rate) / 100
-        super(ServiceRendered, self).save(*args, **kwargs)
 
     def save(self, *args, **kwargs):
         # Optionally compute initial commission if not set

@@ -1,6 +1,7 @@
 import base64
 import json
 import uuid
+from decimal import Decimal
 
 import openpyxl
 from django.contrib.admin.views.decorators import staff_member_required
@@ -558,62 +559,129 @@ def log_service(request):
 
     if request.method == 'POST':
         form = LogServiceForm(data=request.POST, branch=worker.branch)
-        if form.is_valid():
-            customer = form.cleaned_data['customer']
-            vehicle = form.cleaned_data['vehicle']
-            selected_services = form.cleaned_data['service']
-            selected_workers = form.cleaned_data['workers']
-            comments = form.cleaned_data['comments']
-            selected_products = form.cleaned_data.get('products', [])
-            product_quantities = request.POST.getlist('product_quantity')
+        if not form.is_valid():
+            messages.error(request, "Form is invalid. Please correct the errors.")
+            return render(request, 'layouts/workers/log_service.html', {
+                'form': form,
+                'products': Product.objects.filter(branch=worker.branch),
+                'vehicle_groups': VehicleGroup.objects.all(),
+            })
 
-            # 1) Sum up the services using standard (non-negotiated) price only
-            total_services = 0
-            for svc in selected_services:
-                total_services += svc.price
-            print(total_services)
+        customer = form.cleaned_data['customer']
+        vehicle = form.cleaned_data['vehicle']
+        selected_services = form.cleaned_data['service']
+        selected_workers = form.cleaned_data['workers']
+        comments = form.cleaned_data['comments']
 
-            total = total_services
+        selected_products = form.cleaned_data.get('products', [])
+        product_quantities = request.POST.getlist('product_quantity')
 
-            # 3) Create the ServiceRenderedOrder with status 'pending'
-            new_order = ServiceRenderedOrder.objects.create(
-                customer=customer,
-                user=user,
-                total_amount=total,
-                final_amount=total,
-                vehicle=vehicle,
-                branch=worker.branch,
-                status='pending',
-                comments=comments
-            )
+        if not selected_services:
+            messages.error(request, "Please select at least one service.")
+            return render(request, 'layouts/workers/log_service.html', {
+                'form': form,
+                'products': Product.objects.filter(branch=worker.branch),
+                'vehicle_groups': VehicleGroup.objects.all(),
+            })
+
+        total_services = Decimal('0.00')
+        for svc in selected_services:
+            price = Decimal(str(svc.price or 0))
+            total_services += price
+
+        total = total_services
+
+        new_order = ServiceRenderedOrder.objects.create(
+            customer=customer,
+            user=user,
+            total_amount=float(total),
+            final_amount=float(total),
+            vehicle=vehicle,
+            branch=worker.branch,
+            status='pending',
+            comments=comments
+        )
+        if selected_workers:
             new_order.workers.set(selected_workers)
 
-            # 4) Create ServiceRendered entries (negotiated_price=None initially)
-            for svc in selected_services:
-                sr = ServiceRendered.objects.create(
-                    service=svc,
-                    order=new_order,
-                    negotiated_price=svc.price,  # We'll handle at confirm time if negotiable
-                    payment_type="Cash"
-                )
+        # Create line items
+        for svc in selected_services:
+            sr = ServiceRendered.objects.create(
+                service=svc,
+                order=new_order,
+                negotiated_price=svc.price,   # matches FloatField
+                payment_type="Cash"
+            )
+            if selected_workers:
                 sr.workers.set(selected_workers)
 
-            messages.success(request, 'Service logged successfully (status=pending).')
-            return redirect('confirm_service_rendered', pk=new_order.pk)
-        else:
-            messages.error(request, "Form is invalid. Please correct the errors.")
-    else:
-        form = LogServiceForm(branch=worker.branch)
+        # Triggered SMS (4 services)
+        TRIGGER_SERVICE_NAMES = {
+            "Exterior Detailing",
+            "Interior Detailing",
+            "Ext Polishing",
+            "Mineral Deposit Removal",
+        }
+        TRIGGER_KEYS = {" ".join(n.split()).casefold() for n in TRIGGER_SERVICE_NAMES}
 
+        matched_display_names = []
+        for svc in selected_services:
+            raw = (svc.service_type or "").strip()
+            key = " ".join(raw.split()).casefold()
+            if key in TRIGGER_KEYS:
+                matched_display_names.append(raw)
+
+        phone = getattr(getattr(customer, "user", None), "phone_number", None)
+        if matched_display_names and phone:
+            # unique while preserving order
+            seen = set()
+            unique_names = []
+            for n in matched_display_names:
+                if n not in seen:
+                    seen.add(n)
+                    unique_names.append(n)
+
+            def human_join(names):
+                if len(names) == 1:
+                    return names[0]
+                if len(names) == 2:
+                    return f"{names[0]} and {names[1]}"
+                return f"{', '.join(names[:-1])} and {names[-1]}"
+
+            service_names_str = human_join(unique_names)
+            car_number = getattr(vehicle, "car_plate", "") or "your vehicle"
+
+            # --- FIX 2: Decimal-safe formatting for SMS amount ---
+            amt = Decimal(str(new_order.final_amount or 0)).quantize(Decimal('0.01'))
+            amount_text = f"GHS{amt}"
+
+            sms_text = (
+                f"Hello, {service_names_str} on {car_number} is confirmed. "
+                f"Amount to be paid is {amount_text}. Thank you for choosing us."
+            )
+
+            def _send():
+                try:
+                    send_sms(phone, sms_text)
+                except Exception as e:
+                    # optional: logger.warning(...)
+                    pass
+
+            transaction.on_commit(_send)
+
+        messages.success(request, 'Service logged successfully (status=pending).')
+        # Make sure your urls.py has name="confirm_service_rendered"
+        return redirect('confirm_service_rendered', pk=new_order.pk)
+
+    # GET
+    form = LogServiceForm(branch=worker.branch)
     products = Product.objects.filter(branch=worker.branch)
     vehicle_groups = VehicleGroup.objects.all()
-
-    context = {
+    return render(request, 'layouts/workers/log_service.html', {
         'form': form,
         'products': products,
         'vehicle_groups': vehicle_groups
-    }
-    return render(request, 'layouts/workers/log_service.html', context)
+    })
 
 
 from django.urls import reverse
@@ -5439,7 +5507,8 @@ def generate_history_link(request, customer_id):
 def customer_history_access(request, customer_phone):
     user = get_object_or_404(CustomUser, phone_number=customer_phone)
     customer = get_object_or_404(Customer, user=user)
-    orders = ServiceRenderedOrder.objects.filter(customer=customer, status__in=['completed', 'onCredit']).order_by('-date')
+    orders = ServiceRenderedOrder.objects.filter(customer=customer, status__in=['completed', 'onCredit']).order_by(
+        '-date')
 
     return render(request, 'layouts/customers/customer_access_history.html', {
         'customer': customer,
