@@ -177,16 +177,21 @@
       <p class="mb-1"><strong>Final Amount Paid:</strong>
         GHS {{ final_amount|floatformat:2 }}</p>
 
-      {# ------- Order status + inline Paid badge ------- #}
-      <p class="mb-1 d-flex align-items-center">
-        <strong class="me-1">Order Status:</strong>
-        <span>{{ service_order.status }}</span>
-        {% if service_order.status == "completed" %}
-          <img src="{% static 'assets/img/Paid.png' %}"
-               alt="Paid" style="width: 50px;"
-               class="paid-inline">
-        {% endif %}
-      </p>
+      <p class="mb-1 d-flex align-items-center justify-content-between">
+  <span class="d-inline-flex align-items-center gap-1">
+    <strong>Order Status:</strong>
+    <span>{{ service_order.status }}</span>
+  </span>
+
+  {% if service_order.status == "completed" %}
+    <img
+      src="{% static 'assets/img/stamp.png' %}"
+      alt="Paid"
+      class="paid-inline ms-3 flex-shrink-0"
+      style="width: 90px; height:auto;"
+    >
+  {% endif %}
+</p>
 
     </div>
   </div>
