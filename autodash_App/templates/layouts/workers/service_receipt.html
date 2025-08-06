@@ -179,8 +179,15 @@
 
       <p class="mb-1 d-flex align-items-center justify-content-between">
   <span class="d-inline-flex align-items-center gap-1">
+
     <strong>Order Status:</strong>
-    <span>{{ service_order.status }}</span>
+    <span class="mr-0">{{ service_order.status }}</span>
+    <img
+      src="{% static 'assets/img/Paid.png' %}"
+      alt="Paid"
+      class="paid-inline flex-shrink-0"
+      style="width: 50px; height:auto;"
+    >
   </span>
 
   {% if service_order.status == "completed" %}
@@ -188,9 +195,11 @@
       src="{% static 'assets/img/stamp.png' %}"
       alt="Paid"
       class="paid-inline ms-3 flex-shrink-0"
-      style="width: 90px; height:auto;"
+      style="width: 130px; height:auto;"
     >
   {% endif %}
+
+        <p></p>
 </p>
 
     </div>
