@@ -93,6 +93,7 @@
                   <thead>
                     <tr>
                       <th>Order #</th>
+                      <th>Vehicle</th>
                       <th>Branch</th>
                       <th>Amount Owed (GHS)</th>
                       <th>Date Created</th>
@@ -117,6 +118,7 @@
                               {{ arr.service_order.service_order_number }}
                             </a>
                           </td>
+                          <td>{{arr.service_order.vehicle}}</td>
                           <td>{{ arr.branch.name }}</td>
                           <td>{{ arr.amount_owed|floatformat:2 }}</td>
                           <td>{{ arr.date_created|date:"Y-m-d H:i" }}</td>
@@ -153,7 +155,7 @@
                                 </a>
                               {% else %}
                                 <button class="btn btn-secondary btn-sm" disabled>
-                                  Already Paid
+                                  Marked as Paid
                                 </button>
                               {% endif %}
                             </div>
