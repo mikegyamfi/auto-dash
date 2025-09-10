@@ -573,6 +573,13 @@ def log_service(request):
         selected_workers = form.cleaned_data['workers']
         comments = form.cleaned_data['comments']
 
+        if not customer:
+            vehicle_customer = vehicle.customer
+            if not vehicle_customer:
+                pass
+            else:
+                customer = vehicle_customer
+
         selected_products = form.cleaned_data.get('products', [])
         product_quantities = request.POST.getlist('product_quantity')
 
@@ -614,60 +621,6 @@ def log_service(request):
             )
             if selected_workers:
                 sr.workers.set(selected_workers)
-
-        # Triggered SMS (4 services)
-        TRIGGER_SERVICE_NAMES = {
-            "Exterior Detailing",
-            "Interior Detailing",
-            "Ext Polishing",
-            "Mineral Deposit Removal",
-        }
-        TRIGGER_KEYS = {" ".join(n.split()).casefold() for n in TRIGGER_SERVICE_NAMES}
-
-        matched_display_names = []
-        for svc in selected_services:
-            raw = (svc.service_type or "").strip()
-            key = " ".join(raw.split()).casefold()
-            if key in TRIGGER_KEYS:
-                matched_display_names.append(raw)
-
-        phone = getattr(getattr(customer, "user", None), "phone_number", None)
-        if matched_display_names and phone:
-            # unique while preserving order
-            seen = set()
-            unique_names = []
-            for n in matched_display_names:
-                if n not in seen:
-                    seen.add(n)
-                    unique_names.append(n)
-
-            def human_join(names):
-                if len(names) == 1:
-                    return names[0]
-                if len(names) == 2:
-                    return f"{names[0]} and {names[1]}"
-                return f"{', '.join(names[:-1])} and {names[-1]}"
-
-            service_names_str = human_join(unique_names)
-            car_number = getattr(vehicle, "car_plate", "") or "your vehicle"
-
-            # --- FIX 2: Decimal-safe formatting for SMS amount ---
-            amt = Decimal(str(new_order.final_amount or 0)).quantize(Decimal('0.01'))
-            amount_text = f"GHS{amt}"
-
-            sms_text = (
-                f"Hello, {service_names_str} on {car_number} is confirmed. "
-                f"Amount to be paid is {amount_text}. Thank you for choosing us."
-            )
-
-            def _send():
-                try:
-                    send_sms(phone, sms_text)
-                except Exception as e:
-                    print(f"Error: {e}")
-                    pass
-
-            transaction.on_commit(_send)
 
         messages.success(request, 'Service logged successfully (status=pending).')
         return redirect('confirm_service_rendered', pk=new_order.pk)
@@ -808,6 +761,67 @@ def confirm_service(request, pk):
     new_status = request.POST.get("status", "completed")
     order.status = new_status
     order.save()  # NOTE: Revenue handled by post-save signal now
+
+    # ────────────────────────────────────
+    # INITIAL TRIGGER SMS WHEN SAVED AS PENDING (once per order)
+    # ────────────────────────────────────
+    if new_status == "pending" and not getattr(order, "initial_sms_sent", False):
+        TRIGGER_SERVICE_NAMES = {
+            "Exterior Detailing",
+            "Interior Detailing",
+            "Ext Polishing",
+            "Mineral Deposit Removal",
+        }
+        TRIGGER_KEYS = {" ".join(n.split()).casefold() for n in TRIGGER_SERVICE_NAMES}
+
+        matched_display_names = []
+        for sr in sr_list:
+            raw = (sr.service.service_type or "").strip()
+            key = " ".join(raw.split()).casefold()
+            if key in TRIGGER_KEYS:
+                matched_display_names.append(raw)
+
+        phone = getattr(getattr(order.customer, "user", None), "phone_number", None)
+
+        if matched_display_names and phone:
+            # de-dupe, keep order
+            seen = set()
+            unique_names = []
+            for n in matched_display_names:
+                if n not in seen:
+                    seen.add(n)
+                    unique_names.append(n)
+
+            def human_join(names):
+                if len(names) == 1:
+                    return names[0]
+                if len(names) == 2:
+                    return f"{names[0]} and {names[1]}"
+                return f"{', '.join(names[:-1])} and {names[-1]}"
+
+            service_names_str = human_join(unique_names)
+            car_number = getattr(order.vehicle, "car_plate", "") or "your vehicle"
+
+            from decimal import Decimal
+            amt = Decimal(str(order.total_amount or 0)).quantize(Decimal("0.01"))
+            amount_text = f"GHS{amt}"
+
+            sms_text = (
+                f"Hello, {service_names_str} on {car_number} is confirmed. "
+                f"Amount to be paid is {amount_text}. Thank you for choosing us."
+            )
+
+            # mark sent before queuing to avoid duplicates on re-submit
+            order.initial_sms_sent = True
+            order.save(update_fields=["initial_sms_sent"])
+
+            def _send_initial():
+                try:
+                    send_sms(phone, sms_text)
+                except Exception as e:
+                    print(e)
+
+            transaction.on_commit(_send_initial)
 
     if new_status in ("pending", "canceled"):
         messages.info(request, f"Order marked {new_status}.")
@@ -951,30 +965,57 @@ def confirm_service(request, pk):
                 order=order,
             )
 
-    # 10. SMS (unchanged)
-    if customer and customer.user.phone_number:
+    # 10. SMS (finals for completed/onCredit only — trigger text NOT used here)
+    from decimal import Decimal  # ensure this is imported at the top of the file
+
+    phone = getattr(getattr(order.customer, "user", None), "phone_number", None)
+
+    def _send_completed_sms():
         try:
-            if new_status == "completed":
-                send_sms(
-                    customer.user.phone_number,
-                    f"Hello, GHS{order.total_amount} received for "
-                    f"{order.vehicle.car_plate}. View invoice, rate service, & history: https://management.autodashgh.com/history/access/{customer.user.phone_number}/"
-                    "\nCall 0593431421.Thank you!",
-                )
-            elif new_status == "onCredit":
-                send_sms(
-                    customer.user.phone_number,
-                    f"Hello your credit service "
-                    f"{order.service_order_number} has been completed. "
-                    "Get more details: "
-                    f"https://management.autodashgh.com/service/{order.id}/receipt/",
-                )
+            cash = order.cash_paid or 0.0
+            plate = getattr(order.vehicle, "car_plate", "") or "your vehicle"
+            send_sms(
+                phone,
+                (
+                    f"Payment received: GHS{cash:.2f} for {plate}. "
+                    f"Receipt: https://management.autodashgh.com/service/{order.id}/receipt/"
+                ),
+            )
         except Exception as e:
             print(e)
-            pass  # swallow SMS errors
+
+    def _send_credit_sms():
+        try:
+            owed = 0.0
+            if hasattr(order, "arrears") and order.arrears and not order.arrears.is_paid:
+                owed = order.arrears.amount_owed or 0.0
+            else:
+                owed = order.cash_paid or 0.0
+            send_sms(
+                phone,
+                (
+                    f"Service on credit: {order.service_order_number}. "
+                    f"Amount owed: GHS{owed:.2f}. "
+                    f"Details: https://management.autodashgh.com/service/{order.id}/receipt/"
+                ),
+            )
+        except Exception as e:
+            print(e)
+
+    if phone:
+        if new_status == "completed" and not getattr(order, "completed_sms_sent", False):
+            order.completed_sms_sent = True
+            order.save(update_fields=["completed_sms_sent"])
+            transaction.on_commit(_send_completed_sms)
+
+        elif new_status == "onCredit" and not getattr(order, "credit_sms_sent", False):
+            order.credit_sms_sent = True
+            order.save(update_fields=["credit_sms_sent"])
+            transaction.on_commit(_send_credit_sms)
 
     messages.success(request, f"Service updated to {new_status}.")
     return redirect("service_receipt", pk=order.pk)
+
 
 
 def service_receipt(request, pk):

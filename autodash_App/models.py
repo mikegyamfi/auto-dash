@@ -409,6 +409,9 @@ class ServiceRenderedOrder(models.Model):
     total_amount = models.FloatField()
     amount_paid = models.FloatField(null=True, blank=True)
     final_amount = models.FloatField(null=True, blank=True)
+    initial_sms_sent = models.BooleanField(default=False)
+    completed_sms_sent = models.BooleanField(default=False)
+    credit_sms_sent = models.BooleanField(default=False)
     discount_type = models.CharField(
         max_length=10,
         choices=[('percentage', 'Percentage'), ('amount', 'Amount')],
