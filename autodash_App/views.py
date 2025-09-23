@@ -579,6 +579,7 @@ def log_service(request):
                 pass
             else:
                 customer = vehicle_customer
+                to_be_saved_customer = customer
 
         selected_products = form.cleaned_data.get('products', [])
         product_quantities = request.POST.getlist('product_quantity')
@@ -599,7 +600,7 @@ def log_service(request):
         total = total_services
 
         new_order = ServiceRenderedOrder.objects.create(
-            customer=customer,
+            customer=customer if customer else to_be_saved_customer,
             user=user,
             total_amount=float(total),
             final_amount=float(total),
