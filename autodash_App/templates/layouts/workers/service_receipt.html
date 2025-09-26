@@ -182,14 +182,6 @@
 
     <strong>Order Status:</strong>
     <span class="mr-0">{{ service_order.status }}</span>
-    {% if service_order.status == "completed" %}
-    <img
-      src="{% static 'assets/img/Paid.png' %}"
-      alt="Paid"
-      class="paid-inline flex-shrink-0"
-      style="width: 50px; height:auto;"
-    >
-    {% endif %}
   </span>
 
   {% if service_order.status == "completed" %}
