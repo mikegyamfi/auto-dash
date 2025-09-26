@@ -192,9 +192,14 @@
                         <td>{{ service.final_amount|floatformat:2 }}</td>
                         <td>
                           <a href="{% url 'service_order_details' pk=service.id %}"
-                             class="btn btn-sm btn-info"
+                             class="btn btn-sm btn-info mb-2"
                           >
                             Details
+                          </a> <br>
+                          <a href="{% url 'service_receipt' pk=service.id %}"
+                             class="btn btn-sm btn-info"
+                          >
+                            Invoice
                           </a>
                         </td>
                       </tr>
