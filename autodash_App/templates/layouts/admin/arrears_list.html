@@ -20,6 +20,7 @@
           <!-- Filter Form -->
           <form method="GET" class="row mb-4 align-items-end">
             <!-- Branch -->
+            {% if not is_branch_admin %}
             <div class="col-md-2">
               <label for="branch" class="form-label">Branch</label>
               <select id="branch" name="branch" class="form-control">
@@ -34,7 +35,7 @@
                 {% endfor %}
               </select>
             </div>
-
+            {% endif %}
             <!-- Start Date -->
             <div class="col-md-2">
               <label for="start_date" class="form-label">Start Date</label>

@@ -3805,7 +3805,15 @@ def arrears_list(request):
 
     # If user is staff/superuser => can see all branches
     # Otherwise => must get worker's branch
-    if user.is_staff or user.is_superuser:
+    is_branch_admin = False
+    branch_admin_profile = None
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin:
+        is_branch_admin = True
+        branch_admin_profile = user.worker_profile
+    else:
+        is_branch_admin = False
+
+    if user.is_staff or user.is_superuser or is_branch_admin:
         branches = Branch.objects.all()
         branch_id = request.GET.get('branch', '')
         start_date_str = request.GET.get('start_date', '')
@@ -3816,6 +3824,9 @@ def arrears_list(request):
         # Branch filter
         if branch_id:
             arrears_qs = arrears_qs.filter(branch_id=branch_id)
+
+        if is_branch_admin:
+            branch = branch_admin_profile.branch
 
         # Date range filter
         if start_date_str and end_date_str:
@@ -3844,6 +3855,7 @@ def arrears_list(request):
             'paid_filter': paid_filter,
             'arrears_list': arrears_qs,
             'total_owed': total_owed,
+            'is_branch_admin': is_branch_admin,
             'is_staff_view': True,  # For template conditionals
         }
         return render(request, 'layouts/admin/arrears_list.html', context)
