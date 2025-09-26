@@ -428,7 +428,8 @@ class ServiceRenderedOrder(models.Model):
         choices=[
             ('loyalty', 'Loyalty Points'),
             ('subscription', 'Subscription'),
-            ('cash', 'Cash')
+            ('cash', 'Cash'),
+            ('momo', 'MoMo')
         ],
         null=True,
         blank=True
@@ -482,7 +483,7 @@ class ServiceRendered(models.Model):
     commission_amount = models.FloatField(null=True, blank=True)
     negotiated_price = models.FloatField(null=True, blank=True)
     payment_type = models.CharField(max_length=200, null=True, blank=True, choices=(
-        ("Loyalty Reward", "Loyalty Reward"), ("Subscription", "Subscription"), ("Cash", "Cash")))
+        ("Loyalty Reward", "Loyalty Reward"), ("Subscription", "Subscription"), ("Cash", "Cash"),  ("MoMo", "MoMo")))
 
     def __str__(self):
         return f"{self.service.service_type} on Vehicle {self.order.vehicle}"

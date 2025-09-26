@@ -59,6 +59,17 @@
   .card-body {
     padding: 1.5rem;
   }
+
+  /* Keep the cash method select compact and inline */
+  .type-cell .cash-method {
+    display: none;
+    width: auto;
+    min-width: 110px;
+    margin-left: 6px;
+  }
+  .type-cell .type-label {
+    vertical-align: middle;
+  }
 </style>
 {% endblock style %}
 
@@ -183,7 +194,15 @@
                         {% endif %}
                       </td>
                       <td class="cash-cell">GHS {{ c.cash_due|floatformat:2 }}</td>
-                      <td class="type-cell">Cash</td>
+                      <td class="type-cell">
+                        <span class="type-label">Cash</span>
+                        <!-- Only enabled/visible when computed type is exactly 'Cash' -->
+                        <select class="form-select form-select-sm cash-method"
+                                name="pay_method_{{ c.service_id }}">
+                          <option value="cash" selected>Cash</option>
+                          <option value="momo">Momo</option>
+                        </select>
+                      </td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -268,9 +287,27 @@ document.addEventListener('DOMContentLoaded', () => {
         type += ' + Cash';
       }
 
+      // Update cash cell total
       row.querySelector('.cash-cell').textContent = 'GHS ' + cash.toFixed(2);
-      row.querySelector('.type-cell').textContent = type;
       totalCash += cash;
+
+      // Handle payment type display / dropdown
+      const typeCell = row.querySelector('.type-cell');
+      const labelEl = typeCell.querySelector('.type-label');
+      const methodSelect = typeCell.querySelector('.cash-method');
+
+      if (type === 'Cash' && cash > 0) {
+        // Enable and show the selector, label reflects selected method
+        methodSelect.style.display = 'inline-block';
+        methodSelect.disabled = false;
+        const selectedText = methodSelect.options[methodSelect.selectedIndex].textContent;
+        labelEl.textContent = selectedText; // shows 'Cash' or 'Momo'
+      } else {
+        // Hide/disable selector and show computed type label
+        methodSelect.style.display = 'none';
+        methodSelect.disabled = true;
+        labelEl.textContent = type;
+      }
     });
 
     // Apply discount
@@ -285,11 +322,21 @@ document.addEventListener('DOMContentLoaded', () => {
     approxEl.textContent = finalTotal.toFixed(2);
   }
 
+  // React to inputs that change the math
   document.querySelectorAll('.negotiable-price, .loyalty-box').forEach(el =>
     el.addEventListener('input', recalc)
   );
   discType.addEventListener('change', recalc);
   discVal.addEventListener('input', recalc);
+
+  // When user switches between Cash/Momo, keep label in sync (doesn't change totals)
+  document.querySelectorAll('.cash-method').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const typeCell = sel.closest('.type-cell');
+      const labelEl = typeCell.querySelector('.type-label');
+      labelEl.textContent = sel.options[sel.selectedIndex].textContent;
+    });
+  });
 
   recalc();
 });

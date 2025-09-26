@@ -833,7 +833,7 @@ def confirm_service(request, pk):
         for sr in sr_list:
             sr.remove_commission()
 
-    # 4. coverage calculations  (unchanged)
+    # 4. coverage calculations  (UPDATED: clean Cash vs Momo, no duplicates)
     remaining_sub = float(cust_sub.sub_amount_remaining) if cust_sub else 0.0
     used_sub_total = 0.0
     used_loyalty_pts = 0
@@ -843,16 +843,26 @@ def confirm_service(request, pk):
     for sr in sr_list:
         price = float(sr.get_effective_price())
 
+        # Always rebuild label fresh for this SR
+        sr.payment_type = ""
+
+        parts = []  # collect unique parts in order
+
         # subscription
         sub_cov = 0.0
-        if (subscription_active and order.vehicle and cust_sub and
-                sr.service in cust_sub.subscription.services.all() and
-                order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all() and
-                remaining_sub > 0.0):
+        if (
+            subscription_active
+            and order.vehicle
+            and cust_sub
+            and sr.service in cust_sub.subscription.services.all()
+            and order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
+            and remaining_sub > 0.0
+        ):
             sub_cov = min(price, remaining_sub)
             remaining_sub -= sub_cov
             used_sub_total += sub_cov
-            sr.payment_type = "Subscription"
+            parts.append("Subscription")
+
         leftover = price - sub_cov
 
         # loyalty
@@ -864,7 +874,7 @@ def confirm_service(request, pk):
                 used_loyalty_pts += req_pts
                 loyalty_cover += loy_cov
                 customer.loyalty_points -= req_pts
-                sr.payment_type = "Loyalty"
+                parts.append("Loyalty")
                 LoyaltyTransaction.objects.create(
                     customer=customer,
                     points=-req_pts,
@@ -875,10 +885,30 @@ def confirm_service(request, pk):
                 )
         leftover -= loy_cov
 
-        # cash
+        # cash / momo distinction
         if leftover > 0:
-            sr.payment_type = (sr.payment_type + " + Cash") if sr.payment_type else "Cash"
+            pay_method = (request.POST.get(f"pay_method_{sr.id}", "cash") or "cash").lower()
+            cash_label = "Momo" if pay_method == "momo" else "Cash"
+            # optionally persist selected method if you have this field
+            try:
+                order.payment_method = pay_method
+                order.save()
+            except Exception as e:
+                print(e)
+                pass
+            parts.append(cash_label)
             cash_total += leftover
+
+        # De-duplicate while preserving order
+        seen = set()
+        unique_parts = []
+        for p in parts:
+            if p not in seen:
+                seen.add(p)
+                unique_parts.append(p)
+
+        # Final label: single if one, joined if multiple
+        sr.payment_type = " + ".join(unique_parts)
 
         # subscription trail
         if sub_cov > 0:
@@ -913,7 +943,8 @@ def confirm_service(request, pk):
         min(cash_total, d_val) if d_type == "amount"
         else cash_total * min(d_val, 100.0) / 100.0
     )
-    final_cash = max(0.0, cash_total - disc_amt)
+    const_final_cash = max(0.0, cash_total - disc_amt)
+    final_cash = const_final_cash  # keep original naming
 
     # 6. finalise order totals
     order.subscription_amount_used = used_sub_total
@@ -944,10 +975,10 @@ def confirm_service(request, pk):
         factor = 1
     else:
         factor = (
-                         (order.subscription_amount_used or 0)
-                         + (order.loyalty_points_amount_deduction or 0)
-                         + (order.cash_paid or 0)
-                 ) / max(order.total_amount, 1.0)
+            (order.subscription_amount_used or 0)
+            + (order.loyalty_points_amount_deduction or 0)
+            + (order.cash_paid or 0)
+        ) / max(order.total_amount, 1.0)
     for sr in sr_list:
         sr.allocate_commission(discount_factor=factor)
 
@@ -1016,6 +1047,7 @@ def confirm_service(request, pk):
 
     messages.success(request, f"Service updated to {new_status}.")
     return redirect("service_receipt", pk=order.pk)
+
 
 
 
