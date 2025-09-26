@@ -1821,7 +1821,7 @@ def customer_dashboard(request):
     vehicles = CustomerVehicle.objects.filter(customer=customer)[:10]
     all_vehicles = CustomerVehicle.objects.filter(customer=customer)
 
-    arrears = Arrears.objects.filter(service_order__customer=customer, is_paid=True).order_by('-date_created')
+    arrears = Arrears.objects.filter(service_order__customer=customer, is_paid=False).order_by('-date_created')
 
     scanned_url = request.build_absolute_uri(reverse('log_service_scanned', args=[customer.id]))
 

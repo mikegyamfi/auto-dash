@@ -71,7 +71,6 @@
                         <li class="list-group-item">
                           <p class="mb-0"><strong>Order:</strong> {{ arrear.service_order.service_order_number }}</p>
                           <p class="mb-0"><strong>Amount Owed:</strong> GHS {{ arrear.amount_owed|floatformat:2 }}</p>
-                          <p class="mb-0"><strong>Is Paid:</strong> {{arrear.is_paid}}</p>
                         </li>
                       {% endfor %}
                     </ul>
