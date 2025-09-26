@@ -9,6 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.sites.shortcuts import get_current_site
 from django.core.mail import send_mail
+from django.core.paginator import Paginator
 from django.core.signing import TimestampSigner
 from django.db import transaction
 from django.db.models.functions import TruncDate, Concat, Coalesce
@@ -1905,17 +1906,106 @@ def customer_profile(request):
 @login_required(login_url='login')
 def customer_service_history(request):
     """
-    Shows a customer's own service history.
+    Shows a customer's own service history with filters.
     """
     user = get_object_or_404(CustomUser, id=request.user.id)
     customer = get_object_or_404(Customer, user=user)
-    services_rendered = ServiceRenderedOrder.objects.filter(customer=customer)
 
-    return render(
-        request,
-        'layouts/customers/service_history.html',
-        {'services_rendered': services_rendered}
+    qs = (
+        ServiceRenderedOrder.objects
+        .filter(customer=customer)
+        .select_related('branch')
+        .prefetch_related('workers__user')
+        .order_by('-date')
     )
+
+    # ----- Filters -----
+    status = request.GET.get('status', '').strip()                  # completed/pending/canceled/onCredit
+    pm = request.GET.get('payment_method', '').strip()              # cash/momo
+    branch_id = request.GET.get('branch', '').strip()
+    date_from = request.GET.get('date_from', '').strip()
+    date_to = request.GET.get('date_to', '').strip()
+    min_amt = request.GET.get('min_amount', '').strip()
+    max_amt = request.GET.get('max_amount', '').strip()
+    q = request.GET.get('q', '').strip()                            # free text search (order number)
+
+    if status:
+        qs = qs.filter(status=status)
+
+    if pm in ('cash', 'momo'):
+        qs = qs.filter(payment_method=pm)
+
+    if branch_id.isdigit():
+        qs = qs.filter(branch_id=int(branch_id))
+
+    # dates
+    if date_from:
+        try:
+            qs = qs.filter(date__date__gte=date_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            qs = qs.filter(date__date__lte=date_to)
+        except ValueError:
+            pass
+
+    # amounts (final_amount)
+    if min_amt:
+        try:
+            qs = qs.filter(final_amount__gte=float(min_amt))
+        except ValueError:
+            pass
+    if max_amt:
+        try:
+            qs = qs.filter(final_amount__lte=float(max_amt))
+        except ValueError:
+            pass
+
+    # search by service_order_number
+    if q:
+        qs = qs.filter(Q(service_order_number__icontains=q))
+
+    # For branch filter options (only those the customer actually has history with)
+    branches = (
+        ServiceRenderedOrder.objects
+        .filter(customer=customer)
+        .values('branch_id', 'branch__name')
+        .distinct()
+        .order_by('branch__name')
+    )
+
+    # Pagination (20 per page)
+    paginator = Paginator(qs, 20)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    # Keep existing query params for pagination links
+    querydict = request.GET.copy()
+    if 'page' in querydict:
+        querydict.pop('page')
+    preserved_query = querydict.urlencode()
+
+    context = {
+        'services_rendered': page_obj,
+        'page_obj': page_obj,
+        'preserved_query': preserved_query,
+
+        # filter option lists
+        'status_choices': dict(ServiceRenderedOrder.STATUS_CHOICES),
+        'branches': branches,
+        'selected': {
+            'status': status,
+            'payment_method': pm,
+            'branch': branch_id,
+            'date_from': date_from,
+            'date_to': date_to,
+            'min_amount': min_amt,
+            'max_amount': max_amt,
+            'q': q,
+        }
+    }
+    return render(request, 'layouts/customers/service_history.html', context)
 
 
 @login_required(login_url='login')
