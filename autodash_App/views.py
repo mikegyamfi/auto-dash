@@ -254,9 +254,17 @@ def home(request):
         status='completed',
         date__date__range=[start_dt, end_dt]
     )
-    cash_flow_cash = completed.aggregate(Sum('cash_paid'))['cash_paid__sum'] or 0
+    cash_flow_cash = (
+        completed
+        .filter(payment_method='cash')
+        .aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
+    )
     print(cash_flow_cash)
-    cash_flow_momo = completed.aggregate(Sum('amount_paid'))['amount_paid__sum'] or 0
+    cash_flow_momo = (
+        completed
+        .filter(payment_method='momo')
+        .aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
+    )
     cash_flow_subscription = completed.aggregate(Sum('subscription_amount_used'))[
                                  'subscription_amount_used__sum'] or 0
     cash_flow_loyalty = completed.aggregate(Sum('loyalty_points_amount_deduction'))[

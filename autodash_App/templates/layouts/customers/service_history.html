@@ -47,6 +47,12 @@
                                         <td>GHS{{ service.final_amount }}</td>
                                         <td>
                                             <a href="{% url 'service_order_details' pk=service.id %}">Details</a>
+                                            <br>
+                          <a href="{% url 'service_receipt' pk=service.id %}"
+                             class="btn btn-sm btn-info"
+                          >
+                            Invoice
+                          </a>
                                         </td>
                                     </tr>
                                 {% empty %}
