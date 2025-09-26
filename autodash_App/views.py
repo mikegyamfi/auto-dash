@@ -3801,8 +3801,7 @@ def mark_arrears_as_paid(request, arrears_id):
         # Customize your message text as needed
         message_text = (
             f"Hello {service_order.customer.user.first_name}, "
-            f"your on-credit service (Order #{service_order.service_order_number}) for {arrears.date_created}"
-            f"with an amount of GHS {arrears.amount_owed:.2f} has now been fully paid. "
+            f"your on-credit service (Order #{service_order.service_order_number}) for GHS {arrears.amount_owed:.2f} has now been fully paid."
             "Thank you for clearing your balance!"
         )
         try:
