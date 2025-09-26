@@ -146,6 +146,7 @@
                     </th>
                     <th>Service Number</th>
                     <th>Customer</th>
+                    <th>Vehicle</th>
                     <th>Workers</th>
                     <th>Branch</th>
                     <th>Date</th>
@@ -176,6 +177,7 @@
                           {{ service.customer.user.first_name }}
                           {{ service.customer.user.last_name }}
                         </td>
+                        <td>{{service.vehicle.car_plate}} ({{service.vehicle.car_make}})</td>
                         <td>
                           {% for w in service.workers.all %}
                             {{ w.user.first_name }} {{ w.user.last_name }}
