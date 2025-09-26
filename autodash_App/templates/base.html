@@ -127,6 +127,16 @@
     </script>
 
     <script>
+        $(document).ready( function () {
+    $('#customerServiceTable').DataTable(
+            {
+               order: [[5, 'desc']]
+            }
+    );
+} );
+    </script>
+
+    <script>
     $(document).ready(function() {
         $('.customer-select').select2({
             placeholder: "Select services",
