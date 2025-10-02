@@ -15,11 +15,12 @@ from django.db import transaction
 from django.db.models.functions import TruncDate, Concat, Coalesce
 from django.forms import modelformset_factory
 from django.http import (
-    JsonResponse, HttpResponseForbidden
+    JsonResponse, HttpResponseForbidden, HttpResponseBadRequest
 )
 from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from django.views.decorators.http import require_GET, require_POST
 from qrcode import QRCode
 from django.http import HttpResponse
 from django.template.loader import render_to_string
@@ -6126,6 +6127,125 @@ def booking_mark_arrived(request, pk):
     nxt = request.POST.get("next")
     return redirect(nxt or "customer_booking_detail", pk=booking.pk)
 
+
+@login_required(login_url='login')
+@require_GET
+def booking_services_for_vehicle(request):
+    """
+    Return the available services for a given vehicle_id (GET),
+    constrained by the vehicle's vehicle_group and active services.
+
+    Response:
+    { "options": [ { "id": int, "text": str, "price": float, "negotiable": bool }, ... ] }
+    """
+    vehicle_id = request.GET.get("vehicle_id")
+    if not vehicle_id:
+        return HttpResponseBadRequest("Missing vehicle_id")
+
+    # Enforce that the vehicle belongs to the logged-in customer (for customer flow).
+    try:
+        customer = Customer.objects.select_related("user").get(user=request.user)
+    except Customer.DoesNotExist:
+        # If this endpoint will also be used by staff, you can relax the check:
+        # return HttpResponseBadRequest("Not a customer")
+        # For now, keep it strict for the customer booking flow.
+        return HttpResponseBadRequest("Not a customer")
+
+    try:
+        vehicle = (
+            CustomerVehicle.objects
+            .select_related("vehicle_group", "customer")
+            .get(id=vehicle_id, customer=customer)
+        )
+    except CustomerVehicle.DoesNotExist:
+        return HttpResponseBadRequest("Vehicle not found for this customer")
+
+    vg = vehicle.vehicle_group
+    if vg is None:
+        return JsonResponse({"options": []})
+
+    # Services limited to that vehicle group and active ones
+    services = (
+        Service.objects
+        .filter(vehicle_group=vg, active=True)
+        .select_related("category")
+        .only("id", "service_type", "price", "category__negotiable")
+        .order_by("service_type")
+    )
+
+    # Build options for your <select>
+    options = []
+    for s in services:
+        negotiable = bool(getattr(getattr(s, "category", None), "negotiable", False))
+        options.append({
+            "id": s.id,
+            "text": f"{s.service_type} – GHS {float(s.price):.2f}",
+            "price": float(s.price or 0.0),
+            "negotiable": negotiable,
+        })
+
+    return JsonResponse({"options": options})
+
+
+@login_required(login_url='login')
+@require_POST
+def booking_service_meta(request):
+    """
+    Given a POST body with JSON: {"ids": [1,2,3]},
+    return meta for each service id:
+      - name
+      - price
+      - negotiable (from category.negotiable)
+
+    Response:
+    { "services": [ {"id": int, "name": str, "price": float, "negotiable": bool}, ... ] }
+    """
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON body")
+
+    ids = payload.get("ids", [])
+    if not isinstance(ids, list) or not ids:
+        return HttpResponseBadRequest("Missing or invalid 'ids' array")
+
+    # Fetch only the requested services
+    qs = (
+        Service.objects
+        .filter(id__in=ids, active=True)
+        .select_related("category")
+        .only("id", "service_type", "price", "category__negotiable")
+    )
+
+    # Note: we don't force a customer/vehicle-group check here because this
+    # endpoint is only used to *display* a confirmation of selected services.
+    # If you want to be stricter, you can pass vehicle_id in the payload and
+    # validate that each service belongs to that vehicle's group.
+
+    meta = []
+    # preserve the original order of ids in response
+    svc_by_id = {s.id: s for s in qs}
+    for sid in ids:
+        s = svc_by_id.get(int(sid))
+        if not s:
+            # return a stub for unknown ids
+            meta.append({
+                "id": int(sid),
+                "name": f"Service #{sid}",
+                "price": 0.0,
+                "negotiable": False,
+            })
+            continue
+
+        negotiable = bool(getattr(getattr(s, "category", None), "negotiable", False))
+        meta.append({
+            "id": s.id,
+            "name": s.service_type,
+            "price": float(s.price or 0.0),
+            "negotiable": negotiable,
+        })
+
+    return JsonResponse({"services": meta})
 
 
 

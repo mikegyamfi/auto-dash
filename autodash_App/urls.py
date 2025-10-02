@@ -163,6 +163,16 @@ urlpatterns = [
                   path("booking/<int:pk>/", views.customer_booking_detail, name="customer_booking_detail"),
                   path("booking/<int:pk>/edit/", views.customer_booking_edit, name="customer_booking_edit"),
 path("booking/<int:pk>/mark-arrived/", views.booking_mark_arrived, name="booking_mark_arrived"),
+path(
+        "api/booking/services-for-vehicle/",
+        views.booking_services_for_vehicle,
+        name="booking_services_for_vehicle",
+    ),
+    path(
+        "api/booking/service-meta/",
+        views.booking_service_meta,
+        name="booking_service_meta",
+    ),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:
