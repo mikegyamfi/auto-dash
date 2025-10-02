@@ -1,0 +1,226 @@
+{# templates/layouts/customers/booking_create.html #}
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h3 class="mb-3">Book a Service</h3>
+
+          <div class="card">
+            <div class="card-body">
+              <form method="post">
+                {% csrf_token %}
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label">Vehicle</label>
+                    {{ form.vehicle }}
+                    {% if form.vehicle.errors %}<div class="text-danger small">{{ form.vehicle.errors }}</div>{% endif %}
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="form-label">Branch</label>
+                    {{ form.branch }}
+                    {% if form.branch.errors %}<div class="text-danger small">{{ form.branch.errors }}</div>{% endif %}
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label">Services (hold Ctrl/⌘ to select multiple)</label>
+
+                    {# Wrap the services select so we can overlay a loader #}
+                    <div class="services-select-wrap position-relative">
+                      {{ form.services }}
+                      <div class="loader-overlay" id="services-loader" aria-hidden="true">
+                        {# Try to use your logo; if it fails, the CSS fallback spinner still shows #}
+                        <div class="loader-content">
+                          <img src="{% static 'img/logo.png' %}" alt="" class="logo-spin" onerror="this.style.display='none'">
+                          <div class="css-spinner" aria-label="Loading services"></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {% if form.services.errors %}<div class="text-danger small">{{ form.services.errors }}</div>{% endif %}
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="form-label">Scheduled date & time</label>
+                    {{ form.scheduled_at }}
+                    <div class="form-text">{{ form.fields.scheduled_at.help_text }}</div>
+                    {% if form.scheduled_at.errors %}<div class="text-danger small">{{ form.scheduled_at.errors }}</div>{% endif %}
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="form-label">Driver name</label>
+                    {{ form.driver_name }}
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="form-label">Driver phone</label>
+                    {{ form.driver_phone }}
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label">Notes</label>
+                    {{ form.notes }}
+                  </div>
+
+                  <div class="col-12 d-flex gap-2">
+                    <button class="btn btn-primary" type="submit">Create Booking</button>
+                    <a class="btn btn-outline-secondary" href="{% url 'customer_service_history' %}">Cancel</a>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block style %}
+<style>
+/* --- Services loader overlay --- */
+.services-select-wrap select {
+  /* ensure the select has a visible area for overlay to sit on */
+  min-height: 180px;
+}
+
+.loader-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(1.5px);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: .5rem;
+  z-index: 2;
+}
+
+.loader-overlay.show {
+  display: flex;
+}
+
+.loader-content {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+}
+
+/* If the logo loads, it spins; otherwise we show the CSS spinner below */
+.logo-spin {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  animation: spin 1.2s linear infinite;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.15));
+}
+
+/* Fallback CSS spinner (nice, subtle) */
+.css-spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid rgba(0,0,0,0.08);
+  border-top-color: #0d6efd;      /* primary */
+  animation: spin .9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Dim the select while loading */
+.services-select-wrap.loading select {
+  opacity: 0.6;
+  pointer-events: none;
+}
+</style>
+{% endblock style %}
+
+{% block scripts %}
+<script>
+/**
+ * Dynamically load the Services list based on the selected Vehicle,
+ * with a logo/CSS loader overlay.
+ * Assumes field IDs: #id_vehicle and #id_services.
+ * Requires 'booking_services_for_vehicle' URL that returns JSON:
+ *   { "options": [ { "id": <int>, "text": <str> }, ... ] }
+ */
+document.addEventListener('DOMContentLoaded', function () {
+  const vehicleSelect   = document.getElementById('id_vehicle');
+  const servicesSelect  = document.getElementById('id_services');
+  const wrap            = document.querySelector('.services-select-wrap');
+  const overlay         = document.getElementById('services-loader');
+
+  if (!vehicleSelect || !servicesSelect || !wrap || !overlay) return;
+
+  function showLoader() {
+    wrap.classList.add('loading');
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+    servicesSelect.setAttribute('aria-busy', 'true');
+    servicesSelect.disabled = true;
+  }
+
+  function hideLoader() {
+    wrap.classList.remove('loading');
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
+    servicesSelect.removeAttribute('aria-busy');
+    servicesSelect.disabled = false;
+  }
+
+  function clearServices() {
+    while (servicesSelect.firstChild) servicesSelect.removeChild(servicesSelect.firstChild);
+  }
+
+  function populateServices(options) {
+    clearServices();
+    (options || []).forEach(function(opt) {
+      const o = document.createElement('option');
+      o.value = opt.id;
+      o.textContent = opt.text;
+      servicesSelect.appendChild(o);
+    });
+  }
+
+  async function loadServicesForVehicle(vehicleId) {
+    if (!vehicleId) { clearServices(); return; }
+    showLoader();
+    try {
+      const url = "{% url 'booking_services_for_vehicle' %}" + "?vehicle_id=" + encodeURIComponent(vehicleId);
+      const res = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const data = await res.json();
+      populateServices((data && data.options) ? data.options : []);
+    } catch (e) {
+      console.error("Failed to load services:", e);
+      clearServices();
+    } finally {
+      hideLoader();
+    }
+  }
+
+  // Initial population if vehicle pre-selected (e.g., via ?vehicle=)
+  if (vehicleSelect.value) {
+    loadServicesForVehicle(vehicleSelect.value);
+  }
+
+  // Update services when vehicle changes
+  vehicleSelect.addEventListener('change', function () {
+    loadServicesForVehicle(this.value);
+  });
+});
+</script>
+{% endblock scripts %}

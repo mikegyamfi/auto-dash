@@ -26,6 +26,18 @@
           <div data-i18n="Service History">Service History</div>
         </a>
       </li>
+    <li class="menu-item">
+        <a href="{% url 'book_service' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bx-book"></i>
+          <div data-i18n="Service History">Book a Service</div>
+        </a>
+      </li>
+    <li class="menu-item">
+        <a href="{% url 'booking_history' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bx-receipt"></i>
+          <div data-i18n="Service History">Booking History</div>
+        </a>
+      </li>
       <li class="menu-item">
         <a href="{% url 'customer_profile' %}" class="menu-link">
           <i class="menu-icon tf-icons bx bx-user"></i>
@@ -119,6 +131,12 @@
         </li>
 
         {# Worker quick-links #}
+    <li class="menu-item">
+          <a href="{% url 'booking_history' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-user-circle"></i>
+            <div data-i18n="Add Customer">Customer Bookings</div>
+          </a>
+        </li>
         <li class="menu-item">
           <a href="{% url 'create_customer_page' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-user-circle"></i>

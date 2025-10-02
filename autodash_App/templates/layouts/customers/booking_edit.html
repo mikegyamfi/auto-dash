@@ -1,0 +1,250 @@
+{# templates/layouts/customers/booking_edit.html #}
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">
+                <span class="text-muted fw-light">Bookings /</span> Edit Booking
+              </h4>
+              <div class="small text-muted">
+                Ref: {% if booking.booking_reference %}{{ booking.booking_reference }}{% else %}#{{ booking.id }}{% endif %}
+              </div>
+            </div>
+            <div>
+              <a href="{% url 'customer_booking_detail' pk=booking.id %}" class="btn btn-outline-secondary">
+                Back to Details
+              </a>
+            </div>
+          </div>
+
+          <div class="row g-4">
+            <!-- Form -->
+            <div class="col-lg-8">
+              <div class="card">
+                <div class="card-body">
+                  <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                      <label class="form-label">Scheduled date & time</label>
+                      {{ form.scheduled_at }}
+                      {% if form.scheduled_at.errors %}
+                        <div class="text-danger small">{{ form.scheduled_at.errors }}</div>
+                      {% endif %}
+                    </div>
+
+                    <div class="row">
+                      <div class="col-md-6 mb-3">
+                        <label class="form-label">Driver name</label>
+                        {{ form.driver_name }}
+                        {% if form.driver_name.errors %}
+                          <div class="text-danger small">{{ form.driver_name.errors }}</div>
+                        {% endif %}
+                      </div>
+                      <div class="col-md-6 mb-3">
+                        <label class="form-label">Driver phone</label>
+                        {{ form.driver_phone }}
+                        {% if form.driver_phone.errors %}
+                          <div class="text-danger small">{{ form.driver_phone.errors }}</div>
+                        {% endif %}
+                      </div>
+                    </div>
+
+                    <div class="mb-3">
+                      <label class="form-label">Notes</label>
+                      {{ form.notes }}
+                      {% if form.notes.errors %}
+                        <div class="text-danger small">{{ form.notes.errors }}</div>
+                      {% endif %}
+                    </div>
+
+                    <div class="row">
+                      <div class="col-md-6 mb-3">
+                        <label class="form-label">Vehicle</label>
+                        {{ form.vehicle }}
+                        {% if form.vehicle.errors %}
+                          <div class="text-danger small">{{ form.vehicle.errors }}</div>
+                        {% endif %}
+                      </div>
+                      <div class="col-md-6 mb-3">
+                        <label class="form-label">Services (hold Ctrl/⌘ to select multiple)</label>
+                        <div class="position-relative">
+                          {{ form.services }}
+                          <div id="services-loader" class="loader-overlay" aria-hidden="true">
+                            <div class="loader-content">
+                              <img src="{% static 'img/logo.png' %}" alt="" class="logo-spin" onerror="this.style.display='none'">
+                              <div class="css-spinner"></div>
+                            </div>
+                          </div>
+                        </div>
+                        {% if form.services.errors %}
+                          <div class="text-danger small">{{ form.services.errors }}</div>
+                        {% endif %}
+                      </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                      <button type="submit" class="btn btn-primary">
+                        Save Changes
+                      </button>
+                      <button type="submit" name="cancel_booking" value="1" class="btn btn-outline-danger"
+                              onclick="return confirm('Are you sure you want to cancel this booking?');">
+                        Cancel Booking
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- Meta / Summary -->
+            <div class="col-lg-4">
+              <div class="card mb-4">
+                <div class="card-header border-0 pb-0">
+                  <h6 class="mb-0">Summary</h6>
+                </div>
+                <div class="card-body">
+                  <div class="mb-2">
+                    <div class="text-muted small">Vehicle</div>
+                    <div class="fw-semibold">{{ booking.vehicle.car_name }}</div>
+                    <div class="small text-muted">Group: {{ booking.vehicle.vehicle_group.group_name }}</div>
+                  </div>
+
+                  <div class="mb-2">
+                    <div class="text-muted small">Branch</div>
+                    <div class="fw-semibold">{% if booking.branch %}{{ booking.branch.name }}{% else %}—{% endif %}</div>
+                  </div>
+
+                  <div class="mb-2">
+                    <div class="text-muted small">Status</div>
+                    <span class="badge
+                      {% if booking.status == 'booked' %}bg-secondary
+                      {% elif booking.status == 'arrived' %}bg-info text-dark
+                      {% elif booking.status == 'canceled' %}bg-danger
+                      {% elif booking.status == 'converted' %}bg-success
+                      {% else %}bg-light text-dark{% endif %}">
+                      {{ booking.get_status_display }}
+                    </span>
+                  </div>
+
+                  <div class="mb-0">
+                    <div class="text-muted small">Current Services</div>
+                    <div class="d-flex flex-wrap gap-2 mt-1">
+                      {% for s in booking.services.all %}
+                        <span class="badge rounded-pill bg-label-dark px-3 py-2">{{ s.service_type }}</span>
+                      {% empty %}
+                        <span class="text-muted small">—</span>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-header border-0 pb-0">
+                  <h6 class="mb-0">Timestamps</h6>
+                </div>
+                <div class="card-body small text-muted">
+                  <div class="d-flex justify-content-between mb-1">
+                    <span>Created</span>
+                    <span>{{ booking.created_at|date:"Y-m-d H:i" }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between mb-1">
+                    <span>Scheduled</span>
+                    <span>{{ booking.scheduled_at|date:"Y-m-d H:i" }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between mb-1">
+                    <span>Arrived</span>
+                    <span>{% if booking.arrived_at %}{{ booking.arrived_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</span>
+                  </div>
+                  <div class="d-flex justify-content-between">
+                    <span>Converted</span>
+                    <span>{% if booking.converted_at %}{{ booking.converted_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block style %}
+<style>
+.loader-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;backdrop-filter:blur(1.5px);background:rgba(255,255,255,.6);border-radius:.5rem;z-index:2}
+.loader-overlay.show{display:flex}
+.loader-content{display:grid;place-items:center;gap:10px}
+.logo-spin{width:40px;height:40px;object-fit:contain;animation:spin 1.2s linear infinite;filter:drop-shadow(0 1px 2px rgba(0,0,0,.15))}
+.css-spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(0,0,0,.08);border-top-color:#0d6efd;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bg-label-dark{background:rgba(0,0,0,.06);color:#1f2937}
+</style>
+{% endblock style %}
+
+{% block scripts %}
+<script>
+/**
+ * AJAX-reload Services when Vehicle changes.
+ * Requires a URL named 'booking_services_for_vehicle' returning JSON:
+ *   { "options": [ { "id": <int>, "text": <str> }, ... ] }
+ */
+document.addEventListener('DOMContentLoaded', function () {
+  const vehicleSelect  = document.getElementById('id_vehicle');
+  const servicesSelect = document.getElementById('id_services');
+  const overlay        = document.getElementById('services-loader');
+
+  if (!vehicleSelect || !servicesSelect || !overlay) return;
+
+  function showLoader(){ overlay.classList.add('show'); servicesSelect.setAttribute('aria-busy','true'); servicesSelect.disabled = true; }
+  function hideLoader(){ overlay.classList.remove('show'); servicesSelect.removeAttribute('aria-busy'); servicesSelect.disabled = false; }
+  function clearServices(){ while (servicesSelect.firstChild) servicesSelect.removeChild(servicesSelect.firstChild); }
+  function populateServices(options){
+    clearServices();
+    (options || []).forEach(function(opt){
+      const o = document.createElement('option');
+      o.value = opt.id;
+      o.textContent = opt.text;
+      servicesSelect.appendChild(o);
+    });
+  }
+
+  async function loadServicesForVehicle(vehicleId){
+    if (!vehicleId){ clearServices(); return; }
+    showLoader();
+    try{
+      const url = "{% url 'booking_services_for_vehicle' %}" + "?vehicle_id=" + encodeURIComponent(vehicleId);
+      const res = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const data = await res.json();
+      populateServices((data && data.options) ? data.options : []);
+    }catch(e){
+      console.error("Failed to load services:", e);
+      clearServices();
+    }finally{
+      hideLoader();
+    }
+  }
+
+  vehicleSelect.addEventListener('change', function(){
+    loadServicesForVehicle(this.value);
+  });
+});
+</script>
+{% endblock scripts %}

@@ -34,7 +34,7 @@
                 <!-- Left Form Column -->
                 <div class="col-md-8">
                   <!-- Main form -->
-                  <form id="log-service-form" method="POST">
+                  <form id="log-service-form" method="POST" action="{% url 'log_service' %}">
                     {% csrf_token %}
                     <!-- STEP 1: Customer Section -->
                     <div class="stepper-step completed mb-4">
@@ -137,6 +137,10 @@
 
                     <!-- Submit Section -->
                     <div class="d-flex justify-content-end mt-5">
+                      {% if from_booking %}
+  <input type="hidden" name="from_booking_id" value="{{ from_booking.id }}">
+{% endif %}
+
                       <button type="submit" class="btn btn-primary btn-lg px-5">
                         <i class="fas fa-check-circle me-2"></i> Log Service
                       </button>

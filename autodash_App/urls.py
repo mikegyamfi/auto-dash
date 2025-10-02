@@ -155,6 +155,14 @@ urlpatterns = [
                       views.customer_history_access,
                       name='customer_history_access'
                   ),
+                  path('customer/book_service', views.create_customer_booking, name='book_service'),
+                  path('customer/booking_history', views.customer_booking_history, name='booking_history'),
+                  path("customer/booking/services-for-vehicle/", views.booking_services_for_vehicle,
+                       name="booking_services_for_vehicle"),
+                  path("booking/<int:pk>/convert/", views.convert_booking, name="booking_convert"),
+                  path("booking/<int:pk>/", views.customer_booking_detail, name="customer_booking_detail"),
+                  path("booking/<int:pk>/edit/", views.customer_booking_edit, name="customer_booking_edit"),
+path("booking/<int:pk>/mark-arrived/", views.booking_mark_arrived, name="booking_mark_arrived"),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

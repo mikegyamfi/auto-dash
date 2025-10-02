@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from autodash_App import models
 from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product, Expense, \
-    VehicleGroup, CustomerVehicle
+    VehicleGroup, CustomerVehicle, CustomerBooking
 
 
 class CustomUserForm(UserCreationForm):
@@ -562,3 +562,172 @@ class CustomerProfileForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['email'].required = False
         self.fields['address'].required = False
+
+
+class DateTimeInput(forms.DateTimeInput):
+    input_type = "datetime-local"
+
+
+class CustomerBookingForm(forms.ModelForm):
+    vehicle = forms.ModelChoiceField(
+        queryset=CustomerVehicle.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Vehicle"
+    )
+    services = forms.ModelMultipleChoiceField(
+        queryset=Service.objects.none(),
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": 8}),
+        label="Services"
+    )
+    branch = forms.ModelChoiceField(
+        queryset=Branch.objects.all(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Branch"
+    )
+    scheduled_at = forms.DateTimeField(
+        widget=DateTimeInput(attrs={"class": "form-control", "min": timezone.now().strftime("%Y-%m-%dT%H:%M")}),
+        label="Scheduled date & time",
+        help_text="When you plan to bring the vehicle in."
+    )
+    driver_name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+        label="Driver name"
+    )
+    driver_phone = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. 024xxxxxxx"}),
+        label="Driver phone"
+    )
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        label="Notes / special requests"
+    )
+
+    class Meta:
+        model = CustomerBooking
+        fields = ["vehicle", "services", "branch", "scheduled_at", "driver_name", "driver_phone", "notes"]
+
+    def __init__(self, *args, **kwargs):
+        customer = kwargs.pop("customer", None)
+        vehicle_id = kwargs.pop("vehicle_id", None)
+        super().__init__(*args, **kwargs)
+
+        # Limit vehicles to the current customer's vehicles
+        if customer:
+            self.fields["vehicle"].queryset = CustomerVehicle.objects.filter(customer=customer).select_related("vehicle_group")
+
+        # If a vehicle is preselected (GET or POST), filter services by that vehicle's group
+        vg = None
+        if vehicle_id:
+            try:
+                vg = CustomerVehicle.objects.select_related("vehicle_group").get(id=vehicle_id).vehicle_group
+            except CustomerVehicle.DoesNotExist:
+                vg = None
+        elif self.instance and self.instance.vehicle_id:
+            vg = self.instance.vehicle.vehicle_group
+
+        if vg:
+            self.fields["services"].queryset = Service.objects.filter(active=True, vehicle_group=vg).order_by("service_type")
+        else:
+            # If no vehicle picked yet, show nothing until chosen
+            self.fields["services"].queryset = Service.objects.none()
+
+    def clean(self):
+        cleaned = super().clean()
+        vehicle = cleaned.get("vehicle")
+        services = cleaned.get("services")
+
+        # Ensure the selected services belong to the chosen vehicle's group
+        if vehicle and services:
+            valid_services = Service.objects.filter(active=True, vehicle_group=vehicle.vehicle_group)
+            invalid = [s for s in services if s not in valid_services]
+            if invalid:
+                self.add_error(
+                    "services",
+                    "One or more selected services are not available for this vehicle type."
+                )
+        return cleaned
+
+
+class CustomerBookingEditForm(forms.ModelForm):
+    vehicle = forms.ModelChoiceField(
+        queryset=None,  # set in __init__
+        widget=forms.Select(attrs={"class": "form-control", "id": "id_vehicle"}),
+        empty_label="Select Vehicle",
+    )
+    services = forms.ModelMultipleChoiceField(
+        queryset=None,  # set in __init__
+        widget=forms.SelectMultiple(attrs={"class": "form-control", "id": "id_services"}),
+        required=True,
+    )
+
+    class Meta:
+        model = CustomerBooking
+        fields = ["scheduled_at", "driver_name", "driver_phone", "notes", "vehicle", "services"]
+        widgets = {
+            "scheduled_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}),
+            "driver_name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Driver full name"}),
+            "driver_phone": forms.TextInput(attrs={"class": "form-control", "placeholder": "Driver phone"}),
+            "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3, "placeholder": "Additional info"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        """
+        Expects `customer` kwarg to limit vehicles to the current user.
+        Dynamically filters services by selected vehicle's vehicle_group.
+        """
+        self.customer = kwargs.pop("customer", None)
+        super().__init__(*args, **kwargs)
+
+        # Vehicles: only this customer's
+        from autodash_App import models as m  # adjust if your models import path differs
+        if self.customer:
+            self.fields["vehicle"].queryset = m.CustomerVehicle.objects.filter(customer=self.customer).select_related("vehicle_group")
+        else:
+            self.fields["vehicle"].queryset = m.CustomerVehicle.objects.none()
+
+        # Decide which vehicle to use for filtering services
+        vehicle_obj = None
+        if self.is_bound:
+            try:
+                vid = int(self.data.get("vehicle") or 0)
+                vehicle_obj = m.CustomerVehicle.objects.filter(id=vid, customer=self.customer).select_related("vehicle_group").first()
+            except (TypeError, ValueError):
+                vehicle_obj = None
+        elif self.instance and self.instance.pk:
+            vehicle_obj = self.instance.vehicle
+
+        # Services: by vehicle group (if we have one); else empty
+        if vehicle_obj and vehicle_obj.vehicle_group_id:
+            self.fields["services"].queryset = m.Service.objects.filter(
+                vehicle_group=vehicle_obj.vehicle_group, active=True
+            ).only("id", "service_type")
+        else:
+            self.fields["services"].queryset = m.Service.objects.none()
+
+        # Preselect current services on initial load
+        if not self.is_bound and self.instance and self.instance.pk:
+            self.initial.setdefault("services", self.instance.services.values_list("id", flat=True))
+
+    def clean_scheduled_at(self):
+        dt = self.cleaned_data.get("scheduled_at")
+        if dt and dt < timezone.now():
+            raise forms.ValidationError("Scheduled time cannot be in the past.")
+        return dt
+
+    def clean_services(self):
+        svcs = self.cleaned_data.get("services")
+        vehicle = self.cleaned_data.get("vehicle")
+        if not svcs:
+            raise forms.ValidationError("Please select at least one service.")
+        if not vehicle or not getattr(vehicle, "vehicle_group_id", None):
+            raise forms.ValidationError("Select a vehicle before choosing services.")
+        bad = [s for s in svcs if s.vehicle_group_id != vehicle.vehicle_group_id]
+        if bad:
+            raise forms.ValidationError("One or more selected services do not match the selected vehicle type.")
+        return svcs
+
+
+

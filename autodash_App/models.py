@@ -787,3 +787,87 @@ class WorkerDailyAdjustment(models.Model):
                 kwargs["update_fields"] = set(uf) | {"branch"}
 
         super().save(*args, **kwargs)
+
+
+class CustomerBooking(models.Model):
+    STATUS_CHOICES = [
+        ("booked", "Booked"),
+        ("arrived", "Arrived"),
+        ("canceled", "Canceled"),
+        ("converted", "Converted to Service Order"),
+    ]
+
+    customer = models.ForeignKey(
+        Customer, on_delete=models.CASCADE, related_name="bookings"
+    )
+    vehicle = models.ForeignKey(
+        CustomerVehicle, on_delete=models.CASCADE, related_name="bookings"
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name="customer_bookings",
+        null=True, blank=True
+    )
+    services = models.ManyToManyField(
+        Service, related_name="bookings", blank=False
+    )
+
+    # Logistics
+    driver_name = models.CharField(max_length=120, null=True, blank=True)
+    driver_phone = models.CharField(max_length=20, null=True, blank=True)
+    scheduled_at = models.DateTimeField(help_text="When the vehicle is expected in.")
+    notes = models.TextField(null=True, blank=True)
+
+    # Lifecycle
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="booked")
+    arrived_at = models.DateTimeField(null=True, blank=True, help_text="Actual time vehicle arrived.")
+    converted_at = models.DateTimeField(null=True, blank=True, help_text="When it became a Service Order.")
+    converted_to_order = models.BooleanField(default=False)
+
+    # Link to created order (optional; set when converting)
+    service_order = models.ForeignKey(
+        ServiceRenderedOrder, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="from_booking"
+    )
+
+    # Bookkeeping
+    booking_reference = models.CharField(max_length=24, unique=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-scheduled_at"]
+        indexes = [
+            models.Index(fields=["customer", "scheduled_at"]),
+            models.Index(fields=["branch", "scheduled_at"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"Booking {self.booking_reference or '#'} – {self.customer} – {self.vehicle}"
+
+    def save(self, *args, **kwargs):
+        if not self.booking_reference:
+            self.booking_reference = self._generate_ref()
+        super().save(*args, **kwargs)
+
+    # Helpers
+    @staticmethod
+    def _generate_ref():
+        import random, string
+        prefix = "BKG"
+        digits = "".join(random.choices(string.digits, k=6))
+        return f"{prefix}-{digits}"
+
+    @property
+    def is_past_due(self):
+        return self.status == "booked" and self.scheduled_at < timezone.now()
+
+    def mark_arrived(self, when=None):
+        self.status = "arrived"
+        self.arrived_at = when or timezone.now()
+
+    def mark_converted(self, order: ServiceRenderedOrder, when=None):
+        self.status = "converted"
+        self.converted_to_order = True
+        self.service_order = order
+        self.converted_at = when or timezone.now()

@@ -1,0 +1,224 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <!-- Header -->
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">
+                <span class="text-muted fw-light">Bookings /</span>
+                {% if booking.booking_reference %}
+                  {{ booking.booking_reference }}
+                {% else %}
+                  #{{ booking.id }}
+                {% endif %}
+              </h4>
+              <div class="small text-muted">
+                Created {{ booking.created_at|date:"Y-m-d H:i" }} · Last updated {{ booking.updated_at|date:"Y-m-d H:i" }}
+              </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge
+                {% if booking.status == 'booked' %}bg-secondary
+                {% elif booking.status == 'arrived' %}bg-info text-dark
+                {% elif booking.status == 'canceled' %}bg-danger
+                {% elif booking.status == 'converted' %}bg-success
+                {% else %}bg-light text-dark{% endif %}">
+                {{ booking.get_status_display }}
+              </span>
+
+              {% if can_manage and not booking.converted_to_order %}
+                <a href="{% url 'booking_convert' pk=booking.id %}" class="btn btn-primary">
+                  <i class="bx bx-transfer-alt me-1"></i> Convert to Service
+                </a>
+              {% elif booking.converted_to_order %}
+                <a href="{% url 'service_order_details' pk=booking.service_order_id %}" class="btn btn-outline-success">
+                  View Service Order
+                </a>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Top Summary -->
+          <div class="row g-4">
+            <div class="col-lg-8">
+              <div class="card">
+                <div class="card-body">
+                  <div class="d-flex align-items-start justify-content-between flex-wrap">
+                    <div>
+                      <h5 class="mb-2">{{ booking.vehicle.car_name }}</h5>
+                      <div class="text-muted small">
+                        Vehicle group: {{ booking.vehicle.vehicle_group.group_name }}
+                      </div>
+                      <div class="mt-2">
+                        <span class="badge bg-label-primary me-1">Customer</span>
+                        {{ booking.customer.user.first_name }} {{ booking.customer.user.last_name }}
+                      </div>
+                    </div>
+                    <div class="text-end">
+                      <div class="small text-muted">Scheduled</div>
+                      <div class="fs-6 fw-semibold">{{ booking.scheduled_at|date:"Y-m-d H:i" }}</div>
+                      {% if booking.arrived_at %}
+                        <div class="small text-muted mt-2">Arrived</div>
+                        <div class="fw-semibold">{{ booking.arrived_at|date:"Y-m-d H:i" }}</div>
+                      {% endif %}
+                      {% if booking.converted_at %}
+                        <div class="small text-muted mt-2">Converted</div>
+                        <div class="fw-semibold">{{ booking.converted_at|date:"Y-m-d H:i" }}</div>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <hr class="my-4"/>
+
+                  <!-- Services -->
+                  <div>
+                    <h6 class="text-uppercase text-muted mb-2">Requested Services</h6>
+                    {% if booking.services.all %}
+                      <div class="d-flex flex-wrap gap-2">
+                        {% for s in booking.services.all %}
+                          <span class="badge rounded-pill bg-label-dark px-3 py-2">{{ s.service_type }}</span>
+                        {% endfor %}
+                      </div>
+                    {% else %}
+                      <div class="text-muted">No services selected.</div>
+                    {% endif %}
+                  </div>
+
+                  {% if booking.notes %}
+                  <hr class="my-4"/>
+                  <div>
+                    <h6 class="text-uppercase text-muted mb-2">Notes</h6>
+                    <p class="mb-0">{{ booking.notes }}</p>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Meta -->
+            <div class="col-lg-4">
+              <div class="card mb-4">
+                <div class="card-header border-0 pb-0">
+                  <h6 class="mb-0">Logistics</h6>
+                    <hr>
+                </div>
+                <div class="card-body">
+                  <div class="mb-3">
+                    <div class="text-muted small">Branch</div>
+                    <div class="fw-semibold">
+                      {% if booking.branch %}{{ booking.branch.name }}{% else %}—{% endif %}
+                    </div>
+                  </div>
+
+                  <div class="mb-3">
+                    <div class="text-muted small">Driver</div>
+                    <div class="fw-semibold">{{ booking.driver_name|default:"—" }}</div>
+                    <div class="text-muted">{{ booking.driver_phone|default:"" }}</div>
+                  </div>
+
+                  <div class="mb-3">
+                    <div class="text-muted small">Reference</div>
+                    <div class="fw-semibold">
+                      {% if booking.booking_reference %}
+                        {{ booking.booking_reference }}
+                      {% else %}
+                        #{{ booking.id }}
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="mb-0">
+                    <div class="text-muted small">Status</div>
+                    <div>
+                      <span class="badge
+                        {% if booking.status == 'booked' %}bg-secondary
+                        {% elif booking.status == 'arrived' %}bg-info text-dark
+                        {% elif booking.status == 'canceled' %}bg-danger
+                        {% elif booking.status == 'converted' %}bg-success
+                        {% else %}bg-light text-dark{% endif %}">
+                        {{ booking.get_status_display }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Timeline / Progress -->
+              <div class="card">
+                <div class="card-header border-0 pb-0">
+                  <h6 class="mb-0">Timeline</h6>
+                    <hr>
+                </div>
+                <div class="card-body">
+                  <ul class="list-unstyled timeline mb-0">
+                    <li class="mb-3">
+                      <div class="d-flex">
+                        <span class="timeline-dot bg-primary me-3 mt-1"></span>
+                        <div>
+                          <div class="fw-semibold">Booked</div>
+                          <div class="text-muted small">{{ booking.created_at|date:"Y-m-d H:i" }}</div>
+                        </div>
+                      </div>
+                    </li>
+                    <li class="mb-3">
+                      <div class="d-flex">
+                        <span class="timeline-dot {% if booking.arrived_at %}bg-info{% else %}bg-light{% endif %} me-3 mt-1"></span>
+                        <div>
+                          <div class="fw-semibold">Arrived</div>
+                          <div class="text-muted small">
+                            {% if booking.arrived_at %}{{ booking.arrived_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                    <li>
+                      <div class="d-flex">
+                        <span class="timeline-dot {% if booking.converted_at %}bg-success{% else %}bg-light{% endif %} me-3 mt-1"></span>
+                        <div>
+                          <div class="fw-semibold">Converted to Service</div>
+                          <div class="text-muted small">
+                            {% if booking.converted_at %}{{ booking.converted_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block style %}
+<style>
+.timeline-dot {
+  width: .8rem;
+  height: .8rem;
+  border-radius: 50%;
+  display: inline-block;
+}
+.bg-label-dark {
+  background: rgba(0,0,0,.06);
+  color: #1f2937;
+}
+</style>
+{% endblock style %}

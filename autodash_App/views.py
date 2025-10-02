@@ -29,7 +29,8 @@ from decorators import staff_or_branch_admin_required
 from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
-    CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm
+    CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm,
+    CustomerBookingForm, CustomerBookingEditForm
 )
 from .helper import send_sms
 from .models import (
@@ -37,7 +38,7 @@ from .models import (
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
     CustomerSubscriptionRenewalTrail, WeeklyBudget,
     SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget,
-    WorkerDailyAdjustment
+    WorkerDailyAdjustment, CustomerBooking
 )
 from .models import (
     DailyExpenseBudget
@@ -631,6 +632,22 @@ def log_service(request):
             )
             if selected_workers:
                 sr.workers.set(selected_workers)
+
+        from_booking_id = request.POST.get("from_booking_id")
+        if from_booking_id:
+            try:
+                b = CustomerBooking.objects.get(pk=from_booking_id)
+                # optional guard: ensure same customer/vehicle matches
+                if b.customer_id == (
+                customer.id if customer else getattr(vehicle, "customer_id", None)) and b.vehicle_id == vehicle.id:
+                    b.mark_converted(order=new_order)
+                    b.save(update_fields=["status", "converted_to_order", "service_order", "converted_at"])
+                else:
+                    # still mark converted to avoid dangling, if you prefer:
+                    b.mark_converted(order=new_order)
+                    b.save(update_fields=["status", "converted_to_order", "service_order", "converted_at"])
+            except CustomerBooking.DoesNotExist:
+                pass
 
         messages.success(request, 'Service logged successfully (status=pending).')
         return redirect('confirm_service_rendered', pk=new_order.pk)
@@ -3643,7 +3660,7 @@ def financial_overview(request):
 
 from django.shortcuts import get_object_or_404
 from django.contrib.admin.views.decorators import staff_member_required
-from django.db.models import F, Value
+from django.db.models import F, Value, Prefetch
 from datetime import date
 from django.contrib import messages
 
@@ -5696,3 +5713,420 @@ def customer_history_access(request, customer_phone):
         'customer': customer,
         'orders': orders,
     })
+
+
+@login_required(login_url='login')
+def create_customer_booking(request):
+    """
+    Customer self-booking:
+      - vehicle limited to current customer's vehicles
+      - services limited to vehicle's group (SUV/sedan/etc.)
+      - all branches listed
+    """
+    user = get_object_or_404(CustomUser, id=request.user.id)
+    customer = get_object_or_404(Customer, user=user)
+
+    # For initial render, allow preselecting a vehicle via ?vehicle=<id>
+    selected_vehicle_id = request.GET.get("vehicle")
+
+    if request.method == "POST":
+        # When posting, derive vehicle_id from submitted value to re-filter services
+        vehicle_id_for_filter = request.POST.get("vehicle") or selected_vehicle_id
+        form = CustomerBookingForm(
+            request.POST,
+            customer=customer,
+            vehicle_id=vehicle_id_for_filter
+        )
+        if form.is_valid():
+            booking = form.save(commit=False)
+            booking.customer = customer
+            booking.status = "booked"
+            booking.save()
+            form.save_m2m()
+            messages.success(request, "Booking created successfully.")
+            # Redirect to a detail or history page you already have
+            return redirect("booking_history")  # or 'customer_service_history'
+    else:
+        form = CustomerBookingForm(customer=customer, vehicle_id=selected_vehicle_id)
+
+    return render(
+        request,
+        "layouts/customers/booking_create.html",
+        {"form": form}
+    )
+
+
+@login_required(login_url='login')
+def customer_booking_history(request):
+    """
+    Role-aware booking history:
+      - Customer: only their bookings; may filter by branch.
+      - Worker/Branch admin: only bookings for their branch; no branch filter.
+      - Superuser: all bookings; may filter by branch.
+    DataTables does client-side search/sort/pagination.
+    """
+    user = request.user
+    worker = getattr(user, "worker_profile", None)
+    is_worker = bool(worker)
+    is_superuser = user.is_superuser
+    is_customer = (not is_superuser) and (not is_worker)
+
+    # ----- Base queryset & flags -----
+    if is_superuser:
+        base_qs = CustomerBooking.objects.all()
+        can_manage = True
+        show_branch_filter = True
+        customer = None
+    elif is_worker:
+        base_qs = CustomerBooking.objects.filter(branch=worker.branch)
+        can_manage = True
+        show_branch_filter = False
+        customer = None
+    else:
+        # Customer
+        customer = get_object_or_404(Customer, user=user)
+        base_qs = CustomerBooking.objects.filter(customer=customer)
+        can_manage = False
+        show_branch_filter = True
+
+    qs = (
+        base_qs
+        .select_related('vehicle__vehicle_group', 'branch', 'customer__user', 'service_order')
+        .prefetch_related(Prefetch('services', queryset=Service.objects.only('id', 'service_type')))
+        .order_by('-scheduled_at')
+    )
+
+    # ---------- Filters ----------
+    status = (request.GET.get('status') or '').strip()
+    branch_id = (request.GET.get('branch') or '').strip()
+    vehicle_id = (request.GET.get('vehicle') or '').strip()
+    date_from = (request.GET.get('date_from') or '').strip()
+    date_to = (request.GET.get('date_to') or '').strip()
+    arrived_only = (request.GET.get('arrived_only') or '').strip()      # "1"
+    converted_only = (request.GET.get('converted_only') or '').strip()  # "1"
+
+    if status:
+        qs = qs.filter(status=status)
+
+    # Branch filter only when allowed (customer & superuser). Workers are pinned to their branch.
+    if show_branch_filter and branch_id.isdigit():
+        qs = qs.filter(branch_id=int(branch_id))
+
+    if vehicle_id.isdigit():
+        qs = qs.filter(vehicle_id=int(vehicle_id))
+
+    if date_from:
+        qs = qs.filter(scheduled_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(scheduled_at__date__lte=date_to)
+
+    if arrived_only == '1':
+        qs = qs.filter(arrived_at__isnull=False)
+
+    if converted_only == '1':
+        qs = qs.filter(converted_to_order=True)
+
+    # ---------- Filter option sources ----------
+    # Branch options: only shown when show_branch_filter = True
+    if show_branch_filter:
+        branches = (
+            base_qs
+            .values('branch_id', 'branch__name')
+            .distinct()
+            .order_by('branch__name')
+        )
+    else:
+        branches = []  # hidden in template
+
+    # Vehicle options:
+    if is_customer and customer:
+        vehicles = (
+            CustomerVehicle.objects
+            .filter(customer=customer)
+            .select_related('vehicle_group')
+            .order_by('car_make', 'car_plate')
+        )
+    else:
+        # For worker/superuser, restrict to vehicles that actually appear in current base set
+        vehicles = (
+            CustomerVehicle.objects
+            .filter(id__in=base_qs.values('vehicle_id'))
+            .select_related('vehicle_group')
+            .order_by('car_make', 'car_plate')
+            .distinct()
+        )
+
+    context = {
+        'bookings': qs,
+        'status_choices': dict(CustomerBooking.STATUS_CHOICES),
+        'branches': branches,
+        'vehicles': vehicles,
+        'selected': {
+            'status': status,
+            'branch': branch_id,
+            'vehicle': vehicle_id,
+            'date_from': date_from,
+            'date_to': date_to,
+            'arrived_only': arrived_only,
+            'converted_only': converted_only,
+        },
+        'can_manage': can_manage,                 # show actions (Convert) for workers/admins & superuser
+        'show_branch_filter': show_branch_filter  # show Branch filter for customers & superuser
+    }
+    return render(request, 'layouts/customers/booking_history.html', context)
+
+
+@login_required(login_url='login')
+def booking_services_for_vehicle(request):
+    """
+    Returns the list of services (id, text) available for the selected vehicle's group.
+    Only allows the current customer's vehicles.
+    """
+    vehicle_id = request.GET.get("vehicle_id")
+    if not vehicle_id:
+        return JsonResponse({"options": []})
+
+    # current customer
+    user = request.user
+    customer = get_object_or_404(Customer, user=user)
+
+    # ensure the vehicle belongs to this customer
+    vehicle = get_object_or_404(
+        CustomerVehicle.objects.select_related("vehicle_group"),
+        id=vehicle_id, customer=customer
+    )
+
+    services = (
+        Service.objects
+        .filter(active=True, vehicle_group=vehicle.vehicle_group)
+        .order_by("service_type")
+        .values("id", "service_type")
+    )
+
+    return JsonResponse({
+        "options": [{"id": s["id"], "text": s["service_type"]} for s in services]
+    })
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def convert_booking(request, pk):
+    """
+    Prefill the Log Service form from a CustomerBooking, so staff only pick workers.
+    """
+    user = request.user
+
+    # must be staff (worker/branch-admin) or superuser
+    try:
+        worker = Worker.objects.get(user=user)
+        is_worker = True
+    except Worker.DoesNotExist:
+        worker = None
+        is_worker = False
+
+    if not (is_worker or user.is_superuser):
+        messages.error(request, "You are not authorized to convert bookings.")
+        return redirect("index")
+
+    booking = get_object_or_404(
+        CustomerBooking.objects.select_related(
+            "customer__user", "vehicle__vehicle_group", "branch"
+        ).prefetch_related(Prefetch("services", queryset=Service.objects.only("id", "service_type"))),
+        pk=pk
+    )
+
+    # if worker (not superuser), enforce same-branch conversions
+    if is_worker and booking.branch and booking.branch_id != worker.branch_id:
+        messages.error(request, "You can only convert bookings for your branch.")
+        return redirect("booking_history")
+
+    if booking.converted_to_order:
+        messages.info(request, "This booking has already been converted.")
+        return redirect("booking_history")
+
+    # Build initial for the LogServiceForm
+    initial = {
+        "customer": booking.customer_id,
+        "vehicle": booking.vehicle_id,
+        "service": list(booking.services.values_list("id", flat=True)),
+        # Put some booking context into comments for reference
+        "comments": "From booking {ref}. Driver: {name} {phone}. Notes: {notes}".format(
+            ref=booking.booking_reference or f"#{booking.pk}",
+            name=(booking.driver_name or "").strip() or "—",
+            phone=(booking.driver_phone or "").strip() or "—",
+            notes=(booking.notes or "").strip() or "—",
+        ),
+    }
+
+    # Instantiate the same form your log page uses, bound to worker.branch
+    branch_for_form = worker.branch if worker else (booking.branch or None)
+    form = LogServiceForm(branch=branch_for_form, initial=initial)
+
+    # Render the EXACT log service page, with our prefilled form
+    return render(
+        request,
+        "layouts/workers/log_service.html",
+        {
+            "form": form,
+            "products": Product.objects.filter(branch=branch_for_form) if branch_for_form else Product.objects.none(),
+            "vehicle_groups": VehicleGroup.objects.all(),
+            "from_booking": booking,  # so we can carry the id in a hidden input
+        },
+    )
+
+
+@login_required(login_url='login')
+def customer_booking_detail(request, pk):
+    """
+    Nicely formatted details page for a single booking.
+    - Customer: can view own booking
+    - Worker/Branch admin: can view bookings in their branch (and convert)
+    - Superuser: can view everything (and convert)
+    """
+    user = request.user
+    worker = getattr(user, "worker_profile", None)
+    is_worker = bool(worker)
+    is_superuser = user.is_superuser
+
+    booking = get_object_or_404(
+        CustomerBooking.objects.select_related(
+            "customer__user", "vehicle__vehicle_group", "branch", "service_order"
+        ).prefetch_related(Prefetch("services", queryset=Service.objects.only("id", "service_type"))),
+        pk=pk
+    )
+
+    # Access rules
+    if is_superuser:
+        can_manage = True
+    elif is_worker:
+        can_manage = True
+        # worker must be same branch (if booking has a branch)
+        if booking.branch and booking.branch_id != worker.branch_id:
+            messages.error(request, "You can only view bookings for your branch.")
+            # You can redirect to your worker booking history if preferred
+            return redirect('booking_history')
+    else:
+        # customer
+        can_manage = False
+        customer = get_object_or_404(Customer, user=user)
+        if booking.customer_id != customer.id:
+            messages.error(request, "You are not allowed to view this booking.")
+            return redirect('booking_history')
+
+    return render(
+        request,
+        "layouts/customers/booking_detail.html",
+        {
+            "booking": booking,
+            "can_manage": can_manage,  # controls Convert button visibility
+        }
+    )
+
+
+@login_required(login_url='login')
+def customer_booking_edit(request, pk):
+    user = request.user
+    customer = get_object_or_404(Customer, user=user)
+
+    booking = get_object_or_404(
+        CustomerBooking.objects.select_related("customer__user", "vehicle__vehicle_group", "branch"),
+        pk=pk, customer=customer
+    )
+
+    # Block edits if converted/canceled
+    if booking.converted_to_order:
+        messages.error(request, "This booking has already been converted to a service. It can no longer be edited.")
+        return redirect("customer_booking_detail", pk=booking.pk)
+    if booking.status == "canceled":
+        messages.error(request, "This booking has been canceled and cannot be edited.")
+        return redirect("customer_booking_detail", pk=booking.pk)
+
+    if request.method == "POST":
+        if "cancel_booking" in request.POST:
+            booking.status = "canceled"
+            if hasattr(booking, "canceled_at"):
+                booking.canceled_at = timezone.now()
+                booking.save(update_fields=["status", "canceled_at"])
+            else:
+                booking.save(update_fields=["status"])
+            messages.success(request, "Your booking has been canceled.")
+            return redirect("customer_booking_detail", pk=booking.pk)
+
+        form = CustomerBookingEditForm(request.POST, instance=booking, customer=customer)
+        if form.is_valid():
+            form.save()  # saves scheduled_at, driver, phone, notes, vehicle, and services m2m
+            if booking.status not in ("booked", "arrived"):
+                booking.status = "booked"
+                booking.save(update_fields=["status"])
+            messages.success(request, "Your booking has been updated.")
+            return redirect("customer_booking_detail", pk=booking.pk)
+        else:
+            messages.error(request, "Please correct the errors below.")
+    else:
+        form = CustomerBookingEditForm(instance=booking, customer=customer)
+
+    return render(
+        request,
+        "layouts/customers/booking_edit.html",
+        {"booking": booking, "form": form}
+    )
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def booking_mark_arrived(request, pk):
+    """
+    Staff-only action to mark a booking as ARRIVED using the model method.
+    Atomic to avoid partial updates.
+    """
+    if request.method != "POST":
+        messages.error(request, "Invalid request method.")
+        return redirect("booking_history")
+
+    user = request.user
+    is_super = user.is_superuser
+    try:
+        worker = Worker.objects.get(user=user)
+        is_worker = True
+    except Worker.DoesNotExist:
+        worker = None
+        is_worker = False
+
+    if not (is_worker or is_super):
+        messages.error(request, "You are not authorized to perform this action.")
+        return redirect("booking_history")
+
+    booking = get_object_or_404(
+        CustomerBooking.objects.select_related("branch"),
+        pk=pk
+    )
+
+    # Enforce branch for workers
+    if is_worker and booking.branch and booking.branch_id != worker.branch_id:
+        messages.error(request, "You can only manage bookings for your branch.")
+        return redirect("booking_history")
+
+    # Guards
+    if booking.converted_to_order:
+        messages.info(request, "This booking has already been converted.")
+        return redirect("customer_booking_detail", pk=booking.pk)
+    if booking.status == "canceled":
+        messages.info(request, "This booking is canceled.")
+        return redirect("customer_booking_detail", pk=booking.pk)
+    if booking.arrived_at:
+        messages.info(request, "This booking is already marked as arrived.")
+        return redirect("customer_booking_detail", pk=booking.pk)
+
+    # --- Atomic update using the model method ---
+    when = timezone.now()
+    booking.mark_arrived(when=when)  # sets status + arrived_at (no save)
+    booking.save(update_fields=["status", "arrived_at"])
+
+    messages.success(request, "Booking marked as arrived.")
+    nxt = request.POST.get("next")
+    return redirect(nxt or "customer_booking_detail", pk=booking.pk)
+
+
+
+
+

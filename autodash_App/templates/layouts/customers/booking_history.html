@@ -1,0 +1,213 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <h2 class="mb-3">
+            {% if can_manage %}Branch Booking History{% else %}Booking History{% endif %}
+          </h2>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="get" class="row g-3 align-items-end">
+                <div class="col-12 col-md-2">
+                  <label class="form-label">Status</label>
+                  <select name="status" class="form-select">
+                    <option value="">All</option>
+                    {% for key, label in status_choices.items %}
+                      <option value="{{ key }}" {% if selected.status == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="col-12 col-md-2">
+                  <label class="form-label">Branch</label>
+                  <select name="branch" class="form-select" {% if not show_branch_filter %}disabled{% endif %}>
+                    <option value="">All</option>
+                    {% for b in branches %}
+                      <option value="{{ b.branch_id }}" {% if selected.branch == b.branch_id|stringformat:'s' %}selected{% endif %}>
+                        {{ b.branch__name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                  {% if not show_branch_filter %}
+                    <input type="hidden" name="branch" value="{{ selected.branch }}">
+                  {% endif %}
+                </div>
+
+                <div class="col-12 col-md-3">
+                  <label class="form-label">Vehicle</label>
+                  <select name="vehicle" class="form-select">
+                    <option value="">All</option>
+                    {% for v in vehicles %}
+                      <option value="{{ v.id }}" {% if selected.vehicle == v.id|stringformat:'s' %}selected{% endif %}>
+                        {{ v.car_make }} ({{ v.car_color }}) – {{ v.car_plate }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <label class="form-label">From</label>
+                  <input type="date" class="form-control" name="date_from" value="{{ selected.date_from }}">
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <label class="form-label">To</label>
+                  <input type="date" class="form-control" name="date_to" value="{{ selected.date_to }}">
+                </div>
+
+                <div class="col-6 col-md-1 form-check mt-4">
+                  <input class="form-check-input" type="checkbox" value="1" id="arrived_only" name="arrived_only" {% if selected.arrived_only == '1' %}checked{% endif %}>
+                  <label class="form-check-label" for="arrived_only">Arrived</label>
+                </div>
+
+                <div class="col-6 col-md-1 form-check mt-4">
+                  <input class="form-check-input" type="checkbox" value="1" id="converted_only" name="converted_only" {% if selected.converted_only == '1' %}checked{% endif %}>
+                  <label class="form-check-label" for="converted_only">Converted</label>
+                </div>
+
+                <div class="col-12 col-md-3 d-flex gap-2">
+                  <button class="btn btn-primary" type="submit">Apply</button>
+                  <a class="btn btn-outline-secondary" href="{% url 'booking_history' %}">Reset</a>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div class="table-responsive">
+            <table id="bookingTable" class="table table-bordered align-middle">
+              <thead>
+                <tr>
+                  <th>Ref</th>
+                  <th>Vehicle</th>
+                  <th>Services</th>
+                  <th>Branch</th>
+                  <th>Scheduled</th>
+                  <th>Status</th>
+                  <th>Arrived</th>
+                  <th>Converted</th>
+                  <th>Actions</th> {# <-- Always show Actions #}
+                </tr>
+              </thead>
+              <tbody>
+                {% for b in bookings %}
+                  <tr>
+                    <td>{{ b.booking_reference }}</td>
+                    <td>{{ b.vehicle.car_name }}</td>
+                    <td>
+                      {% for s in b.services.all %}
+                        {{ s.service_type }}{% if not forloop.last %}, {% endif %}
+                      {% endfor %}
+                    </td>
+                    <td>
+                      {% if b.branch %}
+                        {{ b.branch.name }}
+                      {% else %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ b.scheduled_at|date:"Y-m-d H:i" }}</td>
+                    <td>
+                      <span class="badge
+                        {% if b.status == 'booked' %}bg-secondary
+                        {% elif b.status == 'arrived' %}bg-info text-dark
+                        {% elif b.status == 'canceled' %}bg-danger
+                        {% elif b.status == 'converted' %}bg-success
+                        {% else %}bg-light text-dark{% endif %}">
+                        {{ b.get_status_display }}
+                      </span>
+                    </td>
+                    <td>
+                      {% if b.arrived_at %}
+                        {{ b.arrived_at|date:"Y-m-d H:i" }}
+                      {% else %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if b.converted_to_order %}
+                        {% if can_manage %}
+                          <a href="{% url 'service_order_details' pk=b.service_order_id %}" class="badge bg-success text-decoration-none">Yes</a>
+                        {% else %}
+                          <span class="badge bg-success">Yes</span>
+                        {% endif %}
+                      {% else %}
+                        <span class="text-muted">No</span>
+                      {% endif %}
+                    </td>
+
+                    <td>
+                      <a href="{% url 'customer_booking_detail' pk=b.id %}">Details</a>
+
+                      {% if not b.converted_to_order and b.status != 'canceled' %}
+                        <br>
+                        <a href="{% url 'customer_booking_edit' pk=b.id %}" class="btn btn-sm btn-outline-secondary mt-1">
+                          Edit
+                        </a>
+                      {% endif %}
+
+                      {% if can_manage and not b.converted_to_order %}
+                        <br>
+                        <a href="{% url 'booking_convert' pk=b.id %}" class="btn btn-sm btn-outline-primary mt-1">
+                          Convert
+                        </a>
+                      {% endif %}
+
+                      {# --- Mark Arrived button (admins/branch-admin only) --- #}
+                      {% if can_manage and not b.converted_to_order and not b.arrived_at and b.status != 'canceled' %}
+                        <form method="post"
+                              action="{% url 'booking_mark_arrived' pk=b.id %}"
+                              class="d-inline">
+                          {% csrf_token %}
+                          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                          <button type="submit"
+                                  class="btn btn-sm btn-success mt-1"
+                                  onclick="return confirm('Mark this car as ARRIVED?');">
+                            Mark Arrived
+                          </button>
+                        </form>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="9" class="text-center">No bookings found.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+        <div class="content-backdrop fade"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+  // Initialize DataTables (basic; adds search, sort, pagination)
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.jQuery && jQuery.fn.dataTable) {
+      jQuery('#bookingTable').DataTable({
+        pageLength: 25,
+        order: [[4, 'asc']], // sort by Scheduled asc
+        stateSave: true
+      });
+    }
+  });
+</script>
+{% endblock scripts %}
