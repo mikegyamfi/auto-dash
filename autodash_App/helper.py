@@ -35,4 +35,19 @@ def send_sms(phone_number, message):
     print(response.text)
 
 
+def send_sms_club(phone_number, message):
+    sms_headers = {
+        'Authorization': config('SMS_API_KEY'),
+        'Content-Type': 'application/json'
+    }
+
+    receiver_body = {
+        'recipient': f"233{phone_number}",
+        'sender_id': 'AD WashClub',
+        'message': message
+    }
+
+    response = requests.request('POST', url=sms_url, params=receiver_body, headers=sms_headers)
+    print(response.text)
+
 

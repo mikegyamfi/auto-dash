@@ -5774,7 +5774,7 @@ def create_customer_booking(request):
                 if phone:
                     def _send():
                         try:
-                            send_sms(phone, message)
+                            send_sms_club(phone, message)
                         except Exception as e:
                             # don't block the request if SMS fails
                             print(e)
