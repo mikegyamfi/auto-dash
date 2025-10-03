@@ -18,10 +18,28 @@
               <form id="log-service-form" method="post">
                 {% csrf_token %}
                 <div class="row g-3">
+
+                  {# --- Vehicle (with Add Vehicle button) --- #}
                   <div class="col-md-6">
-                    <label class="form-label">Vehicle</label>
+                    <label class="form-label d-flex align-items-center justify-content-between">
+                      <span>Vehicle</span>
+                      <a
+                        class="btn btn-sm btn-outline-success"
+                        href="{% url 'customer_vehicle_create' %}?next={{ request.get_full_path|urlencode }}"
+                        title="Add a new vehicle"
+                      >
+                        <i class="bx bx-plus"></i> Add Vehicle
+                      </a>
+                    </label>
                     {{ form.vehicle }}
-                    {% if form.vehicle.errors %}<div class="text-danger small">{{ form.vehicle.errors }}</div>{% endif %}
+                    {% if form.vehicle.errors %}
+                      <div class="text-danger small">{{ form.vehicle.errors }}</div>
+                    {% endif %}
+                    {% if not form.vehicle.field.queryset.exists %}
+                      <div class="alert alert-info mt-2 py-2 px-3 small">
+                        You don’t have any vehicles yet. Click <strong>Add Vehicle</strong> to register your car, then you can book services for it.
+                      </div>
+                    {% endif %}
                   </div>
 
                   <div class="col-md-6">

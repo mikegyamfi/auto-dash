@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0">Add a Vehicle</h4>
+            <a href="{% url 'customer_dashboard' %}" class="btn btn-light">
+              <i class="bx bx-left-arrow-alt me-1"></i> Back to Dashboard
+            </a>
+          </div>
+
+          <div class="row">
+            <div class="col-lg-8">
+              <div class="card mb-3">
+                <div class="card-body">
+                  <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                      <label class="form-label">Vehicle Group</label>
+                      {{ form.vehicle_group }}
+                      {% if form.vehicle_group.errors %}
+                        <div class="text-danger small">{{ form.vehicle_group.errors }}</div>
+                      {% endif %}
+                      <div class="form-text">Pick the category that best matches your vehicle (e.g., SUV, Sedan).</div>
+                    </div>
+
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                        <label class="form-label">Car Make</label>
+                        {{ form.car_make }}
+                        {% if form.car_make.errors %}
+                          <div class="text-danger small">{{ form.car_make.errors }}</div>
+                        {% endif %}
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Car Color</label>
+                        {{ form.car_color }}
+                        {% if form.car_color.errors %}
+                          <div class="text-danger small">{{ form.car_color.errors }}</div>
+                        {% endif %}
+                      </div>
+                    </div>
+
+                    <div class="mt-3">
+                      <label class="form-label">Car Plate</label>
+                      {{ form.car_plate }}
+                      {% if form.car_plate.errors %}
+                        <div class="text-danger small">{{ form.car_plate.errors }}</div>
+                      {% endif %}
+                      <div class="form-text">We’ll use this to identify your vehicle quickly.</div>
+                    </div>
+
+                    <div class="d-flex gap-2 mt-4">
+                      <button type="submit" class="btn btn-primary">
+                        <i class="bx bx-save me-1"></i> Save Vehicle
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-4">
+              <div class="card h-100">
+                <div class="card-body">
+                  <h6 class="text-muted mb-3"><i class="bx bx-info-circle me-1"></i>Tips</h6>
+                  <ul class="small ps-3">
+                    <li>Make sure the plate number matches what’s on the vehicle.</li>
+                    <li>Vehicle group helps us list only compatible services when booking.</li>
+                    <li>You can add multiple cars and choose among them when booking services.</li>
+                  </ul>
+
+                  <div class="mt-4">
+                    <h6 class="text-muted mb-2">Example</h6>
+                    <div class="p-3 rounded border bg-light">
+                      <div class="fw-bold">Toyota (Black) – GR-1234-24</div>
+                      <div class="small text-muted">Group: SUV</div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+// Nicety: uppercase plate automatically
+document.addEventListener('DOMContentLoaded', function () {
+  const plate = document.getElementById('id_car_plate');
+  if (plate) {
+    plate.addEventListener('input', function () {
+      this.value = this.value.toUpperCase();
+    });
+  }
+});
+</script>
+{% endblock scripts %}

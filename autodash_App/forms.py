@@ -730,4 +730,39 @@ class CustomerBookingEditForm(forms.ModelForm):
         return svcs
 
 
+class CustomerVehicleForm(forms.ModelForm):
+    class Meta:
+        model = models.CustomerVehicle
+        fields = ["vehicle_group", "car_make", "car_color", "car_plate"]
+        widgets = {
+            "vehicle_group": forms.Select(attrs={"class": "form-control"}),
+            "car_make": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. Toyota Corolla"}),
+            "car_color": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. Black"}),
+            "car_plate": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. GR-1234-24"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        # Accept a 'customer' kwarg to filter vehicle groups if desired
+        self.customer = kwargs.pop("customer", None)
+        super().__init__(*args, **kwargs)
+
+        # Optionally filter VehicleGroup to the customer's branch (if defined)
+        # If your flows allow booking at any branch, comment this out.
+        if self.customer and self.customer.branch:
+            self.fields["vehicle_group"].queryset = (
+                models.VehicleGroup.objects.filter(branches=self.customer.branch).distinct()
+            )
+        else:
+            # Show all groups if no branch attached to the customer
+            self.fields["vehicle_group"].queryset = models.VehicleGroup.objects.all().order_by("group_name")
+
+    def clean_car_plate(self):
+        plate = (self.cleaned_data.get("car_plate") or "").strip().upper()
+        if self.customer:
+            exists = models.CustomerVehicle.objects.filter(
+                customer=self.customer, car_plate__iexact=plate
+            ).exists()
+            if exists:
+                raise forms.ValidationError("You already have a vehicle with this plate.")
+        return plate
 

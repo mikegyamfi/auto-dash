@@ -31,7 +31,7 @@ from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
     CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm,
-    CustomerBookingForm, CustomerBookingEditForm
+    CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm
 )
 from .helper import send_sms
 from .models import (
@@ -6247,6 +6247,52 @@ def booking_service_meta(request):
 
     return JsonResponse({"services": meta})
 
+
+@login_required(login_url="login")
+def customer_vehicle_create(request):
+    """
+    Allow a logged-in customer to add a vehicle to their account.
+    After creating, redirect to booking page (or wherever you prefer).
+    """
+    user = request.user
+    customer = get_object_or_404(Customer.objects.select_related("user", "branch"), user=user)
+
+    if request.method == "POST":
+        form = CustomerVehicleForm(request.POST, customer=customer)
+        if form.is_valid():
+            vehicle = form.save(commit=False)
+            vehicle.customer = customer
+            vehicle.save()
+            messages.success(request, "Vehicle added successfully.")
+            next_url = request.GET.get("next") or reverse("customer_dashboard")  # adjust to your booking create url name
+            return redirect(next_url)
+        else:
+            messages.error(request, "Please correct the errors below.")
+    else:
+        form = CustomerVehicleForm(customer=customer)
+
+    return render(
+        request,
+        "layouts/customers/vehicle_create.html",
+        {"form": form}
+    )
+
+
+@login_required(login_url="login")
+def customer_vehicles(request):
+    user = request.user
+    customer = get_object_or_404(Customer.objects.select_related("user", "branch"), user=user)
+    vehicles = (
+        CustomerVehicle.objects
+        .filter(customer=customer)
+        .select_related("vehicle_group")
+        .order_by("-date_added")
+    )
+    return render(
+        request,
+        "layouts/customers/vehicles_list.html",
+        {"vehicles": vehicles}
+    )
 
 
 
