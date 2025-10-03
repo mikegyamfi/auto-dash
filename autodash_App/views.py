@@ -33,7 +33,7 @@ from .forms import (
     CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm,
     CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm
 )
-from .helper import send_sms
+from .helper import send_sms, send_sms_club
 from .models import (
     CustomerSubscription, CustomUser,
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
