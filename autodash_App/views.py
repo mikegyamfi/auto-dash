@@ -5723,11 +5723,12 @@ def create_customer_booking(request):
       - vehicle limited to current customer's vehicles
       - services limited to vehicle's group (SUV/sedan/etc.)
       - all branches listed
+      - sends confirmation SMS on successful commit
     """
     user = get_object_or_404(CustomUser, id=request.user.id)
     customer = get_object_or_404(Customer, user=user)
 
-    # For initial render, allow preselecting a vehicle via ?vehicle=<id>
+    # Allow preselecting a vehicle via ?vehicle=<id>
     selected_vehicle_id = request.GET.get("vehicle")
 
     if request.method == "POST":
@@ -5738,12 +5739,48 @@ def create_customer_booking(request):
             customer=customer,
             vehicle_id=vehicle_id_for_filter
         )
+
         if form.is_valid():
-            booking = form.save(commit=False)
-            booking.customer = customer
-            booking.status = "booked"
-            booking.save()
-            form.save_m2m()
+            with transaction.atomic():
+                booking = form.save(commit=False)
+                booking.customer = customer
+                booking.status = "booked"
+                booking.save()
+                form.save_m2m()  # ensure services are persisted before building SMS
+
+                # ------ Build SMS content ------
+                # Services list
+                svc_names = list(
+                    booking.services.values_list("service_type", flat=True)
+                )
+                services_text = ", ".join(svc_names) if svc_names else "your selected service(s)"
+
+                # Date & time (localized)
+                dt_local = timezone.localtime(booking.scheduled_at) if booking.scheduled_at else None
+                dt_text = dt_local.strftime("%Y-%m-%d %H:%M") if dt_local else "the scheduled time"
+
+                # Branch name (fallback to '-')
+                branch_name = booking.branch.name if booking.branch else "-"
+
+                message = (
+                    "Hi,\n"
+                    f"Your booking is confirmed for ({services_text}) on ({dt_text}) at ({branch_name}). See you soon.\n"
+                    "Need help: 0593431421"
+                )
+
+                phone = getattr(customer.user, "phone_number", None)
+
+                # Send only after the transaction fully commits
+                if phone:
+                    def _send():
+                        try:
+                            send_sms(phone, message)
+                        except Exception as e:
+                            # don't block the request if SMS fails
+                            print(e)
+
+                    transaction.on_commit(_send)
+
             messages.success(request, "Booking created successfully.")
             # Redirect to a detail or history page you already have
             return redirect("booking_history")  # or 'customer_service_history'
