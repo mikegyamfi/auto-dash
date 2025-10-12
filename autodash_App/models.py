@@ -871,3 +871,56 @@ class CustomerBooking(models.Model):
         self.converted_to_order = True
         self.service_order = order
         self.converted_at = when or timezone.now()
+
+
+class Notification(models.Model):
+    LEVEL_INFO = 'info'
+    LEVEL_SUCCESS = 'success'
+    LEVEL_WARNING = 'warning'
+    LEVEL_ERROR = 'error'
+    LEVEL_CHOICES = [
+        (LEVEL_INFO, 'Info'),
+        (LEVEL_SUCCESS, 'Success'),
+        (LEVEL_WARNING, 'Warning'),
+        (LEVEL_ERROR, 'Error'),
+    ]
+
+    # who should see this notification
+    # recipient = models.ForeignKey(
+    #     CustomUser,
+    #     on_delete=models.CASCADE,
+    #     related_name='notifications'
+    # )
+
+    # optional grouping info (useful when you want to notify staff of a branch)
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='notifications'
+    )
+
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True, default="")
+    level = models.CharField(max_length=10, choices=LEVEL_CHOICES, default=LEVEL_INFO)
+
+    # Optional: a URL to “view details” (booking detail, convert page, etc.)
+    target_url = models.URLField(max_length=500, null=True, blank=True)
+
+    # unread/read states
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.get_level_display()}] {self.title}"
+
+    def mark_read(self, when=None):
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = when or timezone.now()
+            self.save(update_fields=['is_read', 'read_at'])
+

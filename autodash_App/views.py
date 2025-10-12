@@ -39,7 +39,7 @@ from .models import (
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
     CustomerSubscriptionRenewalTrail, WeeklyBudget,
     SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget,
-    WorkerDailyAdjustment, CustomerBooking
+    WorkerDailyAdjustment, CustomerBooking, Notification
 )
 from .models import (
     DailyExpenseBudget
@@ -6332,4 +6332,168 @@ def customer_vehicles(request):
     )
 
 
+def _user_branch_or_none(user):
+    """Return (branch, is_superuser, is_worker) for convenience."""
+    if user.is_superuser:
+        return None, True, False
+    try:
+        w = Worker.objects.select_related("branch").get(user=user)
+        return w.branch, False, True
+    except Worker.DoesNotExist:
+        return None, False, False
 
+
+@login_required(login_url="login")
+@require_POST
+def notification_mark_read(request, pk):
+    """
+    Mark a single notification as read.
+    Superusers can mark any; workers can mark only notifications for *their branch*.
+    """
+    notif = get_object_or_404(Notification, pk=pk)
+    branch, is_superuser, is_worker = _user_branch_or_none(request.user)
+
+    if not is_superuser:
+        if not is_worker:
+            return HttpResponseForbidden("Not allowed.")
+        # If the notification is branch-scoped, enforce same branch
+        if notif.branch_id and branch and notif.branch_id != branch.id:
+            return HttpResponseForbidden("Not allowed for this branch.")
+
+    # Mark read
+    if not notif.is_read:
+        notif.is_read = True
+        notif.read_at = timezone.now()
+        notif.save(update_fields=["is_read", "read_at"])
+
+    # AJAX/HTMX support
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"ok": True, "id": notif.id})
+
+    messages.success(request, "Notification marked as read.")
+    next_url = request.POST.get("next") or request.GET.get("next")
+    return redirect(next_url or "booking_history")  # pick a sensible default
+
+
+@login_required(login_url="login")
+@require_POST
+def notification_mark_all_read(request):
+    """
+    Mark all unread notifications as read.
+    Superusers: all branches. Workers: only their own branch.
+    """
+    branch, is_superuser, is_worker = _user_branch_or_none(request.user)
+
+    if not is_superuser and not is_worker:
+        return HttpResponseForbidden("Not allowed.")
+
+    qs = Notification.objects.filter(is_read=False)
+    if not is_superuser:
+        # workers/branch-admins → only their branch
+        if branch:
+            qs = qs.filter(branch=branch)
+        else:
+            # no branch; nothing to do
+            qs = qs.none()
+
+    now = timezone.now()
+    # Use update() for efficiency, then optionally return a count
+    updated = qs.update(is_read=True, read_at=now)
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"ok": True, "updated": updated})
+
+    if updated:
+        messages.success(request, f"Marked {updated} notification(s) as read.")
+    else:
+        messages.info(request, "No unread notifications.")
+    next_url = request.POST.get("next") or request.GET.get("next")
+    return redirect(next_url or "booking_history")
+
+
+def _resolve_scope_qs(user):
+    """
+    Return (base_qs, branch, is_superuser, is_worker).
+    Superuser: all branches
+    Worker (incl. branch admin): only worker.branch
+    Others: empty queryset
+    """
+    base = Notification.objects.select_related("branch").order_by("-created_at")
+
+    if user.is_superuser:
+        return base, None, True, False
+
+    try:
+        worker = Worker.objects.select_related("branch").get(user=user)
+    except Worker.DoesNotExist:
+        return base.none(), None, False, False
+
+    return base.filter(branch=worker.branch), worker.branch, False, True
+
+
+@login_required(login_url="login")
+def notifications_list(request):
+    """
+    Dedicated page listing notifications with filters:
+      - status: all | unread (default unread)
+      - level: info|success|warning|error
+      - branch: (superuser only)
+      - date range
+      - q: search in title/message
+    """
+    base_qs, worker_branch, is_superuser, is_worker = _resolve_scope_qs(request.user)
+    if base_qs is None or not request.user.is_authenticated:
+        base_qs = Notification.objects.none()
+
+    # ---------- Filters ----------
+    status = request.GET.get("status", "unread").strip().lower()  # default: unread
+    level = request.GET.get("level", "").strip().lower()
+    branch_id = request.GET.get("branch", "").strip()
+    date_from = request.GET.get("date_from", "").strip()
+    date_to = request.GET.get("date_to", "").strip()
+    q = request.GET.get("q", "").strip()
+
+    qs = base_qs
+
+    if status == "unread":
+        qs = qs.filter(is_read=False)
+    # else 'all' → no filter
+
+    if level in {"info", "success", "warning", "error"}:
+        qs = qs.filter(level=level)
+
+    if is_superuser and branch_id.isdigit():
+        qs = qs.filter(branch_id=int(branch_id))
+
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    if q:
+        qs = qs.filter(title__icontains=q) | qs.filter(message__icontains=q)
+
+    # Pagination
+    paginator = Paginator(qs, 25)
+    page_obj = paginator.get_page(request.GET.get("page"))
+
+    # For filter controls
+    branches = Branch.objects.all().order_by("name") if is_superuser else []
+    levels = dict(Notification.LEVEL_CHOICES)
+
+    context = {
+        "page_obj": page_obj,
+        "levels": levels,
+        "branches": branches,
+        "is_superuser": is_superuser,
+        "worker_branch": worker_branch,
+        "selected": {
+            "status": status,
+            "level": level,
+            "branch": branch_id,
+            "date_from": date_from,
+            "date_to": date_to,
+            "q": q,
+        },
+    }
+    return render(request, "layouts/notifications/list.html", context)

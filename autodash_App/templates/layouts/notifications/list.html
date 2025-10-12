@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0">Notifications</h4>
+
+            <form method="post" action="{% url 'notifications_mark_all_read' %}" class="ms-auto">
+              {% csrf_token %}
+              <button class="btn btn-outline-success btn-sm" type="submit">
+                <i class="bx bx-check-double me-1"></i> Mark all as read
+              </button>
+            </form>
+          </div>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="get" class="row g-3 align-items-end">
+                <div class="col-12 col-md-2">
+                  <label class="form-label">Status</label>
+                  <select name="status" class="form-select">
+                    <option value="unread" {% if selected.status == "unread" %}selected{% endif %}>Unread</option>
+                    <option value="all" {% if selected.status == "all" %}selected{% endif %}>All</option>
+                  </select>
+                </div>
+
+                <div class="col-12 col-md-2">
+                  <label class="form-label">Level</label>
+                  <select name="level" class="form-select">
+                    <option value="">Any</option>
+                    {% for k, v in levels.items %}
+                      <option value="{{ k }}" {% if selected.level == k %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                {% if is_superuser %}
+                <div class="col-12 col-md-3">
+                  <label class="form-label">Branch</label>
+                  <select name="branch" class="form-select">
+                    <option value="">All</option>
+                    {% for b in branches %}
+                      <option value="{{ b.id }}" {% if selected.branch == b.id|stringformat:'s' %}selected{% endif %}>
+                        {{ b.name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endif %}
+
+                <div class="col-6 col-md-2">
+                  <label class="form-label">From</label>
+                  <input type="date" class="form-control" name="date_from" value="{{ selected.date_from }}">
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <label class="form-label">To</label>
+                  <input type="date" class="form-control" name="date_to" value="{{ selected.date_to }}">
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Search</label>
+                  <input type="text" class="form-control" name="q" value="{{ selected.q }}" placeholder="Title or message…">
+                </div>
+
+                <div class="col-12 col-md-3 d-flex gap-2">
+                  <button class="btn btn-primary" type="submit">Apply</button>
+                  <a class="btn btn-outline-secondary" href="{% url 'notifications_list' %}">Reset</a>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div class="card">
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 40%">Title & Message</th>
+                    <th>Level</th>
+                    <th>Branch</th>
+                    <th>Created</th>
+                    <th>Status</th>
+                    <th class="text-end">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for n in page_obj.object_list %}
+                    <tr class="{% if not n.is_read %}table-warning{% endif %}">
+                      <td>
+                        <div class="fw-semibold">{{ n.title }}</div>
+                        {% if n.message %}
+                          <div class="text-muted small">{{ n.message }}</div>
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if n.level == 'success' %}
+                          <span class="badge bg-success">Success</span>
+                        {% elif n.level == 'warning' %}
+                          <span class="badge bg-warning text-dark">Warning</span>
+                        {% elif n.level == 'error' %}
+                          <span class="badge bg-danger">Error</span>
+                        {% else %}
+                          <span class="badge bg-info text-dark">Info</span>
+                        {% endif %}
+                      </td>
+                      <td>{{ n.branch.name|default:"—" }}</td>
+                      <td>{{ n.created_at|date:"Y-m-d H:i" }}</td>
+                      <td>
+                        {% if n.is_read %}
+                          <span class="badge bg-secondary">Read</span>
+                        {% else %}
+                          <span class="badge bg-primary">Unread</span>
+                        {% endif %}
+                      </td>
+                      <td class="text-end">
+                        <div class="d-inline-flex gap-2">
+                          {% if n.target_url %}
+                            <a href="{{ n.target_url }}" class="btn btn-sm btn-outline-primary">
+                              <i class="bx bx-link-external"></i> View
+                            </a>
+                          {% endif %}
+                          {% if not n.is_read %}
+                            <form method="post" action="{% url 'notification_mark_read' pk=n.id %}">
+                              {% csrf_token %}
+                              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                              <button class="btn btn-sm btn-outline-success" type="submit" title="Mark as read">
+                                <i class="bx bx-check"></i>
+                              </button>
+                            </form>
+                          {% endif %}
+                        </div>
+                      </td>
+                    </tr>
+                  {% empty %}
+                    <tr>
+                      <td colspan="6" class="text-center text-muted p-4">No notifications found.</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pagination -->
+            {% if page_obj.paginator.num_pages > 1 %}
+              <div class="card-footer d-flex justify-content-between align-items-center">
+                <div class="small text-muted">
+                  Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                </div>
+                <nav>
+                  <ul class="pagination mb-0">
+                    {% if page_obj.has_previous %}
+                      <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if selected.status %}&status={{ selected.status }}{% endif %}{% if selected.level %}&level={{ selected.level }}{% endif %}{% if selected.branch %}&branch={{ selected.branch }}{% endif %}{% if selected.date_from %}&date_from={{ selected.date_from }}{% endif %}{% if selected.date_to %}&date_to={{ selected.date_to }}{% endif %}{% if selected.q %}&q={{ selected.q|urlencode }}{% endif %}">
+                          «
+                        </a>
+                      </li>
+                    {% endif %}
+                    <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
+                    {% if page_obj.has_next %}
+                      <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if selected.status %}&status={{ selected.status }}{% endif %}{% if selected.level %}&level={{ selected.level }}{% endif %}{% if selected.branch %}&branch={{ selected.branch }}{% endif %}{% if selected.date_from %}&date_from={{ selected.date_from }}{% endif %}{% if selected.date_to %}&date_to={{ selected.date_to }}{% endif %}{% if selected.q %}&q={{ selected.q|urlencode }}{% endif %}">
+                          »
+                        </a>
+                      </li>
+                    {% endif %}
+                  </ul>
+                </nav>
+              </div>
+            {% endif %}
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
