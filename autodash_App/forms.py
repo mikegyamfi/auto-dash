@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from autodash_App import models
 from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product, Expense, \
-    VehicleGroup, CustomerVehicle, CustomerBooking
+    VehicleGroup, CustomerVehicle, CustomerBooking, OtherService
 
 
 class CustomUserForm(UserCreationForm):
@@ -765,4 +765,29 @@ class CustomerVehicleForm(forms.ModelForm):
             if exists:
                 raise forms.ValidationError("You already have a vehicle with this plate.")
         return plate
+
+
+class OtherServiceForm(forms.ModelForm):
+    class Meta:
+        model = OtherService
+        fields = ["service_name", "amount", "contact_name", "contact_phone", "notes", "status", "workers"]
+        widgets = {
+            "service_name": forms.TextInput(attrs={"class": "form-control"}),
+            "amount": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "contact_name": forms.TextInput(attrs={"class": "form-control"}),
+            "contact_phone": forms.TextInput(attrs={"class": "form-control"}),
+            "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "status": forms.Select(attrs={"class": "form-select"}),
+            "workers": forms.SelectMultiple(attrs={"class": "form-select"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        branch = kwargs.pop("branch", None)
+        super().__init__(*args, **kwargs)
+        # limit workers to current worker's branch (if provided)
+        if branch is not None:
+            self.fields["workers"].queryset = Worker.objects.filter(branch=branch)
+        else:
+            self.fields["workers"].queryset = Worker.objects.none()
+
 

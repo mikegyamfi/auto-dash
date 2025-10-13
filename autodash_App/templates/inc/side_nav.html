@@ -106,7 +106,12 @@
           <ul class="menu-sub">
             <li class="menu-item">
               <a href="{% url 'log_service' %}" class="menu-link">
-                <div data-i18n="Log a Service">Log a Service</div>
+                <div data-i18n="Log a Service">Log Vehicle Service</div>
+              </a>
+
+              <li class="menu-item">
+              <a href="{% url 'other_service_create' %}" class="menu-link">
+                <div data-i18n="Log a Service">Log Other Services</div>
               </a>
             </li>
             <li class="menu-item">
@@ -131,7 +136,12 @@
             </li>
             <li class="menu-item">
               <a href="{% url 'service_history' %}" class="menu-link">
-                <div data-i18n="Service History">Service History</div>
+                <div data-i18n="Service History">Vehicle Service History</div>
+              </a>
+            </li>
+              <li class="menu-item">
+              <a href="{% url 'other_service_history' %}" class="menu-link">
+                <div data-i18n="Service History">Other Services History</div>
               </a>
             </li>
             <li class="menu-item">

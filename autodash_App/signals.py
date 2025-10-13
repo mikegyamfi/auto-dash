@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import RecurringExpense, CustomerBooking, Notification
+from .models import RecurringExpense, CustomerBooking, Notification, OtherService
 from .models import Expense
 
 
@@ -100,5 +100,49 @@ def booking_created_worker_notification(sender, instance: CustomerBooking, creat
         level=Notification.LEVEL_INFO,
         target_url=target_url,
     )
+
+
+@receiver(post_save, sender=OtherService)
+def other_service_sync_revenue(sender, instance: OtherService, created, **kwargs):
+    """
+    Keep Revenue in sync for OtherService via Revenue.other_service:
+
+      - If status == completed:
+          - create Revenue once if not present
+          - else update branch/user/amount if they changed
+      - If status != completed:
+          - delete existing Revenue (if any)
+    """
+    # Find any existing Revenue linked to this OtherService
+    rev = Revenue.objects.filter(other_service=instance).first()
+
+    if instance.status == "completed":
+        if rev is None:
+            rev = Revenue.objects.create(
+                other_service=instance,       # <-- the new link
+                branch=instance.branch,
+                amount=instance.amount,
+                final_amount=instance.amount,
+                discount=0.0,
+                user=instance.user,
+                date=timezone.now().date(),
+            )
+        else:
+            changed = False
+            if (rev.amount or 0) != instance.amount or (rev.final_amount or 0) != instance.amount:
+                rev.amount = instance.amount
+                rev.final_amount = instance.amount
+                changed = True
+            if rev.branch_id != instance.branch_id:
+                rev.branch = instance.branch
+                changed = True
+            if rev.user_id != instance.user_id:
+                rev.user = instance.user
+                changed = True
+            if changed:
+                rev.save()
+    else:
+        if rev:
+            rev.delete()
 
 

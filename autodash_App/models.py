@@ -589,6 +589,12 @@ class Revenue(models.Model):
         null=True, blank=True,
         unique=True
     )
+    other_service = models.OneToOneField(
+        "OtherService",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="revenue"
+    )
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='revenues')
     amount = models.FloatField()
     discount = models.FloatField(null=True, blank=True)
@@ -923,4 +929,51 @@ class Notification(models.Model):
             self.is_read = True
             self.read_at = when or timezone.now()
             self.save(update_fields=['is_read', 'read_at'])
+
+
+class OtherService(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('canceled', 'Canceled'),
+        ('onCredit', 'On Credit'),
+    ]
+
+    # who logged it
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="other_services")
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="other_services")
+
+    # core fields
+    service_name = models.CharField(max_length=200)
+    amount = models.FloatField(validators=[MinValueValidator(0.0)])
+    workers = models.ManyToManyField('Worker', related_name='other_services_rendered', blank=True)
+    contact_name = models.CharField(max_length=120, blank=True, default="")
+    contact_phone = models.CharField(max_length=30, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # audit
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.service_name} ({self.get_status_display()}) – GHS{self.amount:.2f}"
+
+    # helpers
+    def mark_completed(self, when=None):
+        self.status = "completed"
+        self.save(update_fields=["status", "updated_at"])
+
+    def mark_canceled(self):
+        self.status = "canceled"
+        self.save(update_fields=["status", "updated_at"])
+
+    def mark_on_credit(self):
+        self.status = "onCredit"
+        self.save(update_fields=["status", "updated_at"])
+
 

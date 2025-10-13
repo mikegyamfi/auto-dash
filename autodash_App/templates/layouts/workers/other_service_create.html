@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold mb-3"><span class="text-muted fw-light">Services /</span> Log Other Service</h4>
+
+          <div class="card">
+            <div class="card-body">
+              <form method="post" class="row g-3">
+                {% csrf_token %}
+                <div class="col-md-6">
+                  <label class="form-label">Service name</label>
+                  {{ form.service_name }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Amount (GHS)</label>
+                  {{ form.amount }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Contact name</label>
+                  {{ form.contact_name }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Contact phone</label>
+                  {{ form.contact_phone }}
+                </div>
+
+                <div class="col-md-6">
+                  <label class="form-label">Status</label>
+                  {{ form.status }}
+                </div>
+
+                <div class="col-md-6">
+                  <label class="form-label">Worker(s)</label>
+                  {{ form.workers }}
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Notes</label>
+                  {{ form.notes }}
+                </div>
+
+                <div class="col-12 d-flex gap-2">
+                  <button class="btn btn-primary" type="submit">Save</button>
+                  <a class="btn btn-outline-secondary" href="{% url 'other_service_history' %}">Cancel</a>
+                </div>
+              </form>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

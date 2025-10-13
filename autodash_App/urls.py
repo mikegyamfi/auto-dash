@@ -177,8 +177,14 @@ urlpatterns = [
                   path("customer/vehicles/", views.customer_vehicles, name="customer_vehicles"),
 
                   path("notifications/<int:pk>/read/", views.notification_mark_read, name="notification_mark_read"),
-                  path("notifications/mark-all-read/", views.notification_mark_all_read, name="notifications_mark_all_read"),
+                  path("notifications/mark-all-read/", views.notification_mark_all_read,
+                       name="notifications_mark_all_read"),
                   path("notifications/", views.notifications_list, name="notifications_list"),
+
+                  path("other-services/new/", views.other_service_create, name="other_service_create"),
+                  path("other-services/", views.other_service_history, name="other_service_history"),
+                  path("other-services/<int:pk>/status/<str:new_status>/", views.other_service_update_status,
+                       name="other_service_update_status"),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

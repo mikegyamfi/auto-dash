@@ -31,7 +31,7 @@ from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
     CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm,
-    CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm
+    CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm, OtherServiceForm
 )
 from .helper import send_sms, send_sms_club
 from .models import (
@@ -39,7 +39,7 @@ from .models import (
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
     CustomerSubscriptionRenewalTrail, WeeklyBudget,
     SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget,
-    WorkerDailyAdjustment, CustomerBooking, Notification
+    WorkerDailyAdjustment, CustomerBooking, Notification, OtherService
 )
 from .models import (
     DailyExpenseBudget
@@ -6248,7 +6248,7 @@ def booking_service_meta(request):
 
     # Fetch only the requested services
     qs = (
-        Service.objects
+        Service.objectsd
         .filter(id__in=ids, active=True)
         .select_related("category")
         .only("id", "service_type", "price", "category__negotiable")
@@ -6497,3 +6497,105 @@ def notifications_list(request):
         },
     }
     return render(request, "layouts/notifications/list.html", context)
+
+
+def _get_worker_and_branch_or_redirect(request):
+    try:
+        worker = Worker.objects.select_related("branch").get(user=request.user)
+        return worker, worker.branch
+    except Worker.DoesNotExist:
+        if not request.user.is_superuser:
+            messages.error(request, "You are not authorized to log other services.")
+            return None, None
+        return None, None
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def other_service_create(request):
+    worker, branch = _get_worker_and_branch_or_redirect(request)
+    if branch is None and not request.user.is_superuser:
+        return redirect("index")
+
+    if request.method == "POST":
+        form = OtherServiceForm(request.POST, branch=branch)
+        if form.is_valid():
+            svc = form.save(commit=False)
+            svc.user = request.user
+            svc.branch = branch if branch else svc.branch
+            svc.save()
+            form.save_m2m()  # <-- save selected workers
+            messages.success(request, "Other service logged.")
+            return redirect("other_service_history")
+    else:
+        form = OtherServiceForm(branch=branch)
+
+    return render(request, "layouts/workers/other_service_create.html", {"form": form})
+
+
+@login_required(login_url='login')
+def other_service_history(request):
+    """
+    List & filter 'Other Services' for the current worker’s branch (or all if superuser).
+    """
+    worker, branch = _get_worker_and_branch_or_redirect(request)
+    if request.user.is_superuser:
+        qs = OtherService.objects.select_related("branch", "user")
+    else:
+        if branch is None:
+            return redirect("index")
+        qs = OtherService.objects.filter(branch=branch).select_related("branch", "user")
+
+    # filters
+    status = request.GET.get("status", "").strip()
+    date_from = request.GET.get("date_from", "").strip()
+    date_to = request.GET.get("date_to", "").strip()
+
+    if status:
+        qs = qs.filter(status=status)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    ctx = {
+        "items": qs.order_by("-created_at"),
+        "status_choices": dict(OtherService.STATUS_CHOICES),
+        "selected": {
+            "status": status,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+    }
+    return render(request, "layouts/workers/other_service_history.html", ctx)
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def other_service_update_status(request, pk, new_status):
+    """
+    Quick status transitions; signal will handle Revenue.
+    """
+    svc = get_object_or_404(OtherService, pk=pk)
+
+    # auth: same-branch worker or superuser
+    try:
+        worker = Worker.objects.select_related("branch").get(user=request.user)
+        if svc.branch_id != worker.branch_id and not request.user.is_superuser:
+            messages.error(request, "You can only manage services in your branch.")
+            return redirect("other_service_history")
+    except Worker.DoesNotExist:
+        if not request.user.is_superuser:
+            messages.error(request, "You are not authorized.")
+            return redirect("index")
+
+    valid = dict(OtherService.STATUS_CHOICES).keys()
+    if new_status not in valid:
+        messages.error(request, "Invalid status.")
+        return redirect("other_service_history")
+
+    svc.status = new_status
+    svc.save(update_fields=["status", "updated_at"])
+    messages.success(request, f"Service marked {new_status}.")
+    return redirect("other_service_history")
+
