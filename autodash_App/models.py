@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from django.db import models
+from django.db import models, transaction
 from django.contrib.auth.models import AbstractUser
 from django.db.models import Sum
 from django.utils import timezone
@@ -976,4 +976,71 @@ class OtherService(models.Model):
         self.status = "onCredit"
         self.save(update_fields=["status", "updated_at"])
 
+
+class MaintenanceLog(models.Model):
+    STATUS_OPEN = "open"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_RESOLVED = "resolved"
+    STATUS_CANCELED = "canceled"
+    STATUS_CHOICES = [
+        (STATUS_OPEN, "Open"),
+        (STATUS_IN_PROGRESS, "In Progress"),
+        (STATUS_RESOLVED, "Resolved"),
+        (STATUS_CANCELED, "Canceled"),
+    ]
+
+    PRIORITY_LOW = "low"
+    PRIORITY_MED = "medium"
+    PRIORITY_HIGH = "high"
+    PRIORITY_CHOICES = [
+        (PRIORITY_LOW, "Low"),
+        (PRIORITY_MED, "Medium"),
+        (PRIORITY_HIGH, "High"),
+    ]
+
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="maintenance_logs")
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default=PRIORITY_MED)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_OPEN)
+
+    reported_by = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="maintenance_reported"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"[{self.branch.name}] {self.title}"
+
+    @property
+    def total_spend(self):
+        """Sum of all linked expense items."""
+        return self.expenses.aggregate(s=models.Sum("amount"))["s"] or 0.0
+
+    @transaction.atomic
+    def mark_resolved(self, when=None):
+        if self.status != self.STATUS_RESOLVED:
+            self.status = self.STATUS_RESOLVED
+            self.resolved_at = when or timezone.now()
+            self.save(update_fields=["status", "resolved_at", "updated_at"])
+
+
+class MaintenanceExpense(models.Model):
+    maintenance = models.ForeignKey(MaintenanceLog, on_delete=models.CASCADE, related_name="expenses")
+    amount = models.FloatField(validators=[MinValueValidator(0.0)])
+    note = models.CharField(max_length=255, blank=True, default="")
+    added_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"GHS {self.amount:.2f} – {self.note or 'Expense'}"
 

@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from autodash_App import models
 from autodash_App.models import ServiceRendered, Customer, CustomUser, Service, Worker, Branch, Product, Expense, \
-    VehicleGroup, CustomerVehicle, CustomerBooking, OtherService
+    VehicleGroup, CustomerVehicle, CustomerBooking, OtherService, MaintenanceLog, MaintenanceExpense
 
 
 class CustomUserForm(UserCreationForm):
@@ -790,4 +790,40 @@ class OtherServiceForm(forms.ModelForm):
         else:
             self.fields["workers"].queryset = Worker.objects.none()
 
+
+class MaintenanceLogForm(forms.ModelForm):
+    class Meta:
+        model = MaintenanceLog
+        fields = ["branch", "title", "description", "priority", "status"]
+        widgets = {
+            "branch": forms.Select(attrs={"class": "form-select"}),
+            "title": forms.TextInput(attrs={"class": "form-control", "placeholder": "Short title"}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "priority": forms.Select(attrs={"class": "form-select"}),
+            "status": forms.Select(attrs={"class": "form-select"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        super().__init__(*args, **kwargs)
+
+        # Branch scoping for branch-admin/worker
+        if user and not user.is_superuser:
+            try:
+                worker = Worker.objects.select_related("branch").get(user=user)
+                self.fields["branch"].initial = worker.branch
+                self.fields["branch"].disabled = True
+            except Worker.DoesNotExist:
+                # If not a worker, hide field (or leave as-is for staff)
+                pass
+
+
+class MaintenanceExpenseForm(forms.ModelForm):
+    class Meta:
+        model = MaintenanceExpense
+        fields = ["amount", "note"]
+        widgets = {
+            "amount": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "note": forms.TextInput(attrs={"class": "form-control", "placeholder": "What was this for?"}),
+        }
 

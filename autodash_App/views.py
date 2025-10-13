@@ -31,7 +31,8 @@ from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
     CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm,
-    CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm, OtherServiceForm
+    CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm, OtherServiceForm, MaintenanceLogForm,
+    MaintenanceExpenseForm
 )
 from .helper import send_sms, send_sms_club
 from .models import (
@@ -39,7 +40,7 @@ from .models import (
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
     CustomerSubscriptionRenewalTrail, WeeklyBudget,
     SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget,
-    WorkerDailyAdjustment, CustomerBooking, Notification, OtherService
+    WorkerDailyAdjustment, CustomerBooking, Notification, OtherService, MaintenanceLog, MaintenanceExpense
 )
 from .models import (
     DailyExpenseBudget
@@ -178,8 +179,8 @@ def home(request):
 
         # 5 most recent & any pending for this worker
         recent_services = (ServiceRenderedOrder.objects
-                           .filter(workers=worker)
-                           .order_by("-date")[:5])
+        .filter(workers=worker)
+        .order_by("-date")[:5])
         pending_services = (ServiceRenderedOrder.objects
                             .filter(workers=worker, status="pending")
                             .order_by("-date"))
@@ -628,7 +629,7 @@ def log_service(request):
             sr = ServiceRendered.objects.create(
                 service=svc,
                 order=new_order,
-                negotiated_price=svc.price,   # matches FloatField
+                negotiated_price=svc.price,  # matches FloatField
                 payment_type="Cash"
             )
             if selected_workers:
@@ -640,7 +641,8 @@ def log_service(request):
                 b = CustomerBooking.objects.get(pk=from_booking_id)
                 # optional guard: ensure same customer/vehicle matches
                 if b.customer_id == (
-                customer.id if customer else getattr(vehicle, "customer_id", None)) and b.vehicle_id == vehicle.id:
+                        customer.id if customer else getattr(vehicle, "customer_id",
+                                                             None)) and b.vehicle_id == vehicle.id:
                     b.mark_converted(order=new_order)
                     b.save(update_fields=["status", "converted_to_order", "service_order", "converted_at"])
                 else:
@@ -878,12 +880,12 @@ def confirm_service(request, pk):
         # subscription
         sub_cov = 0.0
         if (
-            subscription_active
-            and order.vehicle
-            and cust_sub
-            and sr.service in cust_sub.subscription.services.all()
-            and order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
-            and remaining_sub > 0.0
+                subscription_active
+                and order.vehicle
+                and cust_sub
+                and sr.service in cust_sub.subscription.services.all()
+                and order.vehicle.vehicle_group in cust_sub.subscription.vehicle_group.all()
+                and remaining_sub > 0.0
         ):
             sub_cov = min(price, remaining_sub)
             remaining_sub -= sub_cov
@@ -1002,10 +1004,10 @@ def confirm_service(request, pk):
         factor = 1
     else:
         factor = (
-            (order.subscription_amount_used or 0)
-            + (order.loyalty_points_amount_deduction or 0)
-            + (order.cash_paid or 0)
-        ) / max(order.total_amount, 1.0)
+                         (order.subscription_amount_used or 0)
+                         + (order.loyalty_points_amount_deduction or 0)
+                         + (order.cash_paid or 0)
+                 ) / max(order.total_amount, 1.0)
     for sr in sr_list:
         sr.allocate_commission(discount_factor=factor)
 
@@ -1074,8 +1076,6 @@ def confirm_service(request, pk):
 
     messages.success(request, f"Service updated to {new_status}.")
     return redirect("service_receipt", pk=order.pk)
-
-
 
 
 def service_receipt(request, pk):
@@ -1938,14 +1938,14 @@ def customer_service_history(request):
     )
 
     # ----- Filters -----
-    status = request.GET.get('status', '').strip()                  # completed/pending/canceled/onCredit
-    pm = request.GET.get('payment_method', '').strip()              # cash/momo
+    status = request.GET.get('status', '').strip()  # completed/pending/canceled/onCredit
+    pm = request.GET.get('payment_method', '').strip()  # cash/momo
     branch_id = request.GET.get('branch', '').strip()
     date_from = request.GET.get('date_from', '').strip()
     date_to = request.GET.get('date_to', '').strip()
     min_amt = request.GET.get('min_amount', '').strip()
     max_amt = request.GET.get('max_amount', '').strip()
-    q = request.GET.get('q', '').strip()                            # free text search (order number)
+    q = request.GET.get('q', '').strip()  # free text search (order number)
 
     if status:
         qs = qs.filter(status=status)
@@ -5840,7 +5840,7 @@ def customer_booking_history(request):
     vehicle_id = (request.GET.get('vehicle') or '').strip()
     date_from = (request.GET.get('date_from') or '').strip()
     date_to = (request.GET.get('date_to') or '').strip()
-    arrived_only = (request.GET.get('arrived_only') or '').strip()      # "1"
+    arrived_only = (request.GET.get('arrived_only') or '').strip()  # "1"
     converted_only = (request.GET.get('converted_only') or '').strip()  # "1"
 
     if status:
@@ -5908,7 +5908,7 @@ def customer_booking_history(request):
             'arrived_only': arrived_only,
             'converted_only': converted_only,
         },
-        'can_manage': can_manage,                 # show actions (Convert) for workers/admins & superuser
+        'can_manage': can_manage,  # show actions (Convert) for workers/admins & superuser
         'show_branch_filter': show_branch_filter  # show Branch filter for customers & superuser
     }
     return render(request, 'layouts/customers/booking_history.html', context)
@@ -6301,7 +6301,8 @@ def customer_vehicle_create(request):
             vehicle.customer = customer
             vehicle.save()
             messages.success(request, "Vehicle added successfully.")
-            next_url = request.GET.get("next") or reverse("customer_dashboard")  # adjust to your booking create url name
+            next_url = request.GET.get("next") or reverse(
+                "customer_dashboard")  # adjust to your booking create url name
             return redirect(next_url)
         else:
             messages.error(request, "Please correct the errors below.")
@@ -6599,3 +6600,232 @@ def other_service_update_status(request, pk, new_status):
     messages.success(request, f"Service marked {new_status}.")
     return redirect("other_service_history")
 
+
+def _branch_and_role(request):
+    """
+    Returns tuple: (is_superuser, worker_or_none, branch_or_none, is_branch_admin)
+    """
+    user = request.user
+    if user.is_superuser:
+        return True, None, None, False
+    try:
+        worker = Worker.objects.select_related("branch").get(user=user)
+        return False, worker, worker.branch, bool(worker.is_branch_admin)
+    except Worker.DoesNotExist:
+        return False, None, None, False
+
+
+@login_required(login_url="login")
+def maintenance_list(request):
+    is_super, worker, branch, is_ba = _branch_and_role(request)
+
+    # ---------- Date range ----------
+    start_str = request.GET.get("start_date", "")
+    end_str = request.GET.get("end_date", "")
+
+    # default: last 12 months (inclusive of today)
+    today = timezone.localdate()
+    default_start = today - timedelta(days=365)
+    try:
+        start_date = datetime.strptime(start_str, "%Y-%m-%d").date() if start_str else default_start
+    except ValueError:
+        start_date = default_start
+    try:
+        end_date = datetime.strptime(end_str, "%Y-%m-%d").date() if end_str else today
+    except ValueError:
+        end_date = today
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+
+    # ---------- Base queryset ----------
+    qs = MaintenanceLog.objects.select_related("branch", "reported_by")
+
+    # Scope by branch for non-superusers
+    if not is_super:
+        if branch is None:
+            messages.error(request, "You do not have a branch assigned.")
+            return redirect("index")
+        qs = qs.filter(branch=branch)
+
+    # ---------- Filters ----------
+    status = request.GET.get("status", "").strip()
+    priority = request.GET.get("priority", "").strip()
+    branch_id = request.GET.get("branch", "").strip() if is_super else ""
+    q = request.GET.get("q", "").strip()
+
+    if status:
+        qs = qs.filter(status=status)
+    if priority:
+        qs = qs.filter(priority=priority)
+    if is_super and branch_id.isdigit():
+        qs = qs.filter(branch_id=int(branch_id))
+    if q:
+        qs = qs.filter(Q(title__icontains=q) | Q(description__icontains=q))
+
+    # Filter list by created date range (you can change to updated_at if you prefer)
+    qs = qs.filter(created_at__date__range=[start_date, end_date]).order_by("-created_at")
+
+    # ---------- Per-branch spend summary over the same date window ----------
+    spend_qs = (
+        MaintenanceExpense.objects
+        .select_related("maintenance__branch")
+        .filter(created_at__date__range=[start_date, end_date])
+    )
+
+    if not is_super:
+        spend_qs = spend_qs.filter(maintenance__branch=branch)
+    elif branch_id.isdigit():
+        spend_qs = spend_qs.filter(maintenance__branch_id=int(branch_id))
+
+    branch_totals = (
+        spend_qs
+        .values("maintenance__branch_id", "maintenance__branch__name")
+        .annotate(total=Sum("amount"))
+        .order_by("-total")
+    )
+
+    grand_total = sum((row["total"] or 0) for row in branch_totals)
+    top_branch = branch_totals[0] if branch_totals else None
+
+    # Branch list for superuser filter
+    branches = Branch.objects.all().order_by("name") if is_super else []
+
+    context = {
+        "logs": qs,
+        "is_super": is_super,
+        "branches": branches,
+        "selected": {
+            "status": status,
+            "priority": priority,
+            "branch": branch_id,
+            "q": q,
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+        },
+        # cards
+        "branch_totals": branch_totals,
+        "grand_total": grand_total,
+        "top_branch": top_branch,
+    }
+    return render(request, "layouts/admin/maintenance_list.html", context)
+
+
+@login_required(login_url="login")
+def maintenance_create(request):
+    is_super, worker, branch, is_ba = _branch_and_role(request)
+
+    if not (is_super or is_ba or (worker is not None)):
+        messages.error(request, "Unauthorized.")
+        return redirect("index")
+
+    if request.method == "POST":
+        form = MaintenanceLogForm(request.POST, user=request.user)
+        if form.is_valid():
+            log = form.save(commit=False)
+            # Force branch for non-superusers
+            if not is_super and branch:
+                log.branch = branch
+            log.reported_by = request.user
+            log.save()
+            messages.success(request, "Maintenance issue logged.")
+            return redirect("maintenance_detail", pk=log.pk)
+    else:
+        form = MaintenanceLogForm(user=request.user)
+
+    return render(request, "layouts/admin/maintenance_form.html", {"form": form, "is_create": True})
+
+
+@login_required(login_url="login")
+def maintenance_edit(request, pk):
+    is_super, worker, branch, is_ba = _branch_and_role(request)
+    log = get_object_or_404(MaintenanceLog, pk=pk)
+
+    if not is_super:
+        if branch is None or log.branch_id != branch.id:
+            messages.error(request, "Unauthorized for this branch.")
+            return redirect("maintenance_list")
+
+    if request.method == "POST":
+        form = MaintenanceLogForm(request.POST, instance=log, user=request.user)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            # Keep branch fixed for non-superuser
+            if not is_super and branch:
+                obj.branch = branch
+            obj.save()
+            messages.success(request, "Maintenance issue updated.")
+            return redirect("maintenance_detail", pk=obj.pk)
+    else:
+        form = MaintenanceLogForm(instance=log, user=request.user)
+
+    return render(request, "layouts/admin/maintenance_form.html", {"form": form, "is_create": False, "log": log})
+
+
+@login_required(login_url="login")
+def maintenance_detail(request, pk):
+    is_super, worker, branch, is_ba = _branch_and_role(request)
+    log = get_object_or_404(MaintenanceLog.objects.select_related("branch", "reported_by"), pk=pk)
+
+    if not is_super:
+        if branch is None or log.branch_id != branch.id:
+            messages.error(request, "Unauthorized for this branch.")
+            return redirect("maintenance_list")
+
+    # add expense inline
+    expense_form = MaintenanceExpenseForm()
+
+    context = {
+        "log": log,
+        "expenses": log.expenses.all(),
+        "total_spend": log.total_spend,
+        "expense_form": expense_form,
+        "can_resolve": log.status != MaintenanceLog.STATUS_RESOLVED,
+        "is_super": is_super,
+    }
+    return render(request, "layouts/admin/maintenance_detail.html", context)
+
+
+@login_required(login_url="login")
+@transaction.atomic
+def maintenance_add_expense(request, pk):
+    is_super, worker, branch, is_ba = _branch_and_role(request)
+    log = get_object_or_404(MaintenanceLog, pk=pk)
+
+    if request.method != "POST":
+        return redirect("maintenance_detail", pk=pk)
+
+    if not is_super:
+        if branch is None or log.branch_id != branch.id:
+            messages.error(request, "Unauthorized for this branch.")
+            return redirect("maintenance_list")
+
+    form = MaintenanceExpenseForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Invalid expense.")
+        return redirect("maintenance_detail", pk=pk)
+
+    expense = form.save(commit=False)
+    expense.maintenance = log
+    expense.added_by = request.user
+    expense.save()
+    messages.success(request, "Expense added.")
+    return redirect("maintenance_detail", pk=pk)
+
+
+@login_required(login_url="login")
+@transaction.atomic
+def maintenance_mark_resolved(request, pk):
+    is_super, worker, branch, is_ba = _branch_and_role(request)
+    log = get_object_or_404(MaintenanceLog, pk=pk)
+
+    if request.method != "POST":
+        return redirect("maintenance_detail", pk=pk)
+
+    if not is_super:
+        if branch is None or log.branch_id != branch.id:
+            messages.error(request, "Unauthorized for this branch.")
+            return redirect("maintenance_list")
+
+    log.mark_resolved()
+    messages.success(request, "Maintenance issue marked as resolved.")
+    return redirect("maintenance_detail", pk=pk)

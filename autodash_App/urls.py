@@ -185,6 +185,15 @@ urlpatterns = [
                   path("other-services/", views.other_service_history, name="other_service_history"),
                   path("other-services/<int:pk>/status/<str:new_status>/", views.other_service_update_status,
                        name="other_service_update_status"),
+
+                  path("maintenance/", views.maintenance_list, name="maintenance_list"),
+                  path("maintenance/new/", views.maintenance_create, name="maintenance_create"),
+                  path("maintenance/<int:pk>/", views.maintenance_detail, name="maintenance_detail"),
+                  path("maintenance/<int:pk>/edit/", views.maintenance_edit, name="maintenance_edit"),
+                  path("maintenance/<int:pk>/add-expense/", views.maintenance_add_expense,
+                       name="maintenance_add_expense"),
+                  path("maintenance/<int:pk>/resolve/", views.maintenance_mark_resolved,
+                       name="maintenance_mark_resolved"),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

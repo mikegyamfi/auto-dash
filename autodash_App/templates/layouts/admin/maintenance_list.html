@@ -1,0 +1,184 @@
+{# templates/layouts/admin/maintenance_list.html #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Maintenance Logs</h4>
+            <a href="{% url 'maintenance_create' %}" class="btn btn-primary">New Maintenance</a>
+          </div>
+
+          {# ───────────────────────── Filters ───────────────────────── #}
+          <div class="card mb-3">
+            <div class="card-body">
+              <form method="get" class="row g-3 align-items-end">
+                {% if is_super %}
+                  <div class="col-md-3">
+                    <label class="form-label">Branch</label>
+                    <select name="branch" class="form-select">
+                      <option value="">All</option>
+                      {% for b in branches %}
+                        <option value="{{ b.id }}" {% if selected.branch == b.id|stringformat:'s' %}selected{% endif %}>
+                          {{ b.name }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                {% endif %}
+
+                <div class="col-md-2">
+                  <label class="form-label">Status</label>
+                  <select name="status" class="form-select">
+                    <option value="">All</option>
+                    <option value="open" {% if selected.status == 'open' %}selected{% endif %}>Open</option>
+                    <option value="in_progress" {% if selected.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                    <option value="resolved" {% if selected.status == 'resolved' %}selected{% endif %}>Resolved</option>
+                    <option value="canceled" {% if selected.status == 'canceled' %}selected{% endif %}>Canceled</option>
+                  </select>
+                </div>
+
+                <div class="col-md-2">
+                  <label class="form-label">Priority</label>
+                  <select name="priority" class="form-select">
+                    <option value="">All</option>
+                    <option value="low" {% if selected.priority == 'low' %}selected{% endif %}>Low</option>
+                    <option value="medium" {% if selected.priority == 'medium' %}selected{% endif %}>Medium</option>
+                    <option value="high" {% if selected.priority == 'high' %}selected{% endif %}>High</option>
+                  </select>
+                </div>
+
+                <div class="col-md-2">
+                  <label class="form-label">From</label>
+                  <input type="date" class="form-control" name="start_date" value="{{ selected.start_date|default:'' }}">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">To</label>
+                  <input type="date" class="form-control" name="end_date" value="{{ selected.end_date|default:'' }}">
+                </div>
+
+                <div class="col-md-3">
+                  <label class="form-label">Search</label>
+                  <input type="text" name="q" value="{{ selected.q }}" class="form-control" placeholder="Title or description">
+                </div>
+
+                <div class="col-md-2 ms-auto">
+                  <button class="btn btn-primary w-100" type="submit">Apply</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {# ───────────────────────── Content & Sidebar (responsive) ───────────────────────── #}
+          <div class="row g-4">
+            {# Sidebar: on small screens it appears on top; on lg it sits on the right #}
+            <div class="col-12 col-lg-4 order-1 order-lg-2">
+              {# Summary Card #}
+              <div class="card mb-3">
+                <div class="card-body">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <h6 class="mb-1">Maintenance Spend (Selected Range)</h6>
+                      <div class="text-muted small">
+                        {% if selected.start_date %}From {{ selected.start_date }}{% endif %}
+                        {% if selected.end_date %} to {{ selected.end_date }}{% endif %}
+                        {% if not selected.start_date and not selected.end_date %}All time{% endif %}
+                      </div>
+                    </div>
+                    {% if top_branch %}
+                      <span class="badge bg-primary">Top: {{ top_branch.maintenance__branch__name }}</span>
+                    {% endif %}
+                  </div>
+                  <div class="display-6 mt-2">GHS {{ grand_total|default:0|floatformat:2 }}</div>
+                </div>
+              </div>
+
+              {# Per-branch list with progress bars #}
+              <div class="card">
+                <div class="card-header">
+                  <h6 class="mb-0">Branch Maintenance Spend</h6>
+                </div>
+                <div class="card-body">
+                  {% if branch_totals %}
+                    <ul class="list-group list-group-flush">
+                      {% for row in branch_totals %}
+                        <li class="list-group-item">
+                          <div class="d-flex justify-content-between">
+                            <strong>{{ row.maintenance__branch__name }}</strong>
+                            <span>GHS {{ row.total|floatformat:2 }}</span>
+                          </div>
+                          <div class="progress mt-2" style="height:8px;">
+                            {% if grand_total|default:0 > 0 %}
+                              <div class="progress-bar" role="progressbar"
+                                   style="width: calc(({{ row.total|default:0 }} / {{ grand_total|default:1 }}) * 100%);"
+                                   aria-valuemin="0" aria-valuemax="100">
+                              </div>
+                            {% else %}
+                              <div class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                            {% endif %}
+                          </div>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <div class="text-muted small">No spend recorded for this range.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            {# Main Table #}
+            <div class="col-12 col-lg-8 order-2 order-lg-1">
+              <div class="table-responsive">
+                <table class="table table-bordered align-middle">
+                  <thead>
+                    <tr>
+                      <th>Title</th>
+                      <th>Branch</th>
+                      <th>Priority</th>
+                      <th>Status</th>
+                      <th>Reported By</th>
+                      <th>Created</th>
+                      <th>Total Spend (GHS)</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for m in logs %}
+                      <tr>
+                        <td>{{ m.title }}</td>
+                        <td>{{ m.branch.name }}</td>
+                        <td class="text-capitalize">{{ m.get_priority_display }}</td>
+                        <td class="text-capitalize">{{ m.get_status_display }}</td>
+                        <td>{{ m.reported_by.get_full_name|default:m.reported_by.username }}</td>
+                        <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
+                        <td>{{ m.total_spend|floatformat:2 }}</td>
+                        <td>
+                          <a href="{% url 'maintenance_detail' pk=m.id %}">Details</a>
+                          <br>
+                          <a class="small text-muted" href="{% url 'maintenance_edit' pk=m.id %}">Edit</a>
+                        </td>
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="8" class="text-center">No maintenance logs found.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

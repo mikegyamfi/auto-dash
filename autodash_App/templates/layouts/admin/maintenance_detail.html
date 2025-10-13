@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h4 class="mb-1">{{ log.title }}</h4>
+              <div class="text-muted small">
+                Branch: <strong>{{ log.branch.name }}</strong> ·
+                Priority: <strong class="text-capitalize">{{ log.priority }}</strong> ·
+                Status: <span class="badge bg-label-primary text-capitalize">{{ log.status }}</span>
+              </div>
+              <div class="text-muted small">
+                Created: {{ log.created_at|date:"Y-m-d H:i" }}
+                {% if log.resolved_at %} · Resolved: {{ log.resolved_at|date:"Y-m-d H:i" }}{% endif %}
+              </div>
+            </div>
+            <div class="text-end">
+              <div class="fs-5">Total Spend: <strong>GHS {{ total_spend|floatformat:2 }}</strong></div>
+              {% if can_resolve %}
+              <form class="mt-2" method="post" action="{% url 'maintenance_mark_resolved' pk=log.id %}">
+                {% csrf_token %}
+                <button class="btn btn-success">Mark Resolved</button>
+              </form>
+              {% endif %}
+            </div>
+          </div>
+
+          {% if log.description %}
+          <div class="card mb-3">
+            <div class="card-body">
+              <h6 class="card-title">Description</h6>
+              <p class="mb-0">{{ log.description|linebreaksbr }}</p>
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="row">
+            <div class="col-lg-7">
+              <div class="card">
+                <div class="card-body">
+                  <h6 class="card-title">Expense Trail</h6>
+                  <div class="table-responsive">
+                    <table class="table table-bordered align-middle">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Amount (GHS)</th>
+                          <th>Note</th>
+                          <th>By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for e in expenses %}
+                        <tr>
+                          <td>{{ e.created_at|date:"Y-m-d H:i" }}</td>
+                          <td>{{ e.amount|floatformat:2 }}</td>
+                          <td>{{ e.note|default:"—" }}</td>
+                          <td>{{ e.added_by.get_full_name|default:e.added_by.username|default:"—" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" class="text-center">No expenses yet.</td></tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-5">
+              <div class="card">
+                <div class="card-body">
+                  <h6 class="card-title">Add Expense</h6>
+                  <form method="post" action="{% url 'maintenance_add_expense' pk=log.id %}">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                      <label class="form-label">Amount</label>
+                      {{ expense_form.amount }}
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Note</label>
+                      {{ expense_form.note }}
+                    </div>
+                    <button class="btn btn-primary" type="submit">Add</button>
+                  </form>
+                </div>
+              </div>
+
+              <div class="text-end mt-3">
+                <a class="btn btn-outline-secondary" href="{% url 'maintenance_list' %}">Back to list</a>
+                <a class="btn btn-outline-primary" href="{% url 'maintenance_edit' pk=log.id %}">Edit</a>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
