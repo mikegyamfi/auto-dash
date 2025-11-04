@@ -68,7 +68,11 @@
   {# --------- Invoice title --------- #}
   <div class="row mb-2 mt-0">
     <div class="col text-center">
+        {% if service_order.status == "completed" %}
+        <h5 class="text-uppercase fw-bold">Receipt</h5>
+        {% else %}
       <h5 class="text-uppercase fw-bold">Invoice</h5>
+        {% endif %}
     </div>
   </div>
 
