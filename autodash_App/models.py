@@ -33,6 +33,14 @@ class Branch(models.Model):
     name = models.CharField(max_length=100)
     location = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=15)
+    network_choices = (
+        ("MTN", "MTN"),
+        ("AT", "AT"),
+        ("Telecel", "Telecel"),
+    )
+    momo_number_network = models.CharField(max_length=15, null=True, blank=True)
+    momo_number = models.CharField(max_length=15, null=True, blank=True)
+    momo_name = models.CharField(max_length=100, null=True, blank=True)
     head_of_branch = models.CharField(max_length=100, null=True, blank=True)
     email = models.EmailField(null=True, blank=True)
     date_opened = models.DateField(null=True, blank=True)
