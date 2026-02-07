@@ -202,6 +202,8 @@ urlpatterns = [
                   path('reports/stock/', views.product_stock_report_view, name='product_stock_report'),
                   path('reports/mtd-performance/', views.mtd_performance_report_view,
                        name='mtd_performance_report'),
+                  path('reports/branch-analysis/', views.branch_analysis_report_view,
+                       name='branch_analysis_report'),
 
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 

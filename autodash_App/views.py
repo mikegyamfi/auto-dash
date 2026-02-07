@@ -7524,6 +7524,90 @@ def mtd_performance_report_view(request):
     return render(request, 'layouts/admin/mtd_performance_report.html', context)
 
 
+def branch_analysis_report_view(request):
+    """
+    Branch Daily Analysis Report: Compares branches based on Sales, Expenses, and Profit.
+    Includes Pie Charts for visual distribution.
+    """
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    branches = Branch.objects.all()
+    analysis_data = []
+
+    # Chart Data Lists
+    labels = []
+    sales_data = []
+    expense_data = []
+    profit_data = []
+
+    for b in branches:
+        # 1. Total Sales (Revenue model + Product Sales)
+        service_rev = Revenue.objects.filter(
+            branch=b,
+            date__range=[start_dt, end_dt]
+        ).aggregate(s=Sum('final_amount'))['s'] or 0.0
+
+        prod_sales = ProductSale.objects.filter(
+            branch=b,
+            date_sold__date__range=[start_dt, end_dt]
+        ).aggregate(s=Sum('total_price'))['s'] or 0.0
+
+        total_sales = float(service_rev + prod_sales)
+
+        # 2. Total Expenses
+        total_expense = float(Expense.objects.filter(
+            branch=b,
+            date__range=[start_dt, end_dt]
+        ).aggregate(s=Sum('amount'))['s'] or 0.0)
+
+        # 3. Profit
+        total_profit = total_sales - total_expense
+
+        analysis_data.append({
+            'branch': b.name,
+            'sales': total_sales,
+            'expense': total_expense,
+            'profit': total_profit
+        })
+
+        # Prepare Chart JS Data
+        labels.append(b.name)
+        sales_data.append(total_sales)
+        expense_data.append(total_expense)
+        profit_data.append(total_profit)
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Branch Analysis"
+        ws.append(['Branch', 'Sales', 'Expense', 'Profit'])
+        for row in analysis_data:
+            ws.append([row['branch'], row['sales'], row['expense'], row['profit']])
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Branch_Analysis_{start_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    context = {
+        'analysis_data': analysis_data,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+        'chart_labels': json.dumps(labels),
+        'chart_sales': json.dumps(sales_data),
+        'chart_expenses': json.dumps(expense_data),
+        'chart_profit': json.dumps(profit_data),
+    }
+
+    return render(request, 'layouts/admin/branch_analysis_report.html', context)
+
 
 
 
