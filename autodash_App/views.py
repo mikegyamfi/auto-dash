@@ -1806,52 +1806,54 @@ def export_service_history_excel(request):
     ws = wb.active
     ws.title = "Service History"
 
-    # header
+    # header with Vehicle and Services added
     ws.append([
-        "Service #", "Date", "Customer", "Workers",
+        "Service #", "Date", "Customer", "Vehicle", "Services", "Workers",
         "Branch", "Status", "Payment Mode", "Total", "Final"
     ])
 
     # rows
     for s in services:
-        workers = ", ".join(
-            f"{w.user.first_name} {w.user.last_name}"
-            for w in s.workers.all()
-        )
+        # Get workers list
+        workers_str = ", ".join(f"{w.user.first_name} {w.user.last_name}" for w in s.workers.all())
+
+        # Get vehicle details
+        vehicle_str = s.vehicle.car_name() if s.vehicle else "N/A"
+
+        # Get all services in this order
+        services_list = ", ".join(sr.service.service_type for sr in s.rendered.all())
+
         ws.append([
             s.service_order_number,
             s.date.strftime('%Y-%m-%d %H:%M'),
-            s.customer.user.get_full_name(),
-            workers,
-            s.branch.name,
+            s.customer.user.get_full_name() if s.customer else "Walk-in",
+            vehicle_str,
+            services_list,
+            workers_str,
+            s.branch.name if s.branch else "N/A",
             s.get_status_display(),
             s.payment_method or "-",
-            float(s.total_amount),
-            float(s.final_amount)
+            float(s.total_amount or 0),
+            float(s.final_amount or 0)
         ])
 
-    # totals
+    # totals - adjusted index for columns J and K (Total and Final)
     agg = services.aggregate(
         total_amount=Sum('total_amount'),
         total_final=Sum('final_amount'),
     )
     ws.append([])  # blank row
     ws.append([
-        "Totals", "", "", "", "", "",
-        "",
+        "Totals", "", "", "", "", "", "", "", "",
         agg['total_amount'] or 0,
         agg['total_final'] or 0,
     ])
 
-    # response
-    resp = HttpResponse(
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    resp = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     fname = timezone.now().strftime("service_history_%Y%m%d_%H%M.xlsx")
     resp['Content-Disposition'] = f'attachment; filename="{fname}"'
     wb.save(resp)
     return resp
-
 
 @login_required(login_url='login')
 def export_service_history_pdf(request):
