@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Inventory Audit & Stock Report</h4>
+
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" class="row g-3 align-items-end">
+                {% if request.user.is_superuser %}
+                <div class="col-md-3">
+                  <label class="form-label">Branch</label>
+                  <select name="branch_id" class="form-select">
+                    <option value="">All Branches</option>
+                    {% for b in branches %}
+                    <option value="{{ b.id }}" {% if b.id|stringformat:"s" == request.GET.branch_id %}selected{% endif %}>{{ b.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endif %}
+                <div class="col-md-3">
+                  <label class="form-label">Start Date</label>
+                  <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">End Date</label>
+                  <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                  <button type="submit" class="btn btn-primary w-100">Filter</button>
+                  <button type="submit" name="export" value="excel" class="btn btn-success w-100">Excel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="table-responsive text-nowrap">
+              <table class="table table-bordered align-middle text-center">
+                <thead class="table-light">
+                  <tr>
+                    <th rowspan="2" class="align-middle text-start">Products</th>
+                    <th rowspan="2" class="align-middle">Cost</th>
+                    <th rowspan="2" class="align-middle">Price</th>
+                    <th rowspan="2" class="align-middle border-end-strong">Margin</th>
+                    <th colspan="2">Op. Stock Balance</th>
+                    <th colspan="2">Stock In</th>
+                    <th colspan="2">Sales Quantity</th>
+                    <th colspan="2">Cl. Stock Balance</th>
+                  </tr>
+                  <tr>
+                    <th>Qty</th>
+                    <th>Value</th>
+                    <th>Qty</th>
+                    <th>Value</th>
+                    <th>Qty</th>
+                    <th>Value</th>
+                    <th>Qty</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in stock_data %}
+                  <tr>
+                    <td class="text-start"><strong>{{ row.name }}</strong></td>
+                    <td>{{ row.cost|floatformat:2 }}</td>
+                    <td>{{ row.price|floatformat:2 }}</td>
+                    <td class="border-end-strong text-primary">{{ row.margin|floatformat:2 }}</td>
+
+                    <td class="bg-light">{{ row.op_qty }}</td>
+                    <td class="bg-light">{{ row.op_val|floatformat:0 }}</td>
+
+                    <td>{{ row.in_qty }}</td>
+                    <td>{{ row.in_val|floatformat:0 }}</td>
+
+                    <td class="text-danger fw-bold">{{ row.sales_qty }}</td>
+                    <td>{{ row.sales_val|floatformat:0 }}</td>
+
+                    <td class="bg-label-success fw-bold">{{ row.cl_qty }}</td>
+                    <td class="bg-label-success">{{ row.cl_val|floatformat:0 }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="12">No inventory data available for this period.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+    .border-end-strong { border-right: 3px solid #eee !important; }
+    th { font-size: 0.75rem !important; }
+</style>
+{% endblock %}

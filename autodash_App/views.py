@@ -7309,6 +7309,117 @@ def product_sales_report_view(request):
     })
 
 
+def product_stock_report_view(request):
+    """
+    Detailed Stock Audit Report: Tracks Opening Balance, Stock In,
+    Sales, and Closing Balance within a specific date range.
+    """
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    products_qs = Product.objects.all()
+    if selected_branch:
+        products_qs = products_qs.filter(branch=selected_branch)
+
+    stock_data = []
+    for product in products_qs:
+        # 1. Sales during the period
+        sales_in_period = ProductSale.objects.filter(
+            product=product,
+            date_sold__date__range=[start_dt, end_dt]
+        )
+        if selected_branch:
+            sales_in_period = sales_in_period.filter(branch=selected_branch)
+
+        sales_qty = sales_in_period.aggregate(q=Sum('quantity'))['q'] or 0
+        sales_value = sales_qty * product.price
+
+        # 2. Sales AFTER the period (to calculate closing balance of that period)
+        sales_after_period = ProductSale.objects.filter(
+            product=product,
+            date_sold__date__gt=end_dt
+        )
+        if selected_branch:
+            sales_after_period = sales_after_period.filter(branch=selected_branch)
+        qty_sold_after = sales_after_period.aggregate(q=Sum('quantity'))['q'] or 0
+
+        # Note: Since the legacy model lacks a 'StockIn' transaction log,
+        # we calculate backward from current stock.
+        # Closing Stock (at end_dt) = Current Stock + Qty sold since end_dt
+        closing_qty = product.stock + qty_sold_after
+        closing_value = closing_qty * product.price
+
+        # Opening Stock (at start_dt) = Closing Stock (at end_dt) + Sales in period - Stock In in period
+        # (Assuming Stock In is 0 for this calculation as no model exists yet)
+        stock_in_qty = 0  # Placeholder for future StockIn model integration
+        opening_qty = closing_qty + sales_qty - stock_in_qty
+        opening_value = opening_qty * product.price
+
+        margin = product.price - product.cost
+
+        stock_data.append({
+            'name': product.name,
+            'cost': product.cost,
+            'price': product.price,
+            'margin': margin,
+            'op_qty': opening_qty,
+            'op_val': opening_value,
+            'in_qty': stock_in_qty,
+            'in_val': stock_in_qty * product.cost,
+            'sales_qty': sales_qty,
+            'sales_val': sales_value,
+            'cl_qty': closing_qty,
+            'cl_val': closing_value,
+        })
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Stock Report"
+
+        # Complex Header Structure
+        ws.append(
+            ['', '', '', '', 'Op. Stock Balance', '', 'Stock In', '', 'Sales Quantity', '', 'Cl. Stock Balance', ''])
+        ws.append(
+            ['Products', 'Cost', 'Price', 'Margin', 'Qty', 'Value', 'Qty', 'Value', 'Qty', 'Value', 'Qty', 'Value'])
+
+        for row in stock_data:
+            ws.append([
+                row['name'], row['cost'], row['price'], row['margin'],
+                row['op_qty'], row['op_val'], row['in_qty'], row['in_val'],
+                row['sales_qty'], row['sales_val'], row['cl_qty'], row['cl_val']
+            ])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Stock_Audit_{start_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    return render(request, 'layouts/admin/product_stock_report.html', {
+        'stock_data': stock_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+    })
+
 
 
 
