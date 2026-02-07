@@ -6865,3 +6865,365 @@ def maintenance_mark_resolved(request, pk):
     log.mark_resolved()
     messages.success(request, "Maintenance issue marked as resolved.")
     return redirect("maintenance_detail", pk=pk)
+
+
+
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill
+from django.shortcuts import render, get_object_or_404
+from django.http import HttpResponse
+from django.db.models import Sum, Count, F, Q, Value, CharField
+from django.db.models.functions import Coalesce, Concat
+from .models import Worker, ServiceRenderedOrder, ServiceRendered, Commission, WorkerDailyAdjustment, Branch
+from datetime import datetime
+from django.utils import timezone
+
+
+
+def worker_report_view(request):
+    # 1. Scope Branch (Staff vs Branch Admin)
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    # 2. Handle Date Filtering
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    # 3. Fetch Data
+    workers_qs = Worker.objects.all()
+    if selected_branch:
+        workers_qs = workers_qs.filter(branch=selected_branch)
+
+    worker_data = []
+    for worker in workers_qs:
+        # Base filters for this worker in this range
+        orders = ServiceRenderedOrder.objects.filter(
+            workers=worker,
+            date__date__range=[start_dt, end_dt],
+            status='completed'
+        ).distinct()
+
+        rendered_items = ServiceRendered.objects.filter(
+            order__in=orders,
+            workers=worker
+        )
+
+        total_orders = orders.count()
+        total_services = rendered_items.count()
+
+        # Revenue: Negotiated price or base price
+        total_revenue = rendered_items.aggregate(
+            rev=Sum(Coalesce(F('negotiated_price'), F('service__price')))
+        )['rev'] or 0.0
+
+        # Commissions
+        total_commission = Commission.objects.filter(
+            worker=worker,
+            date__range=[start_dt, end_dt]
+        ).aggregate(s=Sum('amount'))['s'] or 0.0
+
+        # Adjustments (Bonus/Deductions)
+        adjustments = WorkerDailyAdjustment.objects.filter(
+            worker=worker,
+            date__range=[start_dt, end_dt]
+        ).aggregate(
+            b=Sum('bonus'),
+            d=Sum('deduction')
+        )
+        total_bonus = adjustments['b'] or 0.0
+        total_deduction = adjustments['d'] or 0.0
+
+        total_earnings = total_commission + total_bonus - total_deduction
+
+        worker_data.append({
+            'name': f"{worker.user.first_name} {worker.user.last_name}",
+            'position': worker.position or "N/A",
+            'orders': total_orders,
+            'services': total_services,
+            'revenue': total_revenue,
+            'commission': total_commission,
+            'deduction': total_deduction,
+            'bonus': total_bonus,
+            'earnings': total_earnings,
+            'rating': worker.average_rating()
+        })
+
+    # 4. Handle Excel Export
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Worker Performance Report"
+
+        headers = [
+            'Worker', 'Position', 'Total Orders', 'Total Services',
+            'Total Revenue', 'Total Commission', 'Total Deductions',
+            'Total Bonus', 'Total Earnings', 'Avg Rating'
+        ]
+        ws.append(headers)
+
+        # Styling
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+
+        for row in worker_data:
+            ws.append([
+                row['name'], row['position'], row['orders'], row['services'],
+                row['revenue'], row['commission'], row['deduction'],
+                row['bonus'], row['earnings'], row['rating']
+            ])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Worker_Report_{start_dt}_to_{end_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    return render(request, 'layouts/admin/worker_report.html', {
+        'worker_data': worker_data,
+        'branch': selected_branch,
+        'branches': Branch.objects.all(),
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+    })
+
+
+def branch_activity_report_view(request):
+    """
+    Generates a report for branch activity including vehicle counts, service counts, and worker participation.
+    """
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    branches = Branch.objects.all()
+    branch_data = []
+
+    for b in branches:
+        # 1. Total Vehicles assigned to this branch
+        total_vehicles = CustomerVehicle.objects.filter(customer__branch=b).count()
+
+        # 2. Vehicles Served in date range
+        served_ids = ServiceRenderedOrder.objects.filter(
+            branch=b,
+            date__date__range=[start_dt, end_dt],
+            status='completed'
+        ).values_list('vehicle_id', flat=True).distinct()
+        vehicles_served = len(served_ids)
+
+        # 3. New Vehicles (added to system in date range)
+        new_vehicles = CustomerVehicle.objects.filter(
+            customer__branch=b,
+            date_added__date__range=[start_dt, end_dt]
+        ).count()
+
+        # 4. Dormant Vehicles (Total - Served)
+        dormant_vehicles = total_vehicles - vehicles_served
+
+        # 5. Count of Services (Total line items rendered)
+        count_of_services = ServiceRendered.objects.filter(
+            order__branch=b,
+            order__date__date__range=[start_dt, end_dt],
+            order__status='completed'
+        ).count()
+
+        # 6. Total Workers at branch
+        total_workers = Worker.objects.filter(branch=b).count()
+
+        # 7. Workers worked (distinct workers on completed orders)
+        workers_worked = Worker.objects.filter(
+            services_rendered__order__branch=b,
+            services_rendered__order__date__date__range=[start_dt, end_dt],
+            services_rendered__order__status='completed'
+        ).distinct().count()
+
+        branch_data.append({
+            'branch': b.name,
+            'total_vehicles': total_vehicles,
+            'vehicles_served': vehicles_served,
+            'dormant_vehicles': max(0, dormant_vehicles),
+            'new_vehicles': new_vehicles,
+            'count_of_services': count_of_services,
+            'total_workers': total_workers,
+            'workers_worked': workers_worked
+        })
+
+    # Totals Row
+    totals = {
+        'total_vehicles': sum(i['total_vehicles'] for i in branch_data),
+        'vehicles_served': sum(i['vehicles_served'] for i in branch_data),
+        'dormant_vehicles': sum(i['dormant_vehicles'] for i in branch_data),
+        'new_vehicles': sum(i['new_vehicles'] for i in branch_data),
+        'count_of_services': sum(i['count_of_services'] for i in branch_data),
+        'total_workers': sum(i['total_workers'] for i in branch_data),
+        'workers_worked': sum(i['workers_worked'] for i in branch_data),
+    }
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Branch Activity Report"
+        headers = ['Branch', 'Total Vehicle', 'Vehicles Served', 'Dormant Vehicles', 'New Vehicles',
+                   'Count Of Services', 'Total Workers', 'Workers worked']
+        ws.append(headers)
+        for row in branch_data:
+            ws.append([row['branch'], row['total_vehicles'], row['vehicles_served'], row['dormant_vehicles'],
+                       row['new_vehicles'], row['count_of_services'], row['total_workers'], row['workers_worked']])
+        ws.append(['Totals', totals['total_vehicles'], totals['vehicles_served'], totals['dormant_vehicles'],
+                   totals['new_vehicles'], totals['count_of_services'], totals['total_workers'],
+                   totals['workers_worked']])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Branch_Activity_{start_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    return render(request, 'layouts/admin/branch_activity_report.html', {
+        'branch_data': branch_data,
+        'totals': totals,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+    })
+
+
+def customer_report_view(request):
+    """
+    Generates a report for customers including total spend, count of services,
+    arrears, and loyalty points status.
+    """
+    user = request.user
+    selected_branch = None
+
+    # Scope check
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    # Date handling
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    # Fetch customers
+    customers_qs = Customer.objects.select_related('user', 'branch').all()
+    if selected_branch:
+        customers_qs = customers_qs.filter(branch=selected_branch)
+
+    customer_data = []
+    for cust in customers_qs:
+        # Filter orders in date range
+        orders = ServiceRenderedOrder.objects.filter(
+            customer=cust,
+            date__date__range=[start_dt, end_dt]
+        )
+
+        # Primary Vehicle (for display)
+        vehicle = cust.vehicles.first()
+        v_plate = vehicle.car_plate if vehicle else "N/A"
+
+        order_count = orders.count()
+
+        # Count of individual services
+        service_count = ServiceRendered.objects.filter(
+            order__in=orders
+        ).count()
+
+        # Total Spend
+        total_spend = orders.filter(status='completed').aggregate(
+            s=Sum('final_amount')
+        )['s'] or 0.0
+
+        # Arrears / Credit
+        on_credit_count = orders.filter(status='onCredit').count()
+        arrears_amount = Arrears.objects.filter(
+            service_order__customer=cust,
+            is_paid=False
+        ).aggregate(s=Sum('amount_owed'))['s'] or 0.0
+
+        # Loyalty Status
+        current_points = cust.loyalty_points
+        loyalty_transactions_count = LoyaltyTransaction.objects.filter(
+            customer=cust,
+            date__date__range=[start_dt, end_dt]
+        ).count()
+
+        customer_data.append({
+            'name': f"{cust.user.first_name} {cust.user.last_name}",
+            'car_number': v_plate,
+            'orders': order_count,
+            'services': service_count,
+            'spend': total_spend,
+            'on_credit': on_credit_count,
+            'arrears': arrears_amount,
+            'points': current_points,
+            'transactions': loyalty_transactions_count
+        })
+
+    # Excel Export
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Customer Report"
+        headers = [
+            'Customer', 'Car Number', 'Orders', 'Count Services',
+            'Total Spend', 'On-Credit Orders', 'Arrears Amount',
+            'Loyalty Points', 'Loyalty Transactions'
+        ]
+        ws.append(headers)
+        for row in customer_data:
+            ws.append([
+                row['name'], row['car_number'], row['orders'], row['services'],
+                row['spend'], row['on_credit'], row['arrears'], row['points'], row['transactions']
+            ])
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Customer_Report_{start_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    return render(request, 'layouts/admin/customer_report.html', {
+        'customer_data': customer_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+    })
+
+
+
+
+
+
+
+
+
+
+
+

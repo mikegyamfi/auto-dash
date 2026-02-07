@@ -194,6 +194,11 @@ urlpatterns = [
                        name="maintenance_add_expense"),
                   path("maintenance/<int:pk>/resolve/", views.maintenance_mark_resolved,
                        name="maintenance_mark_resolved"),
+                  path('reports/workers/', views.worker_report_view, name='worker_report'),
+                  path('reports/branch-activity/', views.branch_activity_report_view,
+                       name='branch_activity_report'),
+                  path('reports/customers/', views.customer_report_view, name='customer_report'),
+
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Branch Activity Report</h4>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                  <label class="form-label">Start Date</label>
+                  <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">End Date</label>
+                  <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-md-4 d-flex gap-2">
+                  <button type="submit" class="btn btn-primary w-100">Filter</button>
+                  <button type="submit" name="export" value="excel" class="btn btn-success w-100">Excel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Report Table -->
+          <div class="card">
+            <div class="table-responsive text-nowrap">
+              <table class="table table-bordered align-middle">
+                <thead class="table-light text-center">
+                  <tr>
+                    <th>Branch</th>
+                    <th>Total Vehicle</th>
+                    <th>Vehicles Served</th>
+                    <th>Dormant Vehicles</th>
+                    <th>New Vehicles</th>
+                    <th>Count Of Services</th>
+                    <th>Total Workers</th>
+                    <th>Workers worked</th>
+                  </tr>
+                </thead>
+                <tbody class="text-center">
+                  {% for row in branch_data %}
+                  <tr>
+                    <td class="text-start"><strong>{{ row.branch }}</strong></td>
+                    <td>{{ row.total_vehicles }}</td>
+                    <td>{{ row.vehicles_served|floatformat:1 }}</td>
+                    <td>{{ row.dormant_vehicles|floatformat:1 }}</td>
+                    <td>{{ row.new_vehicles|floatformat:1 }}</td>
+                    <td>{{ row.count_of_services|floatformat:1 }}</td>
+                    <td>{{ row.total_workers|floatformat:1 }}</td>
+                    <td>{{ row.workers_worked|floatformat:1 }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+                <tfoot class="table-light text-center fw-bold">
+                  <tr>
+                    <td class="text-start">Totals</td>
+                    <td>{{ totals.total_vehicles }}</td>
+                    <td>{{ totals.vehicles_served|floatformat:1 }}</td>
+                    <td>{{ totals.dormant_vehicles|floatformat:1 }}</td>
+                    <td>{{ totals.new_vehicles|floatformat:1 }}</td>
+                    <td>{{ totals.count_of_services|floatformat:1 }}</td>
+                    <td>{{ totals.total_workers|floatformat:1 }}</td>
+                    <td>{{ totals.workers_worked|floatformat:1 }}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

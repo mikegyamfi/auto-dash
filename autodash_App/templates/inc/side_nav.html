@@ -303,6 +303,30 @@
               <div data-i18n="Analytics">Analytics</div>
             </a>
           </li>
+    <li class="menu-item">
+  <a href="javascript:void(0);" class="menu-link menu-toggle">
+    <i class="menu-icon tf-icons bx bxs-report"></i>
+    <div data-i18n="Reports">Reports</div>
+  </a>
+  <ul class="menu-sub">
+    <li class="menu-item">
+      <a href="{% url 'worker_report' %}" class="menu-link">
+        <div data-i18n="Worker Report">Worker Report</div>
+      </a>
+    </li>
+     <li class="menu-item">
+      <a href="{% url 'branch_activity_report' %}" class="menu-link">
+        <div data-i18n="Branch Activity Report">Branch Activity Report</div>
+      </a>
+    </li>
+    <li class="menu-item">
+      <a href="{% url 'customer_report' %}" class="menu-link">
+        <div data-i18n="Customer Report">Customer Report</div>
+      </a>
+    </li>
+    <!-- Future reports (Inventory, Service Split, etc.) can go here -->
+  </ul>
+</li>
       <li class="menu-item">
             <a href="{% url 'maintenance_list' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-wrench"></i>

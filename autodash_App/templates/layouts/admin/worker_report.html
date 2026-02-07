@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Worker Performance Report</h4>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" class="row g-3 align-items-end">
+                {% if request.user.is_superuser %}
+                <div class="col-md-3">
+                  <label class="form-label">Branch</label>
+                  <select name="branch_id" class="form-select">
+                    <option value="">All Branches</option>
+                    {% for b in branches %}
+                    <option value="{{ b.id }}" {% if b.id|stringformat:"s" == request.GET.branch_id %}selected{% endif %}>{{ b.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endif %}
+                <div class="col-md-3">
+                  <label class="form-label">Start Date</label>
+                  <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">End Date</label>
+                  <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                  <button type="submit" class="btn btn-primary w-100">Filter</button>
+                  <button type="submit" name="export" value="excel" class="btn btn-success w-100">Excel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Report Table -->
+          <div class="card">
+            <div class="table-responsive text-nowrap">
+              <table class="table table-hover align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th>Worker</th>
+                    <th>Position</th>
+                    <th class="text-center">Orders</th>
+                    <th class="text-center">Services</th>
+                    <th>Revenue (GHS)</th>
+                    <th>Commission</th>
+                    <th>Deductions</th>
+                    <th>Bonus</th>
+                    <th>Earnings</th>
+                    <th>Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in worker_data %}
+                  <tr>
+                    <td><strong>{{ row.name }}</strong></td>
+                    <td><span class="badge bg-label-info">{{ row.position }}</span></td>
+                    <td class="text-center">{{ row.orders }}</td>
+                    <td class="text-center">{{ row.services }}</td>
+                    <td>{{ row.revenue|floatformat:2|intcomma }}</td>
+                    <td class="text-success">{{ row.commission|floatformat:2 }}</td>
+                    <td class="text-danger">{{ row.deduction|floatformat:2 }}</td>
+                    <td class="text-primary">{{ row.bonus|floatformat:2 }}</td>
+                    <td class="fw-bold">GHS {{ row.earnings|floatformat:2|intcomma }}</td>
+                    <td>
+                        <span class="text-warning"><i class="bx bxs-star"></i> {{ row.rating }}</span>
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="10" class="text-center">No worker data found for this period.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
