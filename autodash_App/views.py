@@ -28,7 +28,7 @@ from django.views.decorators.http import require_GET, require_POST
 from qrcode import QRCode
 from django.http import HttpResponse
 from django.template.loader import render_to_string
-from xhtml2pdf import pisa
+# from xhtml2pdf import pisa
 
 from decorators import staff_or_branch_admin_required
 from . import models, forms
@@ -519,10 +519,11 @@ def home(request):
 
     rendered_items = ServiceRendered.objects.filter(order__in=completed_qs)
 
+    # 2. Use the new service_class field for explicit filtering
     service_split = rendered_items.aggregate(
         detailing=Sum(
             Case(
-                When(service__service_type__icontains='Detailing',
+                When(service__service_class='Detailing',
                      then=Coalesce(F('negotiated_price'), F('service__price'))),
                 default=Value(0.0),
                 output_field=FloatField(),
@@ -530,17 +531,19 @@ def home(request):
         ),
         others=Sum(
             Case(
-                # If it's NOT detailing, sum it up
-                When(service__service_type__icontains='Detailing', then=Value(0.0)),
+                # Sum everything that is NOT marked as 'Detailing'
+                When(service__service_class='Detailing', then=Value(0.0)),
                 default=Coalesce(F('negotiated_price'), F('service__price')),
                 output_field=FloatField(),
             )
         )
     )
 
+    # 3. Extract and safe-guard values
     detailing_revenue = service_split['detailing'] or 0.0
     other_services_revenue = service_split['others'] or 0.0
 
+    # 4. Update the context
     context.update({
         'detailing_revenue': detailing_revenue,
         'other_services_revenue': other_services_revenue,

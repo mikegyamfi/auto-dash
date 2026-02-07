@@ -174,6 +174,11 @@ class ServiceCategory(models.Model):
 
 
 class Service(models.Model):
+    service_class_choices = (
+        ('Detailing', 'Detailing'),
+        ('Non-Detailing', 'Non-Detailing'),
+    )
+    service_class = models.CharField(max_length=100, null=True, blank=True, choices=service_class_choices, default='Non-Detailing')
     service_type = models.CharField(max_length=100)
     vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.CASCADE, related_name='services', null=True,
                                       blank=True)
