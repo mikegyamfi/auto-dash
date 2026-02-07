@@ -1591,9 +1591,7 @@ def send_password_reset(user):
 def service_history(request):
     """
     List & bulk-update ServiceRenderedOrder rows.
-    Revenue rows are synchronised by the post-save signal,
-    so this view no longer writes to the Revenue table.
-    Workers who are not branch admins only see orders they participated in.
+    Optimized with prefetch_related for the 'Services' and 'Workers' columns.
     """
     user = request.user
 
@@ -1602,8 +1600,12 @@ def service_history(request):
         messages.error(request, "You are not authorized to view this page.")
         return redirect("index")
 
-    # base queryset
-    services_rendered = ServiceRenderedOrder.objects.all().order_by("-date")
+    # base queryset with optimization for related services and workers
+    services_rendered = (
+        ServiceRenderedOrder.objects.all()
+        .prefetch_related('rendered__service', 'workers__user', 'vehicle')
+        .order_by("-date")
+    )
 
     # branch scoping and per-worker scoping
     if not user.is_staff and not user.is_superuser:
@@ -1613,10 +1615,8 @@ def service_history(request):
             messages.error(request, "No worker profile found.")
             return redirect("index")
 
-        # limit to branch
         services_rendered = services_rendered.filter(branch=worker.branch)
 
-        # if not a branch admin, limit to orders this worker rendered
         if not worker.is_branch_admin:
             services_rendered = (
                 services_rendered
@@ -1668,9 +1668,7 @@ def service_history(request):
         if selected_branch_id:
             services_rendered = services_rendered.filter(branch_id=selected_branch_id)
 
-    # ────────────────────────────────────
-    #  bulk status update
-    # ────────────────────────────────────
+    # bulk status update
     if request.method == "POST":
         selected_order_ids = request.POST.getlist("selected_orders")
         new_status = request.POST.get("new_status")
@@ -1684,13 +1682,9 @@ def service_history(request):
             order = get_object_or_404(ServiceRenderedOrder, id=order_id)
             old_status = order.status
 
-            # moving into completed or onCredit → recompute commissions
             if old_status not in ("completed", "onCredit") and new_status in ("completed", "onCredit"):
-                # remove existing commissions
                 for sr in order.rendered.all():
                     sr.remove_commission()
-
-                # decide multiplier: full-price for onCredit, otherwise based on actual payment coverage
                 if new_status == "onCredit":
                     factor = 1
                 else:
@@ -1700,21 +1694,15 @@ def service_history(request):
                             + (order.cash_paid or 0)
                     )
                     factor = paid / max(order.total_amount, 1.0)
-
-                # re-allocate
                 for sr in order.rendered.all():
                     sr.allocate_commission(discount_factor=factor)
-
-            # moving out of a terminal state into pending/canceled → remove commissions
             elif old_status in ("completed", "onCredit") and new_status in ("pending", "canceled"):
                 for sr in order.rendered.all():
                     sr.remove_commission()
 
-            # apply status change
             order.status = new_status
             order.save()
 
-            # arrears bookkeeping
             if new_status == "onCredit":
                 Arrears.objects.get_or_create(
                     service_order=order,
@@ -1728,7 +1716,6 @@ def service_history(request):
         messages.success(request, "Selected orders have been updated.")
         return redirect("service_history")
 
-    # aggregates for footer
     aggregates = services_rendered.aggregate(
         total_amount=Sum("total_amount"),
         total_final=Sum("final_amount"),

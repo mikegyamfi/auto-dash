@@ -4,227 +4,211 @@
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
+    <!-- Sidebar -->
     {% include 'inc/side_nav.html' %}
-    <div class="layout-page">
-      {% include 'inc/header.html' %}
-      <div class="content-wrapper">
-        <div class="container-xxl flex-grow-1 container-p-y">
+    <!-- / Sidebar -->
 
+    <!-- Layout container -->
+    <div class="layout-page">
+      <!-- Navbar -->
+      {% include 'inc/header.html' %}
+      <!-- / Navbar -->
+
+      <!-- Content wrapper -->
+      <div class="content-wrapper">
+        <!-- Content -->
+        <div class="container-xxl flex-grow-1 container-p-y">
           <h2 class="fw-bold py-3">Service History</h2>
 
           <!-- Filter Form -->
-          <form method="GET" id="dateRangeForm" class="row row-cols-lg-auto g-3 align-items-end mb-3">
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" id="dateRangeForm" class="row g-3 align-items-end">
+                <!-- Status Filter -->
+                <div class="col-md-3">
+                  <label for="status" class="form-label">Status</label>
+                  <select name="status" id="status" class="form-select">
+                    <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option>
+                    {% for key, val in statuses %}
+                      <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>
+                        {{ val }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
 
-            <!-- Status Filter -->
-            <div class="col-12">
-              <label for="status" class="form-label">Status</label>
-              <select name="status" id="status" class="form-select">
-                <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option>
-                {% for key, val in statuses %}
-                  <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>
-                    {{ val }}
-                  </option>
-                {% endfor %}
-              </select>
+                <!-- Payment Method Filter -->
+                <div class="col-md-3">
+                  <label for="payment_method" class="form-label">Payment Method</label>
+                  <select name="payment_method" id="payment_method" class="form-select">
+                    <option value="all" {% if payment_filter == 'all' %}selected{% endif %}>All</option>
+                    {% for pm in payment_methods %}
+                      {% if pm != 'all' %}
+                        <option value="{{ pm }}" {% if payment_filter == pm %}selected{% endif %}>
+                          {{ pm|title }}
+                        </option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <!-- From Date -->
+                <div class="col-md-3">
+                  <label for="start_date" class="form-label">From Date</label>
+                  <input type="date" name="start_date" id="start_date" class="form-control" value="{{ start_date_str }}">
+                </div>
+
+                <!-- To Date -->
+                <div class="col-md-3">
+                  <label for="end_date" class="form-label">To Date</label>
+                  <input type="date" name="end_date" id="end_date" class="form-control" value="{{ end_date_str }}">
+                </div>
+
+                <!-- Branch Filter (Only for Admin/Staff) -->
+                {% if branches %}
+                  <div class="col-md-3">
+                    <label for="branch" class="form-label">Branch</label>
+                    <select name="branch" id="branch" class="form-select">
+                      <option value="">All Branches</option>
+                      {% for b in branches %}
+                        <option value="{{ b.id }}" {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}>
+                          {{ b.name }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                {% endif %}
+
+                <!-- Action Buttons -->
+                <div class="col-md-6 d-flex gap-2">
+                  <button type="submit" class="btn btn-primary">Filter</button>
+                  <button type="button" class="btn btn-secondary" id="todayButton">Today</button>
+                </div>
+              </form>
             </div>
+          </div>
 
-            <!-- Payment Method Filter -->
+          <!-- Aggregates Display -->
+          <div class="row mb-4">
             <div class="col-12">
-              <label for="payment_method" class="form-label">Payment Method</label>
-              <select name="payment_method" id="payment_method" class="form-select">
-                <option value="all" {% if payment_filter == 'all' %}selected{% endif %}>All</option>
-                {% for pm in payment_methods %}
-                  {% if pm != 'all' %}
-                    <option value="{{ pm }}" {% if payment_filter == pm %}selected{% endif %}>
-                      {{ pm|title }}
-                    </option>
-                  {% endif %}
-                {% endfor %}
-              </select>
-            </div>
-
-            <!-- From Date -->
-            <div class="col-12">
-              <label for="start_date" class="form-label">From Date</label>
-              <input
-                type="date"
-                name="start_date"
-                id="start_date"
-                class="form-control"
-                value="{{ start_date_str }}"
-              >
-            </div>
-
-            <!-- To Date -->
-            <div class="col-12">
-              <label for="end_date" class="form-label">To Date</label>
-              <input
-                type="date"
-                name="end_date"
-                id="end_date"
-                class="form-control"
-                value="{{ end_date_str }}"
-              >
-            </div>
-
-            <!-- Branch Filter (Only for Admin/Staff) -->
-            {% if branches %}
-              <div class="col-12">
-                <label for="branch" class="form-label">Branch</label>
-                <select name="branch" id="branch" class="form-select">
-                  <option value="">All Branches</option>
-                  {% for b in branches %}
-                    <option
-                      value="{{ b.id }}"
-                      {% if b.id|stringformat:'s' == selected_branch_id %}selected{% endif %}
-                    >
-                      {{ b.name }}
-                    </option>
-                  {% endfor %}
-                </select>
+              <div class="card shadow-none bg-label-secondary">
+                <div class="card-body py-2">
+                  <span class="fw-bold">Totals:</span>
+                  GHS {{ total_amount|floatformat:2 }}
+                  <span class="ms-4 fw-bold">Final: GHS {{ total_final|floatformat:2 }}</span>
+                </div>
               </div>
-            {% endif %}
-
-            <!-- Filter Button -->
-            <div class="col-12">
-              <button type="submit" class="btn btn-primary w-100">
-                Filter
-              </button>
             </div>
+          </div>
 
-            <!-- Today Button -->
-            <div class="col-12">
-              <button
-                type="button"
-                class="btn btn-secondary w-100"
-                id="todayButton"
-              >
-                Today
-              </button>
-            </div>
-
-          </form>
-          <!-- / Filter Form -->
-
-        <div class="row mb-3">
-  <div class="col">
-    <strong>Totals:</strong>
-    GHS {{ total_amount|floatformat:2 }}
-    <span class="ms-4">Final: GHS {{ total_final|floatformat:2 }}</span>
-  </div>
-</div>
-
-        <div class="mb-4">
-  <a
-    href="{% url 'export_service_history_excel' %}?{{ request.GET.urlencode }}"
-    class="btn btn-outline-success me-2"
-  >
-    Export Excel
-  </a>
-  <a
-    href="{% url 'export_service_history_pdf' %}?{{ request.GET.urlencode }}"
-    class="btn btn-outline-danger"
-    target="_blank"
-  >
-    Export PDF
-  </a>
-</div>
+          <!-- Export Links -->
+          <div class="mb-4 d-flex gap-2">
+            <a href="{% url 'export_service_history_excel' %}?{{ request.GET.urlencode }}" class="btn btn-outline-success btn-sm">
+              <i class="bx bx-spreadsheet me-1"></i> Export Excel
+            </a>
+            <a href="{% url 'export_service_history_pdf' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger btn-sm" target="_blank">
+              <i class="bx bxs-file-pdf me-1"></i> Export PDF
+            </a>
+          </div>
 
           <!-- Bulk Status Update Form -->
           <form method="post" id="bulk-status-form">
             {% csrf_token %}
-            <div class="table-responsive">
-              <table id="myTable" class="table table-bordered align-middle">
-                <thead class="table-light">
-                  <tr>
-                    <th>
-                      <input
-                        type="checkbox"
-                        id="select-all"
-                        title="Select All"
-                      >
-                    </th>
-                    <th>Service Number</th>
-                    <th>Customer</th>
-                    <th>Vehicle</th>
-                    <th>Workers</th>
-                    <th>Branch</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                    <th>Payment Method</th>
-                    <th>Total (GHS)</th>
-                    <th>Final (GHS)</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div class="card p-3">
+              <div class="table-responsive text-nowrap">
+                <table id="myTable" class="table table-hover align-middle">
+                  <thead class="table-light">
+                    <tr>
+                      <th class="text-center"><input type="checkbox" id="select-all" class="form-check-input"></th>
+                      <th>Service #</th>
+                      <th>Customer</th>
+                      <th>Vehicle</th>
+                      <th>Services</th>
+                      <th>Workers</th>
+                      <th>Branch</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                      <th>Payment</th>
+                      <th>Total</th>
+                      <th>Final</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {% for service in services_rendered %}
                       <tr>
-                        <td>
-                          <input
-                            type="checkbox"
-                            name="selected_orders"
-                            value="{{ service.id }}"
-                            class="order-checkbox"
-                          >
+                        <td class="text-center">
+                          <input type="checkbox" name="selected_orders" value="{{ service.id }}" class="order-checkbox form-check-input">
                         </td>
                         <td>
-                          <a href="{% url 'confirm_service_rendered' pk=service.pk %}">
+                          <a href="{% url 'confirm_service_rendered' pk=service.pk %}" class="fw-bold">
                             {{ service.service_order_number }}
                           </a>
                         </td>
                         <td>
-                          {{ service.customer.user.first_name }}
-                          {{ service.customer.user.last_name }}
+                          {{ service.customer.user.first_name }} {{ service.customer.user.last_name }}
                         </td>
-                        <td>{{service.vehicle.car_plate}} ({{service.vehicle.car_make}})</td>
                         <td>
-                          {% for w in service.workers.all %}
-                            {{ w.user.first_name }} {{ w.user.last_name }}
-                            {% if not forloop.last %}, {% endif %}
-                          {% endfor %}
+                          <small class="d-block fw-bold">{{ service.vehicle.car_plate }}</small>
+                          <small class="text-muted">{{ service.vehicle.car_make }}</small>
+                        </td>
+                        <td>
+                          <!-- Scrollable Services Column -->
+                          <div class="services-column-scroll">
+                            {% for sr in service.rendered.all %}
+                              {{ sr.service.service_type }}{% if not forloop.last %}, {% endif %}
+                            {% empty %}
+                              <span class="text-muted">-</span>
+                            {% endfor %}
+                          </div>
+                        </td>
+                        <td>
+                          <small>
+                            {% for w in service.workers.all %}
+                              {{ w.user.first_name }} {{ w.user.last_name }}{% if not forloop.last %}, {% endif %}
+                            {% endfor %}
+                          </small>
                         </td>
                         <td>{{ service.branch.name }}</td>
-                        <td>{{ service.date|date:"Y-m-d H:i" }}</td>
-                        <td>{{ service.get_status_display }}</td>
-                        <td>{{ service.payment_method|default_if_none:"-" }}</td>
-                        <td>{{ service.total_amount|floatformat:2 }}</td>
-                        <td>{{ service.final_amount|floatformat:2 }}</td>
+                        <td><small>{{ service.date|date:"Y-m-d H:i" }}</small></td>
                         <td>
-                          <a href="{% url 'service_order_details' pk=service.id %}"
-                             class="btn btn-sm btn-info mb-2"
-                          >
-                            Details
-                          </a> <br>
-                          <a href="{% url 'service_receipt' pk=service.id %}"
-                             class="btn btn-sm btn-info"
-                          >
-                            Invoice
-                          </a>
+                          <span class="badge {% if service.status == 'completed' %}bg-label-success{% elif service.status == 'pending' %}bg-label-warning{% else %}bg-label-secondary{% endif %}">
+                            {{ service.get_status_display }}
+                          </span>
+                        </td>
+                        <td><small>{{ service.payment_method|default:"-"|title }}</small></td>
+                        <td>{{ service.total_amount|floatformat:2 }}</td>
+                        <td><strong>{{ service.final_amount|floatformat:2 }}</strong></td>
+                        <td>
+                          <div class="dropdown">
+                            <button type="button" class="btn p-0 dropdown-toggle hide-arrow" data-bs-toggle="dropdown">
+                              <i class="bx bx-dots-vertical-rounded"></i>
+                            </button>
+                            <div class="dropdown-menu">
+                              <a class="dropdown-item" href="{% url 'service_order_details' pk=service.id %}"><i class="bx bx-info-circle me-1"></i> Details</a>
+                              <a class="dropdown-item" href="{% url 'service_receipt' pk=service.id %}"><i class="bx bx-receipt me-1"></i> Invoice</a>
+                            </div>
+                          </div>
                         </td>
                       </tr>
+                    {% empty %}
+                      <tr>
+                        <td colspan="13" class="text-center">No service history found for the selected criteria.</td>
+                      </tr>
                     {% endfor %}
-                </tbody>
-              </table>
-            </div>
-
-            <div class="row g-3 align-items-center mt-3">
-              <div class="col-auto">
-                <label for="new_status" class="form-label mb-0">
-                  Change Status of Selected:
-                </label>
+                  </tbody>
+                </table>
               </div>
-              <div class="col-auto">
-                <select name="new_status" id="new_status" class="form-select" required>
+
+              <!-- Bulk Actions Footer -->
+              <div class="card-footer d-flex align-items-center justify-content-start gap-3">
+                <label for="new_status" class="form-label mb-0">Update Selected:</label>
+                <select name="new_status" id="new_status" class="form-select form-select-sm w-auto" required>
                   {% for key, val in statuses %}
                     <option value="{{ key }}">{{ val }}</option>
                   {% endfor %}
                 </select>
-              </div>
-              <div class="col-auto">
-                <button type="submit" class="btn btn-success">
-                  Update Status
-                </button>
+                <button type="submit" class="btn btn-success btn-sm">Apply</button>
               </div>
             </div>
           </form>
@@ -241,6 +225,32 @@
   </div>
   <div class="layout-overlay layout-menu-toggle"></div>
 </div>
+
+<style>
+  /* Custom style for scrollable services column */
+  .services-column-scroll {
+    max-width: 200px;
+    max-height: 55px;
+    overflow-y: auto;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    padding-right: 5px;
+  }
+  /* Optional: Custom scrollbar for better UX */
+  .services-column-scroll::-webkit-scrollbar {
+    width: 4px;
+  }
+  .services-column-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .services-column-scroll::-webkit-scrollbar-thumb {
+    background: #dbdade;
+    border-radius: 10px;
+  }
+  .services-column-scroll::-webkit-scrollbar-thumb:hover {
+    background: #c7c5cb;
+  }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -250,26 +260,30 @@ document.addEventListener('DOMContentLoaded', function() {
   const selectAllCheckbox = document.getElementById('select-all');
   const orderCheckboxes = document.querySelectorAll('.order-checkbox');
 
-  selectAllCheckbox.addEventListener('change', function() {
-    orderCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
-  });
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', function() {
+      orderCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+    });
+  }
 
-  // (2) "Today" button => set start/end to today
+  // (2) "Today" button logic
   const todayBtn = document.getElementById('todayButton');
   const dateRangeForm = document.getElementById('dateRangeForm');
 
-  todayBtn.addEventListener('click', function() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2,'0');
-    const d = String(now.getDate()).padStart(2,'0');
-    const todayStr = `${y}-${m}-${d}`;
+  if (todayBtn) {
+    todayBtn.addEventListener('click', function() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${y}-${m}-${d}`;
 
-    document.getElementById('start_date').value = todayStr;
-    document.getElementById('end_date').value = todayStr;
+      document.getElementById('start_date').value = todayStr;
+      document.getElementById('end_date').value = todayStr;
 
-    dateRangeForm.submit();
-  });
+      dateRangeForm.submit();
+    });
+  }
 });
 </script>
 {% endblock scripts %}
