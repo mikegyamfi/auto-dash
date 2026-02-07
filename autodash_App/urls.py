@@ -204,6 +204,15 @@ urlpatterns = [
                        name='mtd_performance_report'),
                   path('reports/branch-analysis/', views.branch_analysis_report_view,
                        name='branch_analysis_report'),
+                  path('reports/daily-service-analysis/', views.daily_service_analysis_view,
+                       name='daily_service_analysis'),
+                  path('reports/ytd-trend/', views.ytd_trend_report_view, name='ytd_trend_report'),
+                  path('reports/worker-performance-ytd/', views.worker_performance_ytd_view,
+                       name='worker_performance_ytd'),
+                  path('reports/worker-performance-mtd/', views.worker_performance_mtd_view,
+                       name='worker_performance_mtd'),
+                  path('reports/traffic-analysis/', views.traffic_analysis_report_view,
+                       name='traffic_analysis_report'),
 
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 

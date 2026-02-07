@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Worker Performance YTD</h4>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" class="row g-3 align-items-end">
+                {% if request.user.is_superuser %}
+                <div class="col-md-4">
+                  <label class="form-label">Branch</label>
+                  <select name="branch_id" class="form-select">
+                    <option value="">All Branches</option>
+                    {% for b in branches %}
+                    <option value="{{ b.id }}" {% if b.id|stringformat:"s" == request.GET.branch_id %}selected{% endif %}>{{ b.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endif %}
+                <div class="col-md-4">
+                  <label class="form-label">Year</label>
+                  <select name="year" class="form-select">
+                    {% for y in years %}
+                    <option value="{{ y }}" {% if y == target_year %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-4 d-flex gap-2">
+                  <button type="submit" class="btn btn-primary w-100">Filter</button>
+                  <button type="submit" name="export" value="excel" class="btn btn-success w-100">Excel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Chart Section -->
+          <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+              <h5 class="card-title m-0">Year To Date Trend - Worker Analysis</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="workerYtdChart" style="min-height: 400px;"></canvas>
+            </div>
+          </div>
+
+          <!-- Data Table -->
+          <div class="card">
+            <div class="table-responsive text-nowrap">
+              <table class="table table-bordered align-middle text-center">
+                <thead class="table-light">
+                  <tr>
+                    <th class="text-start">Worker</th>
+                    <th>Revenue</th>
+                    <th>Order Counts</th>
+                    <th>Service Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in performance_data %}
+                  <tr>
+                    <td class="text-start"><strong>{{ row.name }}</strong></td>
+                    <td>{{ row.revenue|floatformat:0|intcomma }}</td>
+                    <td>{{ row.orders }}</td>
+                    <td>{{ row.services }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const ctx = document.getElementById('workerYtdChart').getContext('2d');
+
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: {{ chart_labels|safe }},
+        datasets: [
+          {
+            label: 'Revenue',
+            data: {{ chart_revenue|safe }},
+            backgroundColor: 'rgba(105, 108, 255, 0.8)',
+            borderColor: '#696cff',
+            borderWidth: 1,
+            yAxisID: 'yRevenue',
+            order: 3
+          },
+          {
+            label: 'Order Counts',
+            data: {{ chart_orders|safe }},
+            type: 'line',
+            borderColor: '#ff3e1d',
+            backgroundColor: '#ff3e1d',
+            borderWidth: 3,
+            fill: false,
+            tension: 0.1,
+            yAxisID: 'yCounts',
+            order: 2
+          },
+          {
+            label: 'Service Count',
+            data: {{ chart_services|safe }},
+            type: 'line',
+            borderColor: '#8592a3',
+            backgroundColor: '#8592a3',
+            borderWidth: 3,
+            fill: false,
+            tension: 0.1,
+            yAxisID: 'yCounts',
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          yRevenue: {
+            type: 'linear',
+            position: 'left',
+            title: { display: true, text: 'Revenue (GHS)' },
+            beginAtZero: true
+          },
+          yCounts: {
+            type: 'linear',
+            position: 'right',
+            title: { display: true, text: 'Counts' },
+            beginAtZero: true,
+            grid: { drawOnChartArea: false }
+          }
+        },
+        plugins: {
+          legend: { position: 'bottom' }
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

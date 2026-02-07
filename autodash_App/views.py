@@ -1,4 +1,5 @@
 import base64
+import calendar
 import json
 import uuid
 from calendar import monthrange
@@ -7609,9 +7610,437 @@ def branch_analysis_report_view(request):
     return render(request, 'layouts/admin/branch_analysis_report.html', context)
 
 
+def daily_service_analysis_view(request):
+    """
+    Daily Service Analysis: Aggregates service types by total amount and count.
+    Includes a hybrid bar/line chart as per image_29ab1b.png.
+    """
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    # Aggregate by Service Type
+    rendered_qs = ServiceRendered.objects.filter(
+        order__date__date__range=[start_dt, end_dt],
+        order__status='completed'
+    )
+
+    if selected_branch:
+        rendered_qs = rendered_qs.filter(order__branch=selected_branch)
+
+    # Use Coalesce to handle null negotiated_price
+    service_stats = rendered_qs.values(
+        service_name=F('service__service_type')
+    ).annotate(
+        amt=Sum(Coalesce('negotiated_price', 'service__price')),
+        count=Count('id')
+    ).order_by('-amt')
+
+    # Prepare Chart JS Data
+    labels = []
+    amt_data = []
+    count_data = []
+
+    for item in service_stats:
+        labels.append(item['service_name'])
+        amt_data.append(float(item['amt']))
+        count_data.append(item['count'])
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Service Analysis"
+        ws.append(['Service', 'Amt (GHS)', 'Count'])
+        for item in service_stats:
+            ws.append([item['service_name'], item['amt'], item['count']])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Service_Analysis_{start_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    context = {
+        'service_stats': service_stats,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+        'chart_labels': json.dumps(labels),
+        'chart_amt': json.dumps(amt_data),
+        'chart_count': json.dumps(count_data),
+    }
+
+    return render(request, 'layouts/admin/daily_service_analysis.html', context)
 
 
+def ytd_trend_report_view(request):
+    """
+    Year-To-Date Trend Report: Monthly aggregation of Revenue vs Profit.
+    Includes a hybrid bar/line chart as per image_47c58c.png.
+    """
+    user = request.user
+    selected_branch = None
 
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    # Filter by Year
+    target_year = int(request.GET.get('year', timezone.now().year))
+
+    ytd_data = []
+    labels = []
+    revenue_chart_data = []
+    profit_chart_data = []
+
+    for month_idx in range(1, 13):
+        month_name = calendar.month_name[month_idx][:3]  # Jan, Feb, etc.
+
+        # 1. Total Monthly Revenue (Services + Products)
+        service_rev = Revenue.objects.filter(
+            date__year=target_year,
+            date__month=month_idx
+        )
+        if selected_branch:
+            service_rev = service_rev.filter(branch=selected_branch)
+        total_service = service_rev.aggregate(s=Sum('final_amount'))['s'] or 0.0
+
+        prod_sales = ProductSale.objects.filter(
+            date_sold__year=target_year,
+            date_sold__month=month_idx
+        )
+        if selected_branch:
+            prod_sales = prod_sales.filter(branch=selected_branch)
+        total_prod = prod_sales.aggregate(s=Sum('total_price'))['s'] or 0.0
+
+        monthly_revenue = float(total_service + total_prod)
+
+        # 2. Total Monthly Expenses
+        expense_qs = Expense.objects.filter(
+            date__year=target_year,
+            date__month=month_idx
+        )
+        if selected_branch:
+            expense_qs = expense_qs.filter(branch=selected_branch)
+        monthly_expense = float(expense_qs.aggregate(s=Sum('amount'))['s'] or 0.0)
+
+        # 3. Monthly Profit
+        monthly_profit = monthly_revenue - monthly_expense
+
+        ytd_data.append({
+            'month': month_name,
+            'revenue': monthly_revenue,
+            'profit': monthly_profit
+        })
+
+        labels.append(month_name)
+        revenue_chart_data.append(monthly_revenue)
+        profit_chart_data.append(monthly_profit)
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"YTD Trend {target_year}"
+        ws.append(['Month', 'Total Revenue', 'Total Profit'])
+        for row in ytd_data:
+            ws.append([row['month'], row['revenue'], row['profit']])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=YTD_Trend_{target_year}.xlsx'
+        wb.save(response)
+        return response
+
+    context = {
+        'ytd_data': ytd_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'target_year': target_year,
+        'years': range(timezone.now().year - 3, timezone.now().year + 1),
+        'chart_labels': json.dumps(labels),
+        'chart_revenue': json.dumps(revenue_chart_data),
+        'chart_profit': json.dumps(profit_chart_data),
+    }
+
+    return render(request, 'layouts/admin/ytd_trend_report.html', context)
+
+
+def worker_performance_ytd_view(request):
+    """
+    Worker Performance YTD Report: Analysis of workers by Revenue, Orders, and Services.
+    Includes hybrid bar/line chart as per image_482454.png.
+    """
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    target_year = int(request.GET.get('year', timezone.now().year))
+
+    # Fetch workers
+    workers_qs = Worker.objects.all()
+    if selected_branch:
+        workers_qs = workers_qs.filter(branch=selected_branch)
+
+    performance_data = []
+    chart_labels = []
+    chart_revenue = []
+    chart_orders = []
+    chart_services = []
+
+    for worker in workers_qs:
+        # Base filter for completed orders in the year for this specific worker
+        rendered_items = ServiceRendered.objects.filter(
+            workers=worker,
+            order__date__year=target_year,
+            order__status='completed'
+        )
+
+        # Revenue
+        revenue = float(rendered_items.aggregate(
+            s=Sum(Coalesce('negotiated_price', 'service__price'))
+        )['s'] or 0.0)
+
+        # Service Count
+        service_count = rendered_items.count()
+
+        # Order Count (Distinct orders)
+        order_count = ServiceRenderedOrder.objects.filter(
+            rendered__in=rendered_items
+        ).distinct().count()
+
+        performance_data.append({
+            'name': f"{worker.user.first_name} {worker.user.last_name}",
+            'revenue': revenue,
+            'orders': order_count,
+            'services': service_count
+        })
+
+        # Prepare Chart Data
+        chart_labels.append(worker.user.first_name)
+        chart_revenue.append(revenue)
+        chart_orders.append(order_count)
+        chart_services.append(service_count)
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"Worker Performance {target_year}"
+        ws.append(['Worker', 'Revenue', 'Order Counts', 'Service Count'])
+        for row in performance_data:
+            ws.append([row['name'], row['revenue'], row['orders'], row['services']])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Worker_YTD_{target_year}.xlsx'
+        wb.save(response)
+        return response
+
+    context = {
+        'performance_data': performance_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'target_year': target_year,
+        'years': range(timezone.now().year - 3, timezone.now().year + 1),
+        'chart_labels': json.dumps(chart_labels),
+        'chart_revenue': json.dumps(chart_revenue),
+        'chart_orders': json.dumps(chart_orders),
+        'chart_services': json.dumps(chart_services),
+    }
+
+    return render(request, 'layouts/admin/worker_performance_ytd.html', context)
+
+
+def worker_performance_mtd_view(request):
+    """
+    Worker Performance MTD Report: Monthly analysis of workers by Revenue, Orders, and Services.
+    Matches the "MTD Trend" visual in image_483642.png.
+    """
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    # Date handling for MTD
+    target_month = int(request.GET.get('month', timezone.now().month))
+    target_year = int(request.GET.get('year', timezone.now().year))
+
+    workers_qs = Worker.objects.all()
+    if selected_branch:
+        workers_qs = workers_qs.filter(branch=selected_branch)
+
+    performance_data = []
+    chart_labels = []
+    chart_revenue = []
+    chart_orders = []
+    chart_services = []
+
+    for worker in workers_qs:
+        # Filter rendered items for the specific month/year
+        rendered_items = ServiceRendered.objects.filter(
+            workers=worker,
+            order__date__year=target_year,
+            order__date__month=target_month,
+            order__status='completed'
+        )
+
+        revenue = float(rendered_items.aggregate(
+            s=Sum(Coalesce('negotiated_price', 'service__price'))
+        )['s'] or 0.0)
+
+        service_count = rendered_items.count()
+
+        order_count = ServiceRenderedOrder.objects.filter(
+            rendered__in=rendered_items
+        ).distinct().count()
+
+        performance_data.append({
+            'name': f"{worker.user.first_name} {worker.user.last_name}",
+            'revenue': revenue,
+            'orders': order_count,
+            'services': service_count
+        })
+
+        chart_labels.append(worker.user.first_name)
+        chart_revenue.append(revenue)
+        chart_orders.append(order_count)
+        chart_services.append(service_count)
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"Worker MTD {target_month}-{target_year}"
+        ws.append(['Worker', 'Revenue', 'Order Counts', 'Service Count'])
+        for row in performance_data:
+            ws.append([row['name'], row['revenue'], row['orders'], row['services']])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Worker_MTD_{target_month}_{target_year}.xlsx'
+        wb.save(response)
+        return response
+
+    context = {
+        'performance_data': performance_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'target_month': target_month,
+        'target_year': target_year,
+        'months': range(1, 13),
+        'years': range(timezone.now().year - 3, timezone.now().year + 1),
+        'chart_labels': json.dumps(chart_labels),
+        'chart_revenue': json.dumps(chart_revenue),
+        'chart_orders': json.dumps(chart_orders),
+        'chart_services': json.dumps(chart_services),
+    }
+
+    return render(request, 'layouts/admin/worker_performance_mtd.html', context)
+
+
+def traffic_analysis_report_view(request):
+    """
+    Traffic Analysis Report: Hourly breakdown of service volume.
+    Matches the dashed line chart visual in image_484208.png.
+    """
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    # Filter by Date Range
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    # Base Queryset
+    orders_qs = ServiceRenderedOrder.objects.filter(
+        date__date__range=[start_dt, end_dt],
+        status='completed'
+    )
+    if selected_branch:
+        orders_qs = orders_qs.filter(branch=selected_branch)
+
+    # Aggregation by hour
+    # We use __hour lookup on the DateTimeField
+    hourly_counts = orders_qs.values(hour=F('date__hour')).annotate(count=Count('id')).order_by('hour')
+
+    # Map data to hours 6:00 - 19:00
+    traffic_data = []
+    chart_labels = []
+    chart_counts = []
+
+    # Create a lookup dictionary
+    lookup = {item['hour']: item['count'] for item in hourly_counts}
+
+    for h in range(6, 20):  # 6:00 to 19:00
+        time_label = f"{h}:00"
+        count = lookup.get(h, 0)
+
+        traffic_data.append({'time': time_label, 'count': count})
+        chart_labels.append(time_label)
+        chart_counts.append(count)
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Traffic Analysis"
+        ws.append(['Time', 'Count'])
+        for row in traffic_data:
+            ws.append([row['time'], row['count']])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Traffic_Analysis_{start_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    context = {
+        'traffic_data': traffic_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+        'chart_labels': json.dumps(chart_labels),
+        'chart_counts': json.dumps(chart_counts),
+    }
+
+    return render(request, 'layouts/admin/traffic_analysis_report.html', context)
 
 
 
