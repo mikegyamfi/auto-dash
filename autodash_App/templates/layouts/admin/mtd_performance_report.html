@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">MTD Performance Report</h4>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" class="row g-3 align-items-end">
+                {% if request.user.is_superuser %}
+                <div class="col-md-3">
+                  <label class="form-label">Branch</label>
+                  <select name="branch_id" class="form-select">
+                    <option value="">All Branches</option>
+                    {% for b in branches %}
+                    <option value="{{ b.id }}" {% if b.id|stringformat:"s" == request.GET.branch_id %}selected{% endif %}>{{ b.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endif %}
+                <div class="col-md-2">
+                  <label class="form-label">Month</label>
+                  <select name="month" class="form-select">
+                    {% for m in months %}
+                    <option value="{{ m }}" {% if m == target_month %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Year</label>
+                  <select name="year" class="form-select">
+                    {% for y in years %}
+                    <option value="{{ y }}" {% if y == target_year %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-5 d-flex gap-2">
+                  <button type="submit" class="btn btn-primary w-100">Filter</button>
+                  <button type="submit" name="export" value="excel" class="btn btn-success w-100">Excel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Chart Section -->
+          <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+              <h5 class="card-title m-0">MTD Info Chart</h5>
+            </div>
+            <div class="card-body">
+              <canvas id="mtdChart" style="min-height: 400px; width: 100%;"></canvas>
+            </div>
+          </div>
+
+          <!-- Data Table -->
+          <div class="card">
+            <div class="table-responsive text-nowrap">
+              <table class="table table-bordered align-middle text-center">
+                <thead class="table-light">
+                  <tr>
+                    <th class="text-start">Date</th>
+                    <th>Sales</th>
+                    <th>Targets</th>
+                    <th>Expenses</th>
+                    <th>Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in performance_data %}
+                  <tr>
+                    <td class="text-start">{{ row.date }}</td>
+                    <td class="fw-bold">{{ row.sales|floatformat:0 }}</td>
+                    <td class="text-muted">{{ row.target|floatformat:0 }}</td>
+                    <td class="text-danger">{{ row.expense|floatformat:0 }}</td>
+                    <td class="bg-label-success fw-bold">{{ row.profit|floatformat:0 }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const ctx = document.getElementById('mtdChart').getContext('2d');
+
+    const labels = {{ chart_labels|safe }};
+    const salesData = {{ chart_sales|safe }};
+    const targetsData = {{ chart_targets|safe }};
+    const expensesData = {{ chart_expenses|safe }};
+    const profitData = {{ chart_profit|safe }};
+
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Sales',
+            data: salesData,
+            backgroundColor: '#696cff',
+            order: 2
+          },
+          {
+            label: 'Targets',
+            data: targetsData,
+            backgroundColor: '#ffab00',
+            order: 3
+          },
+          {
+            label: 'Expenses',
+            data: expensesData,
+            type: 'line',
+            borderColor: '#8592a3',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1,
+            order: 1
+          },
+          {
+            label: 'Profit',
+            data: profitData,
+            type: 'line',
+            borderColor: '#71dd37',
+            borderWidth: 3,
+            fill: false,
+            tension: 0.1,
+            order: 0
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: { drawBorder: false }
+          },
+          x: {
+            grid: { display: false }
+          }
+        },
+        plugins: {
+          legend: { position: 'bottom' }
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

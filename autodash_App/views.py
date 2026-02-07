@@ -1,6 +1,7 @@
 import base64
 import json
 import uuid
+from calendar import monthrange
 from decimal import Decimal
 
 import openpyxl
@@ -7420,6 +7421,118 @@ def product_stock_report_view(request):
         'end_date': end_dt.strftime('%Y-%m-%d'),
     })
 
+
+def mtd_performance_report_view(request):
+    """
+    MTD Info Chart Report: Daily breakdown of Sales, Targets, Expenses, and Profit
+    for a selected month, including chart data.
+    """
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    # Date handling: Default to current month/year
+    target_month = int(request.GET.get('month', timezone.now().month))
+    target_year = int(request.GET.get('year', timezone.now().year))
+
+    # Get number of days in the selected month
+    _, last_day = monthrange(target_year, target_month)
+
+    performance_data = []
+    chart_labels = []
+    chart_sales = []
+    chart_targets = []
+    chart_expenses = []
+    chart_profit = []
+
+    for day in range(1, last_day + 1):
+        curr_date = date(target_year, target_month, day)
+        date_str = curr_date.strftime('%d-%m-%y')
+
+        # 1. Daily Sales (Service Revenue + Product Sales)
+        # Service Revenue from Revenue model
+        service_rev = Revenue.objects.filter(
+            branch=selected_branch if selected_branch else Q(),
+            date=curr_date
+        ).aggregate(s=Sum('final_amount'))['s'] or 0.0
+
+        # Product Sales
+        prod_sales = ProductSale.objects.filter(
+            branch=selected_branch if selected_branch else Q(),
+            date_sold__date=curr_date
+        ).aggregate(s=Sum('total_price'))['s'] or 0.0
+
+        daily_sales = service_rev + prod_sales
+
+        # 2. Daily Targets
+        # weekday() is 0 for Monday, 6 for Sunday
+        target_obj = DailySalesTarget.objects.filter(
+            branch=selected_branch if selected_branch else Q(),
+            weekday=curr_date.weekday()
+        ).first()
+        daily_target = target_obj.target_amount if target_obj else 0.0
+
+        # 3. Daily Expenses
+        daily_expense = Expense.objects.filter(
+            branch=selected_branch if selected_branch else Q(),
+            date=curr_date
+        ).aggregate(s=Sum('amount'))['s'] or 0.0
+
+        # 4. Profit
+        daily_profit = daily_sales - daily_expense
+
+        row = {
+            'date': date_str,
+            'sales': daily_sales,
+            'target': daily_target,
+            'expense': daily_expense,
+            'profit': daily_profit
+        }
+        performance_data.append(row)
+
+        # Chart Data (only add days that have passed or have data)
+        chart_labels.append(date_str)
+        chart_sales.append(float(daily_sales))
+        chart_targets.append(float(daily_target))
+        chart_expenses.append(float(daily_expense))
+        chart_profit.append(float(daily_profit))
+
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"MTD_{target_month}_{target_year}"
+        headers = ['Date', 'Sales', 'Targets', 'Expenses', 'Profit']
+        ws.append(headers)
+        for r in performance_data:
+            ws.append([r['date'], r['sales'], r['target'], r['expense'], r['profit']])
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=MTD_Report_{target_month}.xlsx'
+        wb.save(response)
+        return response
+
+    context = {
+        'performance_data': performance_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'target_month': target_month,
+        'target_year': target_year,
+        'months': range(1, 13),
+        'years': range(timezone.now().year - 2, timezone.now().year + 1),
+        # JSON serialized data for Chart.js
+        'chart_labels': json.dumps(chart_labels),
+        'chart_sales': json.dumps(chart_sales),
+        'chart_targets': json.dumps(chart_targets),
+        'chart_expenses': json.dumps(chart_expenses),
+        'chart_profit': json.dumps(chart_profit),
+    }
+
+    return render(request, 'layouts/admin/mtd_performance_report.html', context)
 
 
 
