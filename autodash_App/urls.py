@@ -198,7 +198,7 @@ urlpatterns = [
                   path('reports/branch-activity/', views.branch_activity_report_view,
                        name='branch_activity_report'),
                   path('reports/customers/', views.customer_report_view, name='customer_report'),
-
+                  path('reports/products/', views.product_sales_report_view, name='product_report'),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:

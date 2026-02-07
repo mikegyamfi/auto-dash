@@ -7217,6 +7217,97 @@ def customer_report_view(request):
     })
 
 
+def product_sales_report_view(request):
+    """
+    Generates a report for product sales based on the ProductSale model.
+    Includes Quantity sold, Value, Profit, and current Stock levels.
+    """
+    user = request.user
+    selected_branch = None
+
+    if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin and not user.is_staff:
+        selected_branch = user.worker_profile.branch
+    else:
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            selected_branch = get_object_or_404(Branch, id=branch_id)
+
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    today = timezone.now().date()
+
+    try:
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        start_dt = end_dt = today
+
+    # Fetch all products available at the branch (or all if superuser with no branch filter)
+    products_qs = Product.objects.all()
+    if selected_branch:
+        products_qs = products_qs.filter(branch=selected_branch)
+
+    product_data = []
+    for product in products_qs:
+        # Filter sales in range and branch
+        sales_qs = ProductSale.objects.filter(
+            product=product,
+            date_sold__date__range=[start_dt, end_dt]
+        )
+        if selected_branch:
+            sales_qs = sales_qs.filter(branch=selected_branch)
+
+        sales_metrics = sales_qs.aggregate(
+            qty=Sum('quantity'),
+            val=Sum('total_price')
+        )
+
+        qty_sold = sales_metrics['qty'] or 0
+        sales_value = sales_metrics['val'] or 0.0
+
+        # Calculate Profit: (Price - Cost) * Qty
+        profit = (product.price - product.cost) * qty_sold
+
+        product_data.append({
+            'name': product.name,
+            'category': product.category.name if product.category else "Uncategorized",
+            'qty_sold': qty_sold,
+            'sales_value': sales_value,
+            'profit': profit,
+            'stock': product.stock
+        })
+
+    # Excel Export
+    if request.GET.get('export') == 'excel':
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Product Sales Report"
+        headers = ['Products', 'Category', 'Sales Qty', 'Sales Value', 'Profit', 'Stock Balance']
+        ws.append(headers)
+
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+
+        for row in product_data:
+            ws.append([
+                row['name'], row['category'], row['qty_sold'],
+                row['sales_value'], row['profit'], row['stock']
+            ])
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename=Product_Report_{start_dt}.xlsx'
+        wb.save(response)
+        return response
+
+    return render(request, 'layouts/admin/product_sales_report.html', {
+        'product_data': product_data,
+        'branches': Branch.objects.all(),
+        'branch': selected_branch,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+    })
+
 
 
 

@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+          <h4 class="fw-bold py-3 mb-4">Product Performance Report</h4>
+
+          <!-- Filters -->
+          <div class="card mb-4">
+            <div class="card-body">
+              <form method="GET" class="row g-3 align-items-end">
+                {% if request.user.is_superuser %}
+                <div class="col-md-3">
+                  <label class="form-label">Branch</label>
+                  <select name="branch_id" class="form-select">
+                    <option value="">All Branches</option>
+                    {% for b in branches %}
+                    <option value="{{ b.id }}" {% if b.id|stringformat:"s" == request.GET.branch_id %}selected{% endif %}>{{ b.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endif %}
+                <div class="col-md-3">
+                  <label class="form-label">Start Date</label>
+                  <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">End Date</label>
+                  <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                  <button type="submit" class="btn btn-primary w-100">Filter</button>
+                  <button type="submit" name="export" value="excel" class="btn btn-success w-100">Excel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Report Table -->
+          <div class="card">
+            <div class="table-responsive text-nowrap">
+              <table class="table table-hover align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th>Products</th>
+                    <th>Category</th>
+                    <th class="text-center">Sales Qty</th>
+                    <th>Sales Value (GHS)</th>
+                    <th>Profit (GHS)</th>
+                    <th class="text-center">Stock Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in product_data %}
+                  <tr>
+                    <td><strong>{{ row.name }}</strong></td>
+                    <td><span class="badge bg-label-secondary">{{ row.category }}</span></td>
+                    <td class="text-center">{{ row.qty_sold }}</td>
+                    <td>{{ row.sales_value|floatformat:2|intcomma }}</td>
+                    <td class="{% if row.profit > 0 %}text-success{% elif row.profit < 0 %}text-danger{% endif %}">
+                        {{ row.profit|floatformat:2|intcomma }}
+                    </td>
+                    <td class="text-center">
+                        <span class="fw-bold {% if row.stock <= 5 %}text-danger{% endif %}">{{ row.stock }}</span>
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr>
+                    <td colspan="6" class="text-center">No product sales data found for this period.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
