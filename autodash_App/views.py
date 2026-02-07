@@ -17,6 +17,10 @@ from django.forms import modelformset_factory
 from django.http import (
     JsonResponse, HttpResponseForbidden, HttpResponseBadRequest
 )
+from django.db.models import Case, When, F, Sum, FloatField
+from django.db.models.functions import Coalesce
+from django.db.models import Sum, F, Value, CharField, Case, When, FloatField
+from django.db.models.functions import Coalesce, Concat
 from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -511,6 +515,35 @@ def home(request):
         "top5_services": top5_services,
         "top5_workers": top5_workers,
         "stock_out": stock_out,
+    })
+
+    rendered_items = ServiceRendered.objects.filter(order__in=completed_qs)
+
+    service_split = rendered_items.aggregate(
+        detailing=Sum(
+            Case(
+                When(service__service_type__icontains='Detailing',
+                     then=Coalesce(F('negotiated_price'), F('service__price'))),
+                default=Value(0.0),
+                output_field=FloatField(),
+            )
+        ),
+        others=Sum(
+            Case(
+                # If it's NOT detailing, sum it up
+                When(service__service_type__icontains='Detailing', then=Value(0.0)),
+                default=Coalesce(F('negotiated_price'), F('service__price')),
+                output_field=FloatField(),
+            )
+        )
+    )
+
+    detailing_revenue = service_split['detailing'] or 0.0
+    other_services_revenue = service_split['others'] or 0.0
+
+    context.update({
+        'detailing_revenue': detailing_revenue,
+        'other_services_revenue': other_services_revenue,
     })
 
     return render(request, 'layouts/admin/dashboard.html', context)

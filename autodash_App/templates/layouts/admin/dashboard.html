@@ -190,6 +190,29 @@
           </div>
           <!-- End of SERVICES SECTION -->
 
+          <h5 class="mb-3">Service Revenue Split</h5>
+<div class="row mb-4">
+  <div class="col-md-4 col-sm-6 mb-4">
+    <div class="card bg-label-primary">
+      <div class="card-body">
+        <h6 class="card-title text-primary">Detailing Services</h6>
+        <p class="display-6">GHS {{ detailing_revenue|floatformat:2|intcomma }}</p>
+        <small class="text-muted">Total from all "Detailing" services</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4 col-sm-6 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title">Other Services</h6>
+        <p class="display-6">GHS {{ other_services_revenue|floatformat:2|intcomma }}</p>
+        <small class="text-muted">General washing & other tasks</small>
+      </div>
+    </div>
+  </div>
+</div>
+
         <h5 class="mb-3">Cash Flow</h5>
 <div class="row mb-4">
   <!-- Cash -->
