@@ -144,6 +144,8 @@ urlpatterns = [
                       views.export_service_history_pdf,
                       name='export_service_history_pdf'
                   ),
+                  path('arrears/export/excel/', views.export_arrears_excel, name='export_arrears_excel'),
+                  path('arrears/export/pdf/', views.export_arrears_pdf, name='export_arrears_pdf'),
 
                   path(
                       'elevated/customers/<int:customer_id>/generate_history_link/',

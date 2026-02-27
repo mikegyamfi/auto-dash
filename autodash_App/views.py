@@ -8043,4 +8043,221 @@ def traffic_analysis_report_view(request):
     return render(request, 'layouts/admin/traffic_analysis_report.html', context)
 
 
+# -----------------------------------------------------------------------------
+# HELPER: Get Filtered Arrears for Admin Exports
+# -----------------------------------------------------------------------------
+def _get_filtered_admin_arrears(request):
+    """
+    Helper function to securely get the filtered queryset matching the screen.
+    Only allows Staff, Superusers, or Branch Admins.
+    """
+    user = request.user
+    is_branch_admin = hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin
+
+    if not (user.is_staff or user.is_superuser or is_branch_admin):
+        return None  # Unauthorized
+
+    arrears_qs = Arrears.objects.all().order_by('-date_created')
+
+    branch_id = request.GET.get('branch', '')
+    start_date_str = request.GET.get('start_date', '')
+    end_date_str = request.GET.get('end_date', '')
+    paid_filter = request.GET.get('paid_filter', 'all')
+
+    # Apply Branch Logic
+    if is_branch_admin:
+        arrears_qs = arrears_qs.filter(branch=user.worker_profile.branch)
+    elif branch_id:
+        arrears_qs = arrears_qs.filter(branch_id=branch_id)
+
+    # Apply Date Logic
+    if start_date_str and end_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            if start_date > end_date:
+                start_date, end_date = end_date, start_date
+            arrears_qs = arrears_qs.filter(date_created__date__range=[start_date, end_date])
+        except ValueError:
+            pass
+
+    # Apply Paid Status Logic
+    if paid_filter == 'paid':
+        arrears_qs = arrears_qs.filter(is_paid=True)
+    elif paid_filter == 'unpaid':
+        arrears_qs = arrears_qs.filter(is_paid=False)
+
+    return arrears_qs
+
+
+# -----------------------------------------------------------------------------
+# EXPORT: EXCEL
+# -----------------------------------------------------------------------------
+@login_required(login_url='login')
+def export_arrears_excel(request):
+    arrears = _get_filtered_admin_arrears(request)
+
+    if arrears is None:
+        return HttpResponseForbidden("You are not authorized to export this data.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Arrears Report"
+
+    # Header - Added Services and Workers
+    ws.append([
+        "Order #", "Customer", "Vehicle", "Services", "Workers", "Branch",
+        "Amount Owed (GHS)", "Date Created", "Paid Status", "Date Paid"
+    ])
+
+    # Rows
+    for a in arrears:
+        customer_name = "N/A"
+        services_str = "N/A"
+        workers_str = "N/A"
+
+        if a.service_order:
+            if a.service_order.customer:
+                customer_name = a.service_order.customer.user.get_full_name()
+
+            # Fetch services rendered
+            services_str = ", ".join(sr.service.service_type for sr in a.service_order.rendered.all())
+
+            # Fetch workers
+            workers_str = ", ".join(
+                f"{w.user.first_name} {w.user.last_name}".strip() for w in a.service_order.workers.all())
+
+        vehicle_info = str(a.service_order.vehicle) if a.service_order and a.service_order.vehicle else "N/A"
+
+        ws.append([
+            a.service_order.service_order_number if a.service_order else "-",
+            customer_name,
+            vehicle_info,
+            services_str,
+            workers_str,
+            a.branch.name if a.branch else "N/A",
+            float(a.amount_owed or 0),
+            timezone.localtime(a.date_created).strftime('%Y-%m-%d %H:%M') if a.date_created else "-",
+            "Paid" if a.is_paid else "Unpaid",
+            timezone.localtime(a.date_paid).strftime('%Y-%m-%d %H:%M') if a.date_paid else "-"
+        ])
+
+    # Totals Row (Shifted the empty strings to account for the 2 new columns)
+    total_owed = arrears.aggregate(total=Sum('amount_owed'))['total'] or 0
+    ws.append([])
+    ws.append(["Totals", "", "", "", "", "", float(total_owed), "", "", ""])
+
+    resp = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    fname = timezone.now().strftime("arrears_report_%Y%m%d_%H%M.xlsx")
+    resp['Content-Disposition'] = f'attachment; filename="{fname}"'
+    wb.save(resp)
+    return resp
+
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from django.http import HttpResponse, HttpResponseForbidden
+from django.utils import timezone
+from django.db.models import Sum
+
+
+# -----------------------------------------------------------------------------
+# EXPORT: PDF
+# -----------------------------------------------------------------------------
+@login_required(login_url='login')
+def export_arrears_pdf(request):
+    # Fetch the filtered data
+    arrears = _get_filtered_admin_arrears(request)
+
+    if arrears is None:
+        return HttpResponseForbidden("You are not authorized to export this data.")
+
+    # Setup the HTTP response for PDF
+    response = HttpResponse(content_type='application/pdf')
+    fname = timezone.now().strftime("arrears_report_%Y%m%d_%H%M.pdf")
+    response['Content-Disposition'] = f'attachment; filename="{fname}"'
+
+    # Create the PDF document structure
+    doc = SimpleDocTemplate(response, pagesize=landscape(letter))
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # 1. Title
+    elements.append(Paragraph("Arrears Report", styles['Title']))
+    elements.append(
+        Paragraph(f"Generated on: {timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+    elements.append(Spacer(1, 12))
+
+    # 2. Summary Box
+    total_owed = arrears.aggregate(total=Sum('amount_owed'))['total'] or 0
+    elements.append(Paragraph(f"<b>Total Amount Owed:</b> GHS {total_owed:.2f}", styles['Heading3']))
+    elements.append(Spacer(1, 12))
+
+    # 3. Table Header - Added Services and Workers
+    data = [[
+        'Order #', 'Customer', 'Vehicle', 'Services', 'Workers',
+        'Branch', 'Amount (GHS)', 'Date', 'Status', 'Paid On'
+    ]]
+
+    # 4. Table Rows
+    for a in arrears:
+        customer_name = "N/A"
+        services_str = "N/A"
+        workers_str = "N/A"
+
+        if a.service_order:
+            if a.service_order.customer:
+                customer_name = f"{a.service_order.customer.user.first_name} {a.service_order.customer.user.last_name}".strip()
+
+            services_str = ", ".join(sr.service.service_type for sr in a.service_order.rendered.all())
+            workers_str = ", ".join(
+                f"{w.user.first_name} {w.user.last_name}".strip() for w in a.service_order.workers.all())
+
+        vehicle_info = str(a.service_order.vehicle) if a.service_order and a.service_order.vehicle else "N/A"
+        created = timezone.localtime(a.date_created).strftime('%Y-%m-%d') if a.date_created else "-"
+        paid = timezone.localtime(a.date_paid).strftime('%Y-%m-%d') if a.date_paid else "-"
+        status = "Paid" if a.is_paid else "Unpaid"
+
+        data.append([
+            a.service_order.service_order_number if a.service_order else "-",
+            customer_name,
+            vehicle_info,
+            services_str,
+            workers_str,
+            a.branch.name if a.branch else "N/A",
+            f"{a.amount_owed:.2f}",
+            created,
+            status,
+            paid
+        ])
+
+    # 5. Table Styling
+    table = Table(data)
+    table.setStyle(TableStyle([
+        # Header Style
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+
+        # Body Style
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),  # Dropped font size slightly to fit new columns
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ecf0f1')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#bdc3c7')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),  # Ensures text aligns top if it wraps to multiple lines
+
+        # Right align the amount column (Shifted to index 6 because of new columns)
+        ('ALIGN', (6, 0), (6, -1), 'RIGHT'),
+    ]))
+
+    elements.append(table)
+
+    # Build and return the PDF
+    doc.build(elements)
+    return response
+
 

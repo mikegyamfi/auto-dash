@@ -85,6 +85,15 @@
             </div>
           </div>
 
+          <div class="mb-4 d-flex gap-2">
+            <a href="{% url 'export_arrears_excel' %}?{{ request.GET.urlencode }}" class="btn btn-outline-success btn-sm">
+              <i class="bx bx-spreadsheet me-1"></i> Export Excel
+            </a>
+            <a href="{% url 'export_arrears_pdf' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger btn-sm" target="_blank">
+              <i class="bx bxs-file-pdf me-1"></i> Export PDF
+            </a>
+          </div>
+
           <!-- Arrears Table -->
           <div class="card">
             <div class="card-body">

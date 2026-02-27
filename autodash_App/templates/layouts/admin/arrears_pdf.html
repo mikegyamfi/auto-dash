@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Arrears Report</title>
+    <style>
+        @page {
+            size: a4 landscape;
+            margin: 1cm;
+        }
+        body {
+            font-family: Helvetica, sans-serif;
+            font-size: 11px;
+            color: #333;
+        }
+        h2 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .summary-box {
+            background-color: #ecf0f1;
+            padding: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #bdc3c7;
+            padding: 6px;
+            text-align: left;
+        }
+        th {
+            background-color: #2c3e50;
+            color: #ffffff;
+            font-weight: bold;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .status-paid {
+            color: green;
+            font-weight: bold;
+        }
+        .status-unpaid {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Arrears Report</h2>
+    <p>Generated on: {{ now|date:"Y-m-d H:i" }}</p>
+
+    <div class="summary-box">
+        Total Amount Owed: GHS {{ total_owed|floatformat:2 }}
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Customer</th>
+                <th>Vehicle</th>
+                <th>Branch</th>
+                <th class="text-right">Amount (GHS)</th>
+                <th>Date Created</th>
+                <th>Status</th>
+                <th>Date Paid</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in arrears_list %}
+            <tr>
+                <td>{{ a.service_order.service_order_number|default:"-" }}</td>
+                <td>
+                    {% if a.service_order and a.service_order.customer %}
+                        {{ a.service_order.customer.user.first_name }} {{ a.service_order.customer.user.last_name }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>{{ a.service_order.vehicle|default:"N/A" }}</td>
+                <td>{{ a.branch.name|default:"N/A" }}</td>
+                <td class="text-right">{{ a.amount_owed|floatformat:2 }}</td>
+                <td>{{ a.date_created|date:"Y-m-d H:i" }}</td>
+                <td>
+                    {% if a.is_paid %}
+                        <span class="status-paid">Paid</span>
+                    {% else %}
+                        <span class="status-unpaid">Unpaid</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if a.is_paid %}
+                        {{ a.date_paid|date:"Y-m-d H:i" }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8" style="text-align:center;">No arrears found for the selected criteria.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>
