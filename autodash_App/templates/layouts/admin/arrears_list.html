@@ -36,6 +36,20 @@
               </select>
             </div>
             {% endif %}
+            <div class="col-md-2">
+              <label for="customer" class="form-label">Customer</label>
+              <select id="customer" name="customer" class="form-control">
+                <option value="">All Customers</option>
+                {% for c in customers %}
+                  <option
+                    value="{{ c.id }}"
+                    {% if c.id|stringformat:'s' == customer_id %}selected{% endif %}
+                  >
+                    {{ c.user.first_name }} {{ c.user.last_name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
             <!-- Start Date -->
             <div class="col-md-2">
               <label for="start_date" class="form-label">Start Date</label>

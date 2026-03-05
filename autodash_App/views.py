@@ -3841,29 +3841,25 @@ def product_sales_report(request):
 
 @login_required(login_url='login')
 def arrears_list(request):
-    """
-    Shows a list of Arrears with optional filters:
-      - For staff/admin: filter by Branch, date range, paid status
-      - For workers: only show their branch's arrears, no branch filter.
-    """
     user = request.user
 
-    # If user is staff/superuser => can see all branches
-    # Otherwise => must get worker's branch
     is_branch_admin = False
     branch_admin_profile = None
     if hasattr(user, 'worker_profile') and user.worker_profile.is_branch_admin:
         is_branch_admin = True
         branch_admin_profile = user.worker_profile
-    else:
-        is_branch_admin = False
 
     if user.is_staff or user.is_superuser or is_branch_admin:
         branches = Branch.objects.all()
+        # NEW: Fetch all customers for the dropdown
+        customers = Customer.objects.select_related('user').all().order_by('user__first_name')
+
         branch_id = request.GET.get('branch', '')
+        customer_id = request.GET.get('customer', '')  # NEW: Get customer ID
         start_date_str = request.GET.get('start_date', '')
         end_date_str = request.GET.get('end_date', '')
         paid_filter = request.GET.get('paid_filter', 'all')
+
         arrears_qs = Arrears.objects.all().order_by('-date_created')
 
         # Branch filter
@@ -3872,6 +3868,10 @@ def arrears_list(request):
 
         if is_branch_admin:
             branch = branch_admin_profile.branch
+
+        # NEW: Customer filter
+        if customer_id:
+            arrears_qs = arrears_qs.filter(service_order__customer_id=customer_id)
 
         # Date range filter
         if start_date_str and end_date_str:
@@ -3894,14 +3894,16 @@ def arrears_list(request):
 
         context = {
             'branches': branches,
+            'customers': customers,  # NEW: Pass customers to template
             'branch_id': branch_id,
+            'customer_id': customer_id,  # NEW: Pass selected customer ID back
             'start_date_str': start_date_str,
             'end_date_str': end_date_str,
             'paid_filter': paid_filter,
             'arrears_list': arrears_qs,
             'total_owed': total_owed,
             'is_branch_admin': is_branch_admin,
-            'is_staff_view': True,  # For template conditionals
+            'is_staff_view': True,
         }
         return render(request, 'layouts/admin/arrears_list.html', context)
 
@@ -8060,6 +8062,7 @@ def _get_filtered_admin_arrears(request):
     arrears_qs = Arrears.objects.all().order_by('-date_created')
 
     branch_id = request.GET.get('branch', '')
+    customer_id = request.GET.get('customer', '')
     start_date_str = request.GET.get('start_date', '')
     end_date_str = request.GET.get('end_date', '')
     paid_filter = request.GET.get('paid_filter', 'all')
@@ -8069,6 +8072,9 @@ def _get_filtered_admin_arrears(request):
         arrears_qs = arrears_qs.filter(branch=user.worker_profile.branch)
     elif branch_id:
         arrears_qs = arrears_qs.filter(branch_id=branch_id)
+
+    if customer_id:
+        arrears_qs = arrears_qs.filter(service_order__customer_id=customer_id)
 
     # Apply Date Logic
     if start_date_str and end_date_str:
