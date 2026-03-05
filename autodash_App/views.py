@@ -8106,7 +8106,7 @@ def export_arrears_excel(request):
 
     # Header - Added Services and Workers
     ws.append([
-        "Order #", "Customer", "Vehicle", "Services", "Workers", "Branch",
+        "Order #", "Customer", "Vehicle", "Services", "Branch",
         "Amount Owed (GHS)", "Date Created", "Paid Status", "Date Paid"
     ])
 
@@ -8114,7 +8114,6 @@ def export_arrears_excel(request):
     for a in arrears:
         customer_name = "N/A"
         services_str = "N/A"
-        workers_str = "N/A"
 
         if a.service_order:
             if a.service_order.customer:
@@ -8123,10 +8122,6 @@ def export_arrears_excel(request):
             # Fetch services rendered
             services_str = ", ".join(sr.service.service_type for sr in a.service_order.rendered.all())
 
-            # Fetch workers
-            workers_str = ", ".join(
-                f"{w.user.first_name} {w.user.last_name}".strip() for w in a.service_order.workers.all())
-
         vehicle_info = str(a.service_order.vehicle) if a.service_order and a.service_order.vehicle else "N/A"
 
         ws.append([
@@ -8134,7 +8129,6 @@ def export_arrears_excel(request):
             customer_name,
             vehicle_info,
             services_str,
-            workers_str,
             a.branch.name if a.branch else "N/A",
             float(a.amount_owed or 0),
             timezone.localtime(a.date_created).strftime('%Y-%m-%d %H:%M') if a.date_created else "-",
@@ -8145,7 +8139,7 @@ def export_arrears_excel(request):
     # Totals Row (Shifted the empty strings to account for the 2 new columns)
     total_owed = arrears.aggregate(total=Sum('amount_owed'))['total'] or 0
     ws.append([])
-    ws.append(["Totals", "", "", "", "", "", float(total_owed), "", "", ""])
+    ws.append(["Totals", "", "", "", "", float(total_owed), "", "", ""])
 
     resp = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     fname = timezone.now().strftime("arrears_report_%Y%m%d_%H%M.xlsx")
@@ -8197,7 +8191,7 @@ def export_arrears_pdf(request):
 
     # 3. Table Header - Added Services and Workers
     data = [[
-        'Order #', 'Customer', 'Vehicle', 'Services', 'Workers',
+        'Order #', 'Customer', 'Vehicle', 'Services',
         'Branch', 'Amount (GHS)', 'Date', 'Status', 'Paid On'
     ]]
 
@@ -8205,15 +8199,12 @@ def export_arrears_pdf(request):
     for a in arrears:
         customer_name = "N/A"
         services_str = "N/A"
-        workers_str = "N/A"
 
         if a.service_order:
             if a.service_order.customer:
                 customer_name = f"{a.service_order.customer.user.first_name} {a.service_order.customer.user.last_name}".strip()
 
             services_str = ", ".join(sr.service.service_type for sr in a.service_order.rendered.all())
-            workers_str = ", ".join(
-                f"{w.user.first_name} {w.user.last_name}".strip() for w in a.service_order.workers.all())
 
         vehicle_info = str(a.service_order.vehicle) if a.service_order and a.service_order.vehicle else "N/A"
         created = timezone.localtime(a.date_created).strftime('%Y-%m-%d') if a.date_created else "-"
@@ -8225,7 +8216,6 @@ def export_arrears_pdf(request):
             customer_name,
             vehicle_info,
             services_str,
-            workers_str,
             a.branch.name if a.branch else "N/A",
             f"{a.amount_owed:.2f}",
             created,
