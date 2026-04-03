@@ -141,13 +141,104 @@ class CustomerSubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ('user', 'date_joined_app', 'branch', 'loyalty_points')
+    list_display = ('user', 'get_phone_number', 'date_joined_app', 'branch', 'loyalty_points')
     search_fields = (
         'user__username',
         'user__first_name',
-        'user__last_name'
+        'user__last_name',
+        'user__phone_number',
+        'user__email'
     )
-    list_filter = ('branch', 'date_joined_app')
+    list_filter = ('branch', 'customer_group', 'date_joined_app')
+
+    # Register the custom export action
+    actions = ['export_customers_to_excel']
+
+    # Custom display method for the list view
+    @admin.display(ordering='user__phone_number', description='Phone Number')
+    def get_phone_number(self, obj):
+        return obj.user.phone_number if obj.user else '-'
+
+    # -------------------------------------------------------------------------
+    # EXPORT ACTION
+    # -------------------------------------------------------------------------
+    @admin.action(description="Export Selected Customers to Excel (CSV)")
+    def export_customers_to_excel(self, request, queryset):
+        """
+        Exports selected customers to a CSV file.
+        Uses the ="..." trick to force Excel to treat phone numbers as literal strings.
+        """
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="customers_export.csv"'
+        writer = csv.writer(response)
+
+        # Write the header row
+        writer.writerow([
+            'First Name',
+            'Last Name',
+            'Phone (Raw)',
+            'Phone (233)',
+            'Phone (0)',
+            'Email',
+            'Address',
+            'Branch',
+            'Customer Group',
+            'Loyalty Points',
+            'Date Joined'
+        ])
+
+        # Write data rows
+        for customer in queryset:
+            first_name = customer.user.first_name if customer.user else '-'
+            last_name = customer.user.last_name if customer.user else '-'
+            email = customer.user.email if customer.user else '-'
+            address = customer.user.address if customer.user else '-'
+
+            # --- Phone Number Logic ---
+            raw_phone = customer.user.phone_number if customer.user and customer.user.phone_number else ''
+
+            # Default to dash if no phone exists
+            phone_raw_str = '-'
+            phone_233 = '-'
+            phone_0 = '-'
+
+            if raw_phone:
+                # Remove spaces, plus signs, or dashes to safely parse
+                clean_num = ''.join(filter(str.isdigit, raw_phone))
+
+                # Strip existing '233' or '0' prefix to isolate the core 9-digit number
+                if clean_num.startswith('233'):
+                    core_num = clean_num[3:]
+                elif clean_num.startswith('0'):
+                    core_num = clean_num[1:]
+                else:
+                    core_num = clean_num
+
+                # Wrap in ="..." to force Excel to treat them strictly as strings
+                phone_raw_str = f'="{raw_phone}"'
+                phone_233 = f'="233{core_num}"'
+                phone_0 = f'="0{core_num}"'
+
+            # Safely extract customer data
+            branch_name = customer.branch.name if customer.branch else '-'
+            group = customer.customer_group if customer.customer_group else '-'
+            date_joined = customer.date_joined_app.strftime("%Y-%m-%d") if customer.date_joined_app else "-"
+
+            writer.writerow([
+                first_name,
+                last_name,
+                phone_raw_str,
+                phone_233,
+                phone_0,
+                email,
+                address,
+                branch_name,
+                group,
+                customer.loyalty_points,
+                date_joined
+            ])
+
+        return response
 
 
 @admin.register(CustomerVehicle)
