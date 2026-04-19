@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="fw-bold mb-0">
+              <span class="text-muted fw-light">Inventory /</span> Product Management
+            </h4>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-success" onclick="toggleMode('restock')">
+                    <i class="bx bx-list-plus me-1"></i> Bulk Restock
+                </button>
+                <button type="button" class="btn btn-outline-danger" onclick="toggleMode('adjust')">
+                    <i class="bx bx-reset me-1"></i> Bulk Adjustment
+                </button>
+                <a href="{% url 'product_create' %}" class="btn btn-primary">
+                    <i class="bx bx-plus me-1"></i> Add Product
+                </a>
+            </div>
+          </div>
+
+          <div class="card">
+            <form method="POST">
+              {% csrf_token %}
+              <div class="table-responsive text-nowrap">
+                <table class="table table-hover align-middle">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Product Details</th>
+                      <th class="text-center">Current Stock</th>
+
+                      <th class="restock-col text-primary text-center bg-label-success" style="display: none;">
+                        Add Qty (+)
+                      </th>
+
+                      <th class="adjust-col text-danger text-center bg-label-danger" style="display: none;">
+                        Set New Total (=)
+                      </th>
+
+                      <th class="text-end">Selling Price</th>
+                      <th>Branches</th>
+                      <th class="text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for p in products %}
+                    <tr>
+                      <td>
+                        <span class="fw-bold d-block">{{ p.name }}</span>
+                        <small class="text-muted">{{ p.category.name|default:"General" }}</small>
+                      </td>
+                      <td class="text-center">
+                        <span class="badge {% if p.stock < 5 %}bg-label-danger{% else %}bg-label-success{% endif %} fs-6">
+                          {{ p.stock }}
+                        </span>
+                      </td>
+
+                      <td class="restock-col text-center" style="display: none; background-color: #f0fdf4;">
+                        <input type="number" name="restock_qty_{{ p.id }}" class="form-control form-control-sm mx-auto text-center border-success" style="width: 80px;" placeholder="+0">
+                      </td>
+
+                      <td class="adjust-col text-center" style="display: none; background-color: #fff5f5;">
+                        <input type="number" name="adjust_total_{{ p.id }}" class="form-control form-control-sm mx-auto text-center border-danger" style="width: 80px;" placeholder="{{ p.stock }}">
+                      </td>
+
+                      <td class="text-end fw-bold text-primary">{{ p.price|floatformat:2 }}</td>
+                      <td>
+                        {% for b in p.branch.all %}
+                          <span class="badge bg-label-secondary small">{{ b.name }}</span>
+                        {% endfor %}
+                      </td>
+                      <td class="text-center">
+                        <div class="dropdown">
+                          <button type="button" class="btn p-0 dropdown-toggle hide-arrow" data-bs-toggle="dropdown">
+                            <i class="bx bx-dots-vertical-rounded"></i>
+                          </button>
+                          <div class="dropdown-menu">
+                            <a class="dropdown-item" href="{% url 'product_edit' p.pk %}">
+                              <i class="bx bx-edit-alt me-1 text-primary"></i> Edit Details
+                            </a>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+
+              <div id="bulkSubmitContainer" class="card-footer text-end border-top" style="display: none;">
+                <span class="text-muted small me-3">* Only visible changes will be saved</span>
+                <button type="submit" class="btn btn-primary px-5">Save Inventory Changes</button>
+              </div>
+            </form>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+    function toggleMode(mode) {
+        const restockCols = document.querySelectorAll('.restock-col');
+        const adjustCols = document.querySelectorAll('.adjust-col');
+        const submitBtn = document.getElementById('bulkSubmitContainer');
+
+        if (mode === 'restock') {
+            // Hide adjustment if open
+            adjustCols.forEach(c => c.style.display = 'none');
+            // Toggle restock
+            restockCols.forEach(c => {
+                c.style.display = (c.style.display === 'none') ? 'table-cell' : 'none';
+            });
+        } else {
+            // Hide restock if open
+            restockCols.forEach(c => c.style.display = 'none');
+            // Toggle adjustment
+            adjustCols.forEach(c => {
+                c.style.display = (c.style.display === 'none') ? 'table-cell' : 'none';
+            });
+        }
+
+        // Show submit button if either column is visible
+        const anyVisible = Array.from(restockCols).some(c => c.style.display !== 'none') ||
+                           Array.from(adjustCols).some(c => c.style.display !== 'none');
+
+        submitBtn.style.display = anyVisible ? 'block' : 'none';
+    }
+</script>
+
+<style>
+  .bg-label-success { background-color: #e8fadf !important; color: #71dd37 !important; }
+  .bg-label-danger { background-color: #ffe5e5 !important; color: #ff3e1d !important; }
+</style>
+{% endblock content %}

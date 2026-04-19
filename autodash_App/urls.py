@@ -9,11 +9,14 @@ from autodash_App.views import standalone_product_receipt, worker_commissions, e
 urlpatterns = [
                   path('', views.home, name='index'),
                   path('log_service', views.log_service, name='log_service'),
+                  path('ajax/services/group/<int:group_id>/', views.get_services_by_group,
+                       name='ajax_services_by_group'),
                   path('log_scanned_service/<int:customer_id>', views.log_service_scanned, name='log_service_scanned'),
                   path('check-customer-status/<int:customer_id>/', views.check_customer_status,
                        name='check_customer_status'),
                   path('elevated/select_branch/', views.home, name='select_branch'),  # Admin branch selection
                   path('elevated/dashboard/', views.home, name='admin_dashboard'),
+                  path('operations/daily-targets/', views.daily_payment_targets, name='daily_payment_targets'),
 
                   # URL path for creating a new customer via modal
                   path('create-customer/', views.create_customer, name='create_customer'),
@@ -72,6 +75,12 @@ urlpatterns = [
                   path('elevated/add_branch', views.add_branch, name='add_branch'),
                   path('elevated/edit_branch/<int:branch_id>/', views.edit_branch, name='edit_branch'),
                   path('elevated/delete_branch/<int:branch_id>/', views.delete_branch, name='delete_branch'),
+
+                  path('products/add/', views.product_create, name='product_create'),
+                  path('products/edit/<int:pk>/', views.product_edit, name='product_edit'),
+                  path('products/restock/<int:pk>/', views.product_restock, name='product_restock'),
+                  path('products/manage/', views.product_management_list, name='product_management_list'),
+                  path('products/adjustment/<int:pk>/', views.product_adjustment, name='product_adjustment'),
 
                   # ===================================================== Customer URLS ===============================================================
                   path('customer/dashboard/', views.customer_dashboard, name='customer_dashboard'),

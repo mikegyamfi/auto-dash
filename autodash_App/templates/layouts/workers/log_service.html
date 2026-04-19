@@ -4,20 +4,12 @@
 {% block content %}
 <div class="layout-wrapper layout-content-navbar">
   <div class="layout-container">
-    <!-- Side Nav -->
     {% include 'inc/side_nav.html' %}
-    <!-- / Side Nav -->
-
     <div class="layout-page">
-      <!-- Navbar -->
       {% include 'inc/header.html' %}
-      <!-- / Navbar -->
-
-      <!-- Content wrapper -->
       <div class="content-wrapper">
         <div class="container-xxl flex-grow-1 container-p-y">
 
-          <!-- Header Section -->
           <div class="d-flex justify-content-between align-items-center mb-4">
             <h4 class="fw-bold mb-0">
               <span class="text-muted fw-light">Services /</span> New Service Entry
@@ -27,66 +19,125 @@
             </div>
           </div>
 
-          <!-- Main Card -->
           <div class="card">
             <div class="card-body">
               <div class="row g-4">
-                <!-- Left Form Column -->
                 <div class="col-md-8">
-                  <!-- Main form -->
                   <form id="log-service-form" method="POST" action="{% url 'log_service' %}">
                     {% csrf_token %}
-                    <!-- STEP 1: Customer Section -->
+
+                    {{ form.is_walkin }}
+
+                    {% if form.branch %}
                     <div class="stepper-step completed mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
-                        <h6 class="mb-0">Select Customer</h6>
+                        <h6 class="mb-0 text-primary">Select Branch (Admin Override)</h6>
                       </div>
                       <div class="step-content">
-                        <div class="row g-3">
-                          <div class="col-md-8">
-                            <div class="input-group">
-                              <span class="input-group-text">
-                                <i class="fas fa-user-circle"></i>
-                              </span>
-                              {{ form.customer }}
+                        <div class="input-group">
+                          <span class="input-group-text bg-primary text-white">
+                            <i class="fas fa-building"></i>
+                          </span>
+                          {{ form.branch }}
+                        </div>
+                        <small class="text-muted mt-1 d-block">Workers and Products will load based on this branch.</small>
+                      </div>
+                    </div>
+                    {% endif %}
+
+                    <ul class="nav nav-pills mb-4" id="serviceFlowTabs" role="tablist">
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="registered-tab" data-bs-toggle="pill" data-bs-target="#registered-content" type="button" role="tab">
+                          <i class="fas fa-user-check me-2"></i>Registered Customer
+                        </button>
+                      </li>
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="walkin-tab" data-bs-toggle="pill" data-bs-target="#walkin-content" type="button" role="tab">
+                          <i class="fas fa-walking me-2"></i>One-Time / Walk-In
+                        </button>
+                      </li>
+                    </ul>
+
+                    <div class="tab-content p-0 bg-transparent mb-4" id="serviceFlowContent">
+
+                      <div class="tab-pane fade show active" id="registered-content" role="tabpanel">
+                        <div class="stepper-step completed mb-4">
+                          <div class="step-header d-flex align-items-center mb-3">
+                            <h6 class="mb-0">Select Customer</h6>
+                          </div>
+                          <div class="step-content">
+                            <div class="row g-3">
+                              <div class="col-md-8">
+                                <div class="input-group">
+                                  <span class="input-group-text">
+                                    <i class="fas fa-user-circle"></i>
+                                  </span>
+                                  {{ form.customer }}
+                                </div>
+                              </div>
+                              <div class="col-md-4 w-auto">
+                                <button type="button" id="new-customer-btn" class="btn btn-outline-primary w-100 h-100 d-flex flex-column justify-content-center" data-bs-toggle="modal" data-bs-target="#new-customer-modal">
+                                  <i class="fas fa-user-plus mb-1"></i>
+                                </button>
+                              </div>
                             </div>
                           </div>
-                          <div class="col-md-4 w-auto">
-                            <button type="button" id="new-customer-btn" class="btn btn-outline-primary w-100 h-100 d-flex flex-column justify-content-center" data-bs-toggle="modal" data-bs-target="#new-customer-modal">
-                              <i class="fas fa-user-plus mb-1"></i>
-                            </button>
+                        </div>
+
+                        <div class="stepper-step mb-4">
+                          <div class="step-header d-flex align-items-center mb-3">
+                            <h6 class="mb-0">Select Vehicle</h6>
+                          </div>
+                          <div class="step-content">
+                            <div class="row g-3">
+                              <div class="col-md-8">
+                                <div class="input-group">
+                                  <span class="input-group-text">
+                                    <i class="fas fa-car"></i>
+                                  </span>
+                                  {{ form.vehicle }}
+                                </div>
+                              </div>
+                              <div class="col-md-4 w-auto">
+                                <button type="button" id="new-vehicle-btn" class="btn btn-outline-secondary w-100 h-100 d-flex flex-column justify-content-center" data-bs-toggle="modal" data-bs-target="#new-vehicle-modal">
+                                  <i class="fas fa-car mb-1"></i>
+                                  <span class="small">Add Vehicle</span>
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <!-- STEP 2: Vehicle Section -->
-                    <div class="stepper-step mb-4">
-                      <div class="step-header d-flex align-items-center mb-3">
-                        <h6 class="mb-0">Select Vehicle</h6>
-                      </div>
-                      <div class="step-content">
-                        <div class="row g-3">
-                          <div class="col-md-8">
-                            <div class="input-group">
-                              <span class="input-group-text">
-                                <i class="fas fa-car"></i>
-                              </span>
-                              {{ form.vehicle }}
+                      <div class="tab-pane fade" id="walkin-content" role="tabpanel">
+                        <div class="border rounded p-4 bg-lighter">
+                          <h6 class="mb-3">Walk-In Details</h6>
+                          <div class="row g-3">
+                            <div class="col-md-6">
+                              <label class="form-label">Contact Name <span class="text-muted">(Optional)</span></label>
+                              {{ form.walkin_name }}
                             </div>
-                          </div>
-                          <div class="col-md-4 w-auto">
-                            <button type="button" id="new-vehicle-btn" class="btn btn-outline-secondary w-100 h-100 d-flex flex-column justify-content-center" data-bs-toggle="modal" data-bs-target="#new-vehicle-modal">
-                              <i class="fas fa-car mb-1"></i>
-                              <span class="small">Add Vehicle</span>
-                            </button>
+                            <div class="col-md-6">
+                              <label class="form-label">Phone Number <span class="text-muted">(Optional)</span></label>
+                              {{ form.walkin_phone }}
+                            </div>
+                            <div class="col-md-4">
+                              <label class="form-label text-primary fw-bold">Car Type (Required)</label>
+                              {{ form.walkin_vehicle_group }}
+                            </div>
+                            <div class="col-md-4">
+                              <label class="form-label">Car Make <span class="text-muted">(Optional)</span></label>
+                              {{ form.walkin_vehicle_make }}
+                            </div>
+                            <div class="col-md-4">
+                              <label class="form-label">License Plate <span class="text-muted">(Optional)</span></label>
+                              {{ form.walkin_vehicle_plate }}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <!-- STEP 3: Service Selection -->
-                    <div class="stepper-step mb-4">
+                    </div> <div class="stepper-step mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
                         <h6 class="mb-0">Select Service(s)</h6>
                       </div>
@@ -97,15 +148,12 @@
                           </span>
                           {{ form.service }}
                         </div>
-                        <!-- Container for negotiable service price inputs -->
                         <div id="negotiable-services-container" class="mb-3" style="display: none;">
                           <h6>Negotiated Service Prices:</h6>
-                          <!-- Will be populated by JavaScript -->
-                        </div>
+                          </div>
                       </div>
                     </div>
 
-                    <!-- STEP 4: Workers Selection -->
                     <div class="stepper-step mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
                         <h6 class="mb-0">Assign Workers</h6>
@@ -120,7 +168,6 @@
                       </div>
                     </div>
 
-                      <!-- STEP 5 (Optional): Service Comments -->
                     <div class="stepper-step mb-4">
                       <div class="step-header d-flex align-items-center mb-3">
                         <h6 class="mb-0">Leave Comments</h6>
@@ -132,15 +179,12 @@
                       </div>
                     </div>
 
-                    <!-- Hidden input for negotiated prices JSON -->
                     <input type="hidden" name="negotiated_prices" id="negotiated-prices-hidden" value="">
 
-                    <!-- Submit Section -->
                     <div class="d-flex justify-content-end mt-5">
                       {% if from_booking %}
-  <input type="hidden" name="from_booking_id" value="{{ from_booking.id }}">
-{% endif %}
-
+                        <input type="hidden" name="from_booking_id" value="{{ from_booking.id }}">
+                      {% endif %}
                       <button type="submit" class="btn btn-primary btn-lg px-5">
                         <i class="fas fa-check-circle me-2"></i> Log Service
                       </button>
@@ -148,7 +192,6 @@
                   </form>
                 </div>
 
-                <!-- Right Guidance Column -->
                 <div class="col-md-4 border-start">
                   <div class="guidance-card p-4">
                     <h6 class="text-muted mb-3">
@@ -157,19 +200,19 @@
                     <ul class="list-unstyled small">
                       <li class="mb-3">
                         <i class="fas fa-angle-right text-primary me-2"></i>
-                        Start by selecting or creating a customer
+                        Use <strong>Registered Customer</strong> for returning clients to track their history and loyalty points.
                       </li>
                       <li class="mb-3">
                         <i class="fas fa-angle-right text-primary me-2"></i>
-                        Add vehicle if not already present
+                        Use <strong>Walk-In</strong> for quick one-time jobs where the customer doesn't want an account.
                       </li>
                       <li class="mb-3">
                         <i class="fas fa-angle-right text-primary me-2"></i>
-                        Services depend on vehicle type
+                        For Walk-ins, you must select the Car Type so the correct services appear.
                       </li>
                       <li>
                         <i class="fas fa-angle-right text-primary me-2"></i>
-                        Multiple workers can be assigned
+                        Multiple workers can be assigned to split commissions.
                       </li>
                     </ul>
                   </div>
@@ -179,7 +222,6 @@
             </div>
           </div>
 
-          <!-- Modal: Add New Customer -->
           <div id="new-customer-modal" class="modal fade" tabindex="-1" aria-labelledby="newCustomerModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
               <div class="modal-content">
@@ -214,9 +256,7 @@
               </div>
             </div>
           </div>
-          <!-- End Modal: Add New Customer -->
 
-          <!-- Modal: Add New Vehicle -->
           <div id="new-vehicle-modal" class="modal fade" tabindex="-1" aria-labelledby="newVehicleModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
               <div class="modal-content">
@@ -257,30 +297,90 @@
               </div>
             </div>
           </div>
-          <!-- End Modal: Add New Vehicle -->
 
-          <!-- Global Spinner -->
           <div id="loadingSpinner" class="position-fixed top-50 start-50 translate-middle" style="display:none; z-index:2000;">
             <div class="spinner-border text-primary" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
           </div>
 
-        </div> <!-- /container-xxl -->
-      </div> <!-- /content-wrapper -->
-    </div> <!-- /layout-page -->
-  </div> <!-- /layout-container -->
-</div>
+        </div> </div> </div> </div> </div>
 {% endblock content %}
 
 {% block scripts %}
-  <!-- Include jQuery (required for Select2) -->
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <!-- Include Select2 CSS and JS -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
-  <!-- Include Bootstrap Bundle JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const isWalkinInput = document.querySelector('input[name="is_walkin"]');
+        const serviceSelect = document.getElementById('service-select');
+        const walkinGroupSelect = document.getElementById('walkin-vehicle-group');
+        const vehicleSelect = document.getElementById('vehicle-select');
 
+        // Initialize Select2 where applicable
+        if ($.fn.select2) {
+            $('.select2-init').select2();
+        }
+
+        // --- TAB SWITCHING LOGIC ---
+        const walkinTab = document.getElementById('walkin-tab');
+        const registeredTab = document.getElementById('registered-tab');
+
+        if(walkinTab) {
+            walkinTab.addEventListener('shown.bs.tab', function () {
+                isWalkinInput.value = "true";
+                // Clear services dropdown so old registered ones don't hang around
+                if ($.fn.select2) {
+                    $(serviceSelect).empty().trigger('change');
+                } else {
+                    serviceSelect.innerHTML = '';
+                }
+            });
+        }
+
+        if(registeredTab) {
+            registeredTab.addEventListener('shown.bs.tab', function () {
+                isWalkinInput.value = "false";
+                // Clear services dropdown
+                if ($.fn.select2) {
+                    $(serviceSelect).empty().trigger('change');
+                    // Re-trigger the registered vehicle change event to fetch those services again if one is selected
+                    $(vehicleSelect).trigger('change');
+                } else {
+                    serviceSelect.innerHTML = '';
+                }
+            });
+        }
+
+        // --- FETCH WALK-IN SERVICES VIA AJAX ---
+        if(walkinGroupSelect) {
+            walkinGroupSelect.addEventListener('change', function() {
+                const groupId = this.value;
+                if(groupId && isWalkinInput.value === "true") {
+                    fetch(`/ajax/services/group/${groupId}/`)
+                    .then(res => res.json())
+                    .then(data => {
+                        // Clear existing
+                        serviceSelect.innerHTML = '';
+
+                        // Populate new
+                        data.forEach(srv => {
+                            let option = new Option(`${srv.service_type} - GHS ${srv.price}`, srv.id);
+                            serviceSelect.add(option);
+                        });
+
+                        // Update Select2 if active
+                        if ($.fn.select2) {
+                            $(serviceSelect).trigger('change');
+                        }
+                    })
+                    .catch(error => console.error('Error fetching services:', error));
+                }
+            });
+        }
+    });
+  </script>
 {% endblock scripts %}

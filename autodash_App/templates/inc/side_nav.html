@@ -1,3 +1,5 @@
+{% load auth_extras %}
+
 <aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
   <div class="app-brand demo">
     <a href="{% if request.user.role == 'customer' %}#{% else %}{% url 'index' %}{% endif %}"
@@ -20,13 +22,13 @@
           <div data-i18n="Dashboard">Dashboard</div>
         </a>
       </li>
-    <li class="menu-item">
+      <li class="menu-item">
         <a href="{% url 'customer_vehicle_create' %}" class="menu-link">
           <i class="menu-icon tf-icons bx bx-car"></i>
           <div data-i18n="Service History">Add Vehicle</div>
         </a>
       </li>
-    <li class="menu-item">
+      <li class="menu-item">
         <a href="{% url 'customer_vehicles' %}" class="menu-link">
           <i class="menu-icon tf-icons bx bx-car"></i>
           <div data-i18n="Service History">My Vehicles</div>
@@ -38,13 +40,13 @@
           <div data-i18n="Service History">Service History</div>
         </a>
       </li>
-    <li class="menu-item">
+      <li class="menu-item">
         <a href="{% url 'book_service' %}" class="menu-link">
           <i class="menu-icon tf-icons bx bx-book"></i>
           <div data-i18n="Service History">Book a Service</div>
         </a>
       </li>
-    <li class="menu-item">
+      <li class="menu-item">
         <a href="{% url 'booking_history' %}" class="menu-link">
           <i class="menu-icon tf-icons bx bx-receipt"></i>
           <div data-i18n="Service History">Booking History</div>
@@ -108,8 +110,8 @@
               <a href="{% url 'log_service' %}" class="menu-link">
                 <div data-i18n="Log a Service">Log Vehicle Service</div>
               </a>
-
-              <li class="menu-item">
+            </li>
+            <li class="menu-item">
               <a href="{% url 'other_service_create' %}" class="menu-link">
                 <div data-i18n="Log a Service">Log Other Services</div>
               </a>
@@ -139,7 +141,7 @@
                 <div data-i18n="Service History">Vehicle Service History</div>
               </a>
             </li>
-              <li class="menu-item">
+            <li class="menu-item">
               <a href="{% url 'other_service_history' %}" class="menu-link">
                 <div data-i18n="Service History">Other Services History</div>
               </a>
@@ -153,12 +155,20 @@
         </li>
 
         {# Worker quick-links #}
-    <li class="menu-item">
+        <li class="menu-item">
           <a href="{% url 'booking_history' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-user-circle"></i>
             <div data-i18n="Add Customer">Customer Bookings</div>
           </a>
         </li>
+    {% if request.user|has_group:"GM" or request.user.is_superuser %}
+<li class="menu-item">
+    <a href="{% url 'product_management_list' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-box"></i>
+        <div data-i18n="Manage Products">Manage Products</div>
+    </a>
+</li>
+{% endif %}
         <li class="menu-item">
           <a href="{% url 'create_customer_page' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-user-circle"></i>
@@ -208,7 +218,8 @@
             <div data-i18n="Analytics">Dashboard</div>
           </a>
         </li>
-        {% if request.user.is_superuser %}
+
+        {% if request.user.is_superuser and not request.user|has_group:"GM" %}
           <li class="menu-item">
             <a href="{% url 'manage_branches' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-building-house"></i>
@@ -216,12 +227,14 @@
             </a>
           </li>
         {% endif %}
+
         <li class="menu-item">
           <a href="{% url 'manage_workers' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-group"></i>
             <div data-i18n="Workers">Workers</div>
           </a>
         </li>
+
         {% if request.user.is_superuser %}
           <li class="menu-item">
             <a href="{% url 'enroll_worker' %}" class="menu-link">
@@ -230,6 +243,7 @@
             </a>
           </li>
         {% endif %}
+
         <li class="menu-item">
           <a href="{% url 'commissions_by_date' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-money"></i>
@@ -243,11 +257,21 @@
           </a>
         </li>
         <li class="menu-item">
+          <a href="{% url 'daily_payment_targets' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-credit-card"></i>
+            <div data-i18n="Expenses">Operational Targets</div>
+          </a>
+        </li>
+
+        {% if not request.user|has_group:"GM" %}
+        <li class="menu-item">
           <a href="{% url 'financial_overview' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-line-chart"></i>
             <div data-i18n="Financial Overview">Financial Overview</div>
           </a>
         </li>
+        {% endif %}
+
         <li class="menu-item">
           <a href="{% url 'product_sales_report' %}" class="menu-link">
             <i class="menu-icon tf-icons bx bx-shopping-bag"></i>
@@ -260,119 +284,140 @@
             <div data-i18n="Customers">Customers</div>
           </a>
         </li>
+
         {% if request.user.is_superuser %}
+          
+          {% if not request.user|has_group:"GM" %}
           <li class="menu-item">
             <a href="{% url 'vehicle_groups' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-car"></i>
               <div data-i18n="Vehicle Groups">Vehicle Groups</div>
             </a>
           </li>
+          {% endif %}
+
+          {% if not request.user|has_group:"GM" %}
           <li class="menu-item">
             <a href="{% url 'sales_targets_manage' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-target-lock"></i>
               <div data-i18n="Set Target">Set Target</div>
             </a>
           </li>
+          {% endif %}
+
           <li class="menu-item">
             <a href="{% url 'sales_targets_report' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-receipt"></i>
               <div data-i18n="Target Report">Target Report</div>
             </a>
           </li>
+
+          {% if not request.user|has_group:"GM" %}
           <li class="menu-item">
             <a href="{% url 'generate_report' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bxs-report"></i>
               <div data-i18n="Reporting">Reporting</div>
             </a>
           </li>
+          {% endif %}
+
+          {% if not request.user|has_group:"GM" %}
           <li class="menu-item">
             <a href="{% url 'set_weekly_budgets' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-money"></i>
               <div data-i18n="Add Weekly Budget">Add Weekly Budget</div>
             </a>
           </li>
+          {% endif %}
+
           <li class="menu-item">
             <a href="{% url 'daily_budget_insights' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-chart"></i>
               <div data-i18n="Budget Insights">Budget Insights</div>
             </a>
           </li>
+
+          {% if not request.user|has_group:"GM" %}
           <li class="menu-item">
             <a href="{% url 'admin_analytics' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-line-chart"></i>
               <div data-i18n="Analytics">Analytics</div>
             </a>
           </li>
-    <li class="menu-item">
-  <a href="javascript:void(0);" class="menu-link menu-toggle">
-    <i class="menu-icon tf-icons bx bxs-report"></i>
-    <div data-i18n="Reports">Reports</div>
-  </a>
-  <ul class="menu-sub">
-    <li class="menu-item">
-      <a href="{% url 'worker_report' %}" class="menu-link">
-        <div data-i18n="Worker Report">Worker Report</div>
-      </a>
-    </li>
-     <li class="menu-item">
-      <a href="{% url 'branch_activity_report' %}" class="menu-link">
-        <div data-i18n="Branch Activity Report">Branch Activity Report</div>
-      </a>
-    </li>
-    <li class="menu-item">
-      <a href="{% url 'customer_report' %}" class="menu-link">
-        <div data-i18n="Customer Report">Customer Report</div>
-      </a>
-    </li>
-      <li class="menu-item">
-      <a href="{% url 'product_report' %}" class="menu-link">
-        <div data-i18n="Product Sales Report">Product Sales Report</div>
-      </a>
-    </li>
-    <li class="menu-item">
-      <a href="{% url 'product_stock_report' %}" class="menu-link">
-        <div data-i18n="Inventory Audit">Stock Audit Report</div>
-      </a>
-    </li>
-    <li class="menu-item">
-      <a href="{% url 'mtd_performance_report' %}" class="menu-link">
-        <div data-i18n="MTD Performance">MTD Performance Report</div>
-      </a>
-    </li>
-     <li class="menu-item">
-      <a href="{% url 'branch_analysis_report' %}" class="menu-link">
-        <div data-i18n="Branch Analysis">Branch Daily Analysis</div>
-      </a>
-    </li>
-    <li class="menu-item">
-      <a href="{% url 'daily_service_analysis' %}" class="menu-link">
-        <div data-i18n="Service Analysis">Daily Service Analysis</div>
-      </a>
-    </li>
-     <li class="menu-item">
-      <a href="{% url 'ytd_trend_report' %}" class="menu-link">
-        <div data-i18n="YTD Trend">YTD Trend Report</div>
-      </a>
-    </li>
-    <li class="menu-item">
-      <a href="{% url 'worker_performance_ytd' %}" class="menu-link">
-        <div data-i18n="Worker YTD">Worker Performance YTD</div>
-      </a>
-    </li>
-     <li class="menu-item">
-      <a href="{% url 'worker_performance_mtd' %}" class="menu-link">
-        <div data-i18n="Worker MTD">Worker Performance MTD</div>
-      </a>
-    </li>
-    <li class="menu-item">
-  <a href="{% url 'traffic_analysis_report' %}" class="menu-link">
-    <div data-i18n="Traffic Analysis">Traffic Analysis</div>
-  </a>
-</li>
-    <!-- Future reports (Inventory, Service Split, etc.) can go here -->
-  </ul>
-</li>
-      <li class="menu-item">
+          {% endif %}
+
+          {% if not request.user|has_group:"GM" %}
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bxs-report"></i>
+              <div data-i18n="Reports">Reports</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="{% url 'worker_report' %}" class="menu-link">
+                  <div data-i18n="Worker Report">Worker Report</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'branch_activity_report' %}" class="menu-link">
+                  <div data-i18n="Branch Activity Report">Branch Activity Report</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'customer_report' %}" class="menu-link">
+                  <div data-i18n="Customer Report">Customer Report</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'product_report' %}" class="menu-link">
+                  <div data-i18n="Product Sales Report">Product Sales Report</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'product_stock_report' %}" class="menu-link">
+                  <div data-i18n="Inventory Audit">Stock Audit Report</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'mtd_performance_report' %}" class="menu-link">
+                  <div data-i18n="MTD Performance">MTD Performance Report</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'branch_analysis_report' %}" class="menu-link">
+                  <div data-i18n="Branch Analysis">Branch Daily Analysis</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'daily_service_analysis' %}" class="menu-link">
+                  <div data-i18n="Service Analysis">Daily Service Analysis</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'ytd_trend_report' %}" class="menu-link">
+                  <div data-i18n="YTD Trend">YTD Trend Report</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'worker_performance_ytd' %}" class="menu-link">
+                  <div data-i18n="Worker YTD">Worker Performance YTD</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'worker_performance_mtd' %}" class="menu-link">
+                  <div data-i18n="Worker MTD">Worker Performance MTD</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="{% url 'traffic_analysis_report' %}" class="menu-link">
+                  <div data-i18n="Traffic Analysis">Traffic Analysis</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          {% endif %}
+
+          <li class="menu-item">
             <a href="{% url 'maintenance_list' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-wrench"></i>
               <div data-i18n="Analytics">Maintenance Log</div>

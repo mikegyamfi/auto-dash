@@ -1,5 +1,7 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.utils import timezone
+
 from .models import (
     CustomUser, Branch, Worker, WorkerCategory,
     VehicleGroup, AdminAccount, Subscription,
@@ -8,7 +10,7 @@ from .models import (
     ServiceRenderedOrder, ServiceRendered, Commission,
     Expense, DailyExpenseBudget, Revenue, Product,
     ProductCategory, ProductPurchased, ProductSale, RecurringExpense, WeeklyBudget, WorkerReference, WorkerGuarantor,
-    WorkerEmployment, WorkerEducation, DailySalesTarget, Arrears
+    WorkerEmployment, WorkerEducation, DailySalesTarget, Arrears, DailyPaymentTarget, RecurringPaymentSetup
 )
 
 
@@ -669,6 +671,96 @@ class ArrearsAdmin(admin.ModelAdmin):
 
         return response
 
+
+def force_generate_targets(modeladmin, request, queryset):
+    """
+    Manually triggers the generation of daily targets for the selected setups.
+    """
+    today = timezone.localdate()
+    generated_count = 0
+
+    for setup in queryset:
+        if setup.applies_today(today):
+            # Prevent duplicates
+            if DailyPaymentTarget.objects.filter(setup=setup, date=today).exists():
+                continue
+
+            # Check for rollover debt
+            last_target = DailyPaymentTarget.objects.filter(
+                setup=setup,
+                date__lt=today
+            ).order_by('-date').first()
+
+            brought_forward = 0.0
+            if last_target:
+                # By allowing negative numbers, an overpayment becomes a credit for tomorrow!
+                brought_forward = last_target.total_target - last_target.amount_paid
+
+            # Create target
+            DailyPaymentTarget.objects.create(
+                setup=setup,
+                date=today,
+                branch=setup.branch,
+                base_amount=setup.base_amount,
+                brought_forward=brought_forward
+            )
+            generated_count += 1
+
+    messages.success(request, f"Successfully generated {generated_count} new targets for today.")
+
+
+force_generate_targets.short_description = "Force generate today's targets for selected setups"
+
+
+# --- 1. Admin for the Recurring Rules ---
+@admin.register(RecurringPaymentSetup)
+class RecurringPaymentSetupAdmin(admin.ModelAdmin):
+    list_display = ('description', 'branch', 'base_amount', 'display_apply_on')
+    list_filter = ('branch',)
+    search_fields = ('description', 'branch__name')
+    actions = [force_generate_targets]
+
+    def display_apply_on(self, obj):
+        """Makes the JSON list of days easier to read in the admin"""
+        days = {
+            0: "Mon", 1: "Tue", 2: "Wed",
+            3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"
+        }
+        active_days = [days.get(day, str(day)) for day in obj.apply_on]
+        return ", ".join(active_days)
+
+    display_apply_on.short_description = 'Active Days'
+
+
+# --- 2. Admin for the Actual Daily Bills ---
+@admin.register(DailyPaymentTarget)
+class DailyPaymentTargetAdmin(admin.ModelAdmin):
+    list_display = (
+        'date',
+        'setup_description',
+        'branch',
+        'base_amount',
+        'brought_forward',
+        'total_target',
+        'amount_paid',
+        'is_settled'
+    )
+    # Allows you to type payments directly into the list view without opening the record!
+    list_editable = ('amount_paid',)
+
+    list_filter = ('date', 'is_settled', 'branch')
+    search_fields = ('setup__description', 'branch__name')
+    readonly_fields = ('total_target', 'is_settled')
+    date_hierarchy = 'date'
+
+    def setup_description(self, obj):
+        return obj.setup.description
+
+    setup_description.short_description = 'Bill / Setup'
+
+    # Optional: Highlight rows that are settled vs unpaid in the admin
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('setup', 'branch')
 
 
 

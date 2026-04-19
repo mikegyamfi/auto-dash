@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="mb-4 text-center">
+            <h4 class="fw-bold"><span class="text-muted fw-light">Inventory /</span> Restock Product</h4>
+          </div>
+
+          <div class="row">
+            <div class="col-md-5 mx-auto">
+              <div class="card shadow-sm">
+                <div class="card-body text-center p-5">
+                  <div class="avatar avatar-xl mx-auto mb-3 bg-label-success rounded">
+                    <i class="bx bx-package fs-1"></i>
+                  </div>
+                  <h4 class="fw-bold mb-1">{{ product.name }}</h4>
+                  <p class="text-muted mb-4">Current Inventory: <span class="badge bg-label-dark fs-6">{{ product.stock }}</span></p>
+
+                  <hr class="my-4">
+
+                  <form method="POST">
+                    {% csrf_token %}
+                    <div class="mb-4">
+                      <label class="form-label fs-6 fw-bold">Number of units to add</label>
+                      <input type="number" name="add_stock" class="form-control form-control-lg text-center"
+                             placeholder="0" autofocus required>
+                    </div>
+
+                    <div class="row g-2">
+                      <div class="col-6">
+                        <a href="{% url 'product_management_list' %}" class="btn btn-outline-secondary w-100">Back</a>
+                      </div>
+                      <div class="col-6">
+                        <button type="submit" class="btn btn-success w-100">Add to Stock</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}

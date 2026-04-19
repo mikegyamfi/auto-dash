@@ -46,7 +46,8 @@ from .models import (
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
     CustomerSubscriptionRenewalTrail, WeeklyBudget,
     SalesTarget, WorkerEducation, WorkerEmployment, WorkerReference, WorkerGuarantor, DailySalesTarget,
-    WorkerDailyAdjustment, CustomerBooking, Notification, OtherService, MaintenanceLog, MaintenanceExpense
+    WorkerDailyAdjustment, CustomerBooking, Notification, OtherService, MaintenanceLog, MaintenanceExpense,
+    DailyPaymentTarget, ProductStockLog
 )
 from .models import (
     DailyExpenseBudget
@@ -596,112 +597,84 @@ def home(request):
 #     # msg.attach_alternative(email_body, "text/html")
 #     # msg.send()
 
+@login_required
+def get_services_by_group(request, group_id):
+    services = Service.objects.filter(vehicle_group_id=group_id, active=True).values('id', 'service_type', 'price')
+    return JsonResponse(list(services), safe=False)
+
 
 @login_required(login_url='login')
 @transaction.atomic
 def log_service(request):
     user = request.user
-    try:
-        worker = Worker.objects.get(user=user)
-    except Worker.DoesNotExist:
-        messages.error(request, 'You are not authorized to log services.')
-        return redirect('index')
+    is_gm_or_super = user.is_superuser or user.groups.filter(name='GM').exists()
+
+    worker = None if is_gm_or_super else Worker.objects.get(user=user)
+    initial_branch = worker.branch if worker else None
 
     if request.method == 'POST':
-        form = LogServiceForm(data=request.POST, branch=worker.branch)
+        form = LogServiceForm(data=request.POST, user=user, branch=initial_branch)
+        selected_branch = form.cleaned_data.get('branch') if form.is_valid() and is_gm_or_super else initial_branch
+
         if not form.is_valid():
             messages.error(request, "Form is invalid. Please correct the errors.")
-            return render(request, 'layouts/workers/log_service.html', {
-                'form': form,
-                'products': Product.objects.filter(branch=worker.branch),
-                'vehicle_groups': VehicleGroup.objects.all(),
-            })
+            return render(request, 'layouts/workers/log_service.html',
+                          {'form': form, 'vehicle_groups': VehicleGroup.objects.all()})
 
-        customer = form.cleaned_data['customer']
-        vehicle = form.cleaned_data['vehicle']
+        # Base Fields
         selected_services = form.cleaned_data['service']
         selected_workers = form.cleaned_data['workers']
         comments = form.cleaned_data['comments']
 
-        if not customer:
-            vehicle_customer = vehicle.customer
-            if not vehicle_customer:
-                pass
-            else:
-                customer = vehicle_customer
-                to_be_saved_customer = customer
+        is_walkin = form.cleaned_data.get('is_walkin') == 'true'
 
-        selected_products = form.cleaned_data.get('products', [])
-        product_quantities = request.POST.getlist('product_quantity')
+        # Variables to pass into order
+        customer_obj = None
+        vehicle_obj = None
 
-        if not selected_services:
-            messages.error(request, "Please select at least one service.")
-            return render(request, 'layouts/workers/log_service.html', {
-                'form': form,
-                'products': Product.objects.filter(branch=worker.branch),
-                'vehicle_groups': VehicleGroup.objects.all(),
-            })
+        if not is_walkin:
+            vehicle_obj = form.cleaned_data['vehicle']
+            customer_obj = form.cleaned_data['customer'] or vehicle_obj.customer
 
-        total_services = Decimal('0.00')
-        for svc in selected_services:
-            price = Decimal(str(svc.price or 0))
-            total_services += price
+        total = sum([float(svc.price or 0) for svc in selected_services])
 
-        total = total_services
-
+        # Create Order
         new_order = ServiceRenderedOrder.objects.create(
-            customer=customer if customer else to_be_saved_customer,
             user=user,
-            total_amount=float(total),
-            final_amount=float(total),
-            vehicle=vehicle,
-            branch=worker.branch,
+            branch=selected_branch,
+            total_amount=total,
+            final_amount=total,
             status='pending',
-            comments=comments
+            comments=comments,
+            # Core Assignments
+            is_walkin=is_walkin,
+            customer=customer_obj,
+            vehicle=vehicle_obj,
+            # Walk-in Assignments
+            walkin_name=form.cleaned_data.get('walkin_name'),
+            walkin_phone=form.cleaned_data.get('walkin_phone'),
+            walkin_vehicle_group=form.cleaned_data.get('walkin_vehicle_group'),
+            walkin_vehicle_make=form.cleaned_data.get('walkin_vehicle_make'),
+            walkin_vehicle_plate=form.cleaned_data.get('walkin_vehicle_plate')
         )
+
         if selected_workers:
             new_order.workers.set(selected_workers)
 
         # Create line items
         for svc in selected_services:
-            sr = ServiceRendered.objects.create(
-                service=svc,
-                order=new_order,
-                negotiated_price=svc.price,  # matches FloatField
-                payment_type="Cash"
-            )
+            sr = ServiceRendered.objects.create(service=svc, order=new_order, negotiated_price=svc.price,
+                                                payment_type="Cash")
             if selected_workers:
                 sr.workers.set(selected_workers)
 
-        from_booking_id = request.POST.get("from_booking_id")
-        if from_booking_id:
-            try:
-                b = CustomerBooking.objects.get(pk=from_booking_id)
-                # optional guard: ensure same customer/vehicle matches
-                if b.customer_id == (
-                        customer.id if customer else getattr(vehicle, "customer_id",
-                                                             None)) and b.vehicle_id == vehicle.id:
-                    b.mark_converted(order=new_order)
-                    b.save(update_fields=["status", "converted_to_order", "service_order", "converted_at"])
-                else:
-                    # still mark converted to avoid dangling, if you prefer:
-                    b.mark_converted(order=new_order)
-                    b.save(update_fields=["status", "converted_to_order", "service_order", "converted_at"])
-            except CustomerBooking.DoesNotExist:
-                pass
-
-        messages.success(request, 'Service logged successfully (status=pending).')
+        messages.success(request, 'Service logged successfully.')
         return redirect('confirm_service_rendered', pk=new_order.pk)
 
     # GET
-    form = LogServiceForm(branch=worker.branch)
-    products = Product.objects.filter(branch=worker.branch)
-    vehicle_groups = VehicleGroup.objects.all()
-    return render(request, 'layouts/workers/log_service.html', {
-        'form': form,
-        'products': products,
-        'vehicle_groups': vehicle_groups
-    })
+    form = LogServiceForm(user=user, branch=initial_branch)
+    return render(request, 'layouts/workers/log_service.html',
+                  {'form': form, 'vehicle_groups': VehicleGroup.objects.all()})
 
 
 from django.urls import reverse
@@ -716,13 +689,24 @@ def confirm_service(request, pk):
         * allocate subscription / loyalty coverage
         * compute cash due, discounts, commissions
         * toggle status
-        * (Revenue rows are now created by the post-save signal)
     """
     user = request.user
-    worker = get_object_or_404(Worker, user=user)
+    # GM/Admin might not have a worker profile, so handle safely
+    worker = Worker.objects.filter(user=user).first()
     order = get_object_or_404(ServiceRenderedOrder, pk=pk)
     sr_list = list(order.rendered.select_related("service__category"))
+
+    # ────────────────────────────────────
+    #  Walk-In vs Registered Setup
+    # ────────────────────────────────────
     customer = order.customer
+    is_walkin = order.is_walkin
+
+    # Grab phone number for SMS based on type
+    if is_walkin:
+        phone = order.walkin_phone
+    else:
+        phone = getattr(getattr(customer, "user", None), "phone_number", None)
 
     # ────────────────────────────────────
     #  Subscription / loyalty preparation
@@ -731,7 +715,7 @@ def confirm_service(request, pk):
     cust_sub = None
     loyalty_pts = float(customer.loyalty_points) if customer else 0.0
 
-    if customer:
+    if customer and not is_walkin:
         try:
             latest = (
                 CustomerSubscription.objects
@@ -779,7 +763,7 @@ def confirm_service(request, pk):
                 "sub_cover": sub_cover,
                 "cash_due": cash_due,
                 "loyalty_eligible": (
-                        customer and
+                        not is_walkin and customer and
                         0 < sr.service.loyalty_points_required <= loyalty_pts
                 ),
             })
@@ -797,6 +781,7 @@ def confirm_service(request, pk):
                 "has_sub_remaining": bool(cust_sub and cust_sub.sub_amount_remaining > 0),
                 "sub_expires": cust_sub.end_date if cust_sub else None,
                 "loyalty_points": loyalty_pts,
+                "is_walkin": is_walkin,
             },
         )
 
@@ -823,15 +808,15 @@ def confirm_service(request, pk):
             total_services += float(sr.service.price)
 
     order.total_amount = total_services
-    order.save()  # NOTE: triggers signal for Revenue if status already terminal
+    order.save()
 
     # 2. status change
     new_status = request.POST.get("status", "completed")
     order.status = new_status
-    order.save()  # NOTE: Revenue handled by post-save signal now
+    order.save()
 
     # ────────────────────────────────────
-    # INITIAL TRIGGER SMS WHEN SAVED AS PENDING (once per order)
+    # INITIAL TRIGGER SMS WHEN SAVED AS PENDING
     # ────────────────────────────────────
     if new_status == "pending" and not getattr(order, "initial_sms_sent", False):
         TRIGGER_SERVICE_NAMES = {
@@ -849,10 +834,7 @@ def confirm_service(request, pk):
             if key in TRIGGER_KEYS:
                 matched_display_names.append(raw)
 
-        phone = getattr(getattr(order.customer, "user", None), "phone_number", None)
-
         if matched_display_names and phone:
-            # de-dupe, keep order
             seen = set()
             unique_names = []
             for n in matched_display_names:
@@ -868,7 +850,7 @@ def confirm_service(request, pk):
                 return f"{', '.join(names[:-1])} and {names[-1]}"
 
             service_names_str = human_join(unique_names)
-            car_number = getattr(order.vehicle, "car_plate", "") or "your vehicle"
+            car_number = order.display_vehicle_info or "your vehicle"
 
             from decimal import Decimal
             amt = Decimal(str(order.total_amount or 0)).quantize(Decimal("0.01"))
@@ -879,7 +861,6 @@ def confirm_service(request, pk):
                 f"Amount to be paid is {amount_text}. Thank you for choosing us."
             )
 
-            # mark sent before queuing to avoid duplicates on re-submit
             order.initial_sms_sent = True
             order.save(update_fields=["initial_sms_sent"])
 
@@ -900,7 +881,7 @@ def confirm_service(request, pk):
         for sr in sr_list:
             sr.remove_commission()
 
-    # 4. coverage calculations  (UPDATED: clean Cash vs Momo, no duplicates)
+    # 4. coverage calculations
     remaining_sub = float(cust_sub.sub_amount_remaining) if cust_sub else 0.0
     used_sub_total = 0.0
     used_loyalty_pts = 0
@@ -909,11 +890,8 @@ def confirm_service(request, pk):
 
     for sr in sr_list:
         price = float(sr.get_effective_price())
-
-        # Always rebuild label fresh for this SR
         sr.payment_type = ""
-
-        parts = []  # collect unique parts in order
+        parts = []
 
         # subscription
         sub_cov = 0.0
@@ -934,7 +912,7 @@ def confirm_service(request, pk):
 
         # loyalty
         loy_cov = 0.0
-        if leftover > 0 and request.POST.get(f"use_loyalty_{sr.id}") and customer:
+        if leftover > 0 and request.POST.get(f"use_loyalty_{sr.id}") and customer and not is_walkin:
             req_pts = sr.service.loyalty_points_required
             if customer.loyalty_points >= req_pts:
                 loy_cov = leftover
@@ -956,17 +934,14 @@ def confirm_service(request, pk):
         if leftover > 0:
             pay_method = (request.POST.get(f"pay_method_{sr.id}", "cash") or "cash").lower()
             cash_label = "Momo" if pay_method == "momo" else "Cash"
-            # optionally persist selected method if you have this field
             try:
                 order.payment_method = pay_method
                 order.save()
             except Exception as e:
-                print(e)
                 pass
             parts.append(cash_label)
             cash_total += leftover
 
-        # De-duplicate while preserving order
         seen = set()
         unique_parts = []
         for p in parts:
@@ -974,7 +949,6 @@ def confirm_service(request, pk):
                 seen.add(p)
                 unique_parts.append(p)
 
-        # Final label: single if one, joined if multiple
         sr.payment_type = " + ".join(unique_parts)
 
         # subscription trail
@@ -1011,7 +985,7 @@ def confirm_service(request, pk):
         else cash_total * min(d_val, 100.0) / 100.0
     )
     const_final_cash = max(0.0, cash_total - disc_amt)
-    final_cash = const_final_cash  # keep original naming
+    final_cash = const_final_cash
 
     # 6. finalise order totals
     order.subscription_amount_used = used_sub_total
@@ -1021,7 +995,7 @@ def confirm_service(request, pk):
     order.discount_type = d_type
     order.discount_value = d_val
     order.final_amount = final_cash
-    order.save()  # signal updates/creates Revenue here
+    order.save()
 
     # 7. arrears bookkeeping
     if new_status == "onCredit":
@@ -1031,11 +1005,10 @@ def confirm_service(request, pk):
             defaults={"amount_owed": final_cash},
         )
     else:
-        # remove arrears if status no longer onCredit
         if hasattr(order, "arrears"):
             order.arrears.delete()
 
-    # 8. commissions (unchanged, signal afterwards keeps Revenue up-to-date)
+    # 8. commissions
     for sr in sr_list:
         sr.remove_commission()
     if new_status == "onCredit":
@@ -1050,7 +1023,7 @@ def confirm_service(request, pk):
         sr.allocate_commission(discount_factor=factor)
 
     # 9. loyalty earned
-    if new_status == "completed" and customer:
+    if new_status == "completed" and customer and not is_walkin:
         earned = sum(float(sr.service.loyalty_points_earned) for sr in sr_list)
         if earned > 0:
             customer.loyalty_points += earned
@@ -1064,15 +1037,11 @@ def confirm_service(request, pk):
                 order=order,
             )
 
-    # 10. SMS (finals for completed/onCredit only — trigger text NOT used here)
-    from decimal import Decimal  # ensure this is imported at the top of the file
-
-    phone = getattr(getattr(order.customer, "user", None), "phone_number", None)
-
+    # 10. SMS
     def _send_completed_sms():
         try:
             cash = order.cash_paid or 0.0
-            plate = getattr(order.vehicle, "car_plate", "") or "your vehicle"
+            plate = order.display_vehicle_info or "your vehicle"
             send_sms(
                 phone,
                 (
@@ -1187,9 +1156,9 @@ def standalone_product_sale(request):
 
     # 3) Filter product list by category if provided, otherwise show all
     if selected_category_id:
-        products = Product.objects.filter(branch=branch, category_id=selected_category_id)
+        products = Product.objects.filter(branch=branch, category_id=selected_category_id).order_by('-stock')
     else:
-        products = Product.objects.filter(branch=branch)
+        products = Product.objects.filter(branch=branch).order_by('-stock')
 
     if request.method == 'POST':
         raw_ids = request.POST.getlist('selected_products')
@@ -1588,65 +1557,68 @@ def send_password_reset(user):
 # ───────────────────────────────────────────────────────────────────────
 # 2. service_history  (bulk-update flow)
 # ───────────────────────────────────────────────────────────────────────
+from itertools import chain
+from datetime import datetime
+from django.utils import timezone
+from django.db.models import Sum
+from django.contrib import messages
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+
+
+# Make sure to import your models (ServiceRenderedOrder, OtherService, Worker, Branch, Arrears)
+
 @login_required(login_url='login')
 def service_history(request):
     """
-    List & bulk-update ServiceRenderedOrder rows.
-    Optimized with prefetch_related for the 'Services' and 'Workers' columns.
+    Unified History: Merges ServiceRenderedOrder and OtherService into one timeline.
+    Handles branch scoping, date filters, and bulk status updates for both tables.
     """
     user = request.user
 
-    # authorisation
+    # --- Authorisation ---
     if user.role not in ["worker", "Admin"] and not user.is_staff:
         messages.error(request, "You are not authorized to view this page.")
         return redirect("index")
 
-    # base queryset with optimization for related services and workers
-    services_rendered = (
-        ServiceRenderedOrder.objects.all()
-        .prefetch_related('rendered__service', 'workers__user', 'vehicle')
-        .order_by("-date")
-    )
+    # --- 1. Base Querysets ---
+    core_qs = ServiceRenderedOrder.objects.prefetch_related('rendered__service', 'workers__user', 'vehicle')
+    other_qs = OtherService.objects.select_related("branch", "user").prefetch_related('workers__user')
 
-    # branch scoping and per-worker scoping
-    if not user.is_staff and not user.is_superuser:
+    # --- 2. Branch & Worker Scoping ---
+    is_admin_view = user.is_staff or user.is_superuser
+    branches = Branch.objects.all() if is_admin_view else None
+    selected_branch_id = request.GET.get("branch", "")
+
+    if not is_admin_view:
         try:
             worker = Worker.objects.get(user=user)
         except Worker.DoesNotExist:
             messages.error(request, "No worker profile found.")
             return redirect("index")
 
-        services_rendered = services_rendered.filter(branch=worker.branch)
+        # Lock to worker's branch
+        core_qs = core_qs.filter(branch=worker.branch)
+        other_qs = other_qs.filter(branch=worker.branch)
 
+        # Lock to worker's specific logs if not an admin
         if not worker.is_branch_admin:
-            services_rendered = (
-                services_rendered
-                .filter(rendered__workers=worker)
-                .distinct()
-            )
+            core_qs = core_qs.filter(rendered__workers=worker).distinct()
+            other_qs = other_qs.filter(workers=worker).distinct()
+    else:
+        # Apply dropdown branch filter for Admins
+        if selected_branch_id:
+            core_qs = core_qs.filter(branch_id=selected_branch_id)
+            other_qs = other_qs.filter(branch_id=selected_branch_id)
 
-    # filters
-    statuses = ServiceRenderedOrder.STATUS_CHOICES
-    payment_methods = [
-        "all", "cash", "momo", "loyalty",
-        "subscription", "subscription-cash", "subscription-momo"
-    ]
-
-    status_filter = request.GET.get("status", "all")
-    payment_filter = request.GET.get("payment_method", "all")
-
-    if status_filter != "all":
-        services_rendered = services_rendered.filter(status=status_filter)
-    if payment_filter != "all":
-        services_rendered = services_rendered.filter(payment_method=payment_filter)
-
-    # date range filter
+    # --- 3. Date Filters ---
     start_date_str = request.GET.get("start_date", "")
     end_date_str = request.GET.get("end_date", "")
-
     today_date = timezone.now().date()
+
     if not start_date_str and not end_date_str:
-        services_rendered = services_rendered.filter(date__date=today_date)
+        core_qs = core_qs.filter(date__date=today_date)
+        other_qs = other_qs.filter(created_at__date=today_date)
         start_date_str = end_date_str = today_date.strftime("%Y-%m-%d")
     else:
         try:
@@ -1654,24 +1626,38 @@ def service_history(request):
             end_dt = datetime.strptime(end_date_str, "%Y-%m-%d").date() if end_date_str else today_date
             if end_dt < start_dt:
                 start_dt, end_dt = end_dt, start_dt
-            services_rendered = services_rendered.filter(date__date__range=[start_dt, end_dt])
+
+            core_qs = core_qs.filter(date__date__range=[start_dt, end_dt])
+            other_qs = other_qs.filter(created_at__date__range=[start_dt, end_dt])
         except ValueError:
             messages.warning(request, "Invalid date format. Showing today's data.")
-            services_rendered = services_rendered.filter(date__date=today_date)
+            core_qs = core_qs.filter(date__date=today_date)
+            other_qs = other_qs.filter(created_at__date=today_date)
             start_date_str = end_date_str = today_date.strftime("%Y-%m-%d")
 
-    # extra branch filter for staff / superusers
-    branches = None
-    selected_branch_id = None
-    if user.is_staff or user.is_superuser:
-        branches = Branch.objects.all()
-        selected_branch_id = request.GET.get("branch", "")
-        if selected_branch_id:
-            services_rendered = services_rendered.filter(branch_id=selected_branch_id)
+    # --- 4. Status & Payment Filters ---
+    status_filter = request.GET.get("status", "all")
+    payment_filter = request.GET.get("payment_method", "all")
+    type_filter = request.GET.get("record_type", "all")
 
-    # bulk status update
+    if status_filter != "all":
+        core_qs = core_qs.filter(status=status_filter)
+        other_qs = other_qs.filter(status=status_filter)
+
+    if payment_filter != "all":
+        core_qs = core_qs.filter(payment_method=payment_filter)
+        # OtherService doesn't have payment_method fields directly.
+        # So if the user explicitly filters by 'MoMo' or 'Cash', we hide OtherServices.
+        other_qs = other_qs.none()
+
+    if type_filter == "core":
+        other_qs = other_qs.none()
+    elif type_filter == "other":
+        core_qs = core_qs.none()
+
+        # --- 5. Bulk Status Update (POST) ---
     if request.method == "POST":
-        selected_order_ids = request.POST.getlist("selected_orders")
+        selected_order_ids = request.POST.getlist("selected_orders")  # Expects format: "core_1" or "other_5"
         new_status = request.POST.get("new_status")
         valid_statuses = [choice[0] for choice in ServiceRenderedOrder.STATUS_CHOICES]
 
@@ -1679,68 +1665,102 @@ def service_history(request):
             messages.error(request, "Please select orders and a valid status to update.")
             return redirect("service_history")
 
-        for order_id in selected_order_ids:
-            order = get_object_or_404(ServiceRenderedOrder, id=order_id)
-            old_status = order.status
+        for combined_id in selected_order_ids:
+            try:
+                record_type, obj_id = combined_id.split('_')
 
-            if old_status not in ("completed", "onCredit") and new_status in ("completed", "onCredit"):
-                for sr in order.rendered.all():
-                    sr.remove_commission()
-                if new_status == "onCredit":
-                    factor = 1
-                else:
-                    paid = (
-                            (order.subscription_amount_used or 0)
-                            + (order.loyalty_points_amount_deduction or 0)
-                            + (order.cash_paid or 0)
-                    )
-                    factor = paid / max(order.total_amount, 1.0)
-                for sr in order.rendered.all():
-                    sr.allocate_commission(discount_factor=factor)
-            elif old_status in ("completed", "onCredit") and new_status in ("pending", "canceled"):
-                for sr in order.rendered.all():
-                    sr.remove_commission()
+                # Handle Core Services
+                if record_type == "core":
+                    order = get_object_or_404(ServiceRenderedOrder, id=obj_id)
+                    old_status = order.status
 
-            order.status = new_status
-            order.save()
+                    if old_status not in ("completed", "onCredit") and new_status in ("completed", "onCredit"):
+                        for sr in order.rendered.all():
+                            sr.remove_commission()
+                        if new_status == "onCredit":
+                            factor = 1
+                        else:
+                            paid = (
+                                    (order.subscription_amount_used or 0)
+                                    + (order.loyalty_points_amount_deduction or 0)
+                                    + (order.cash_paid or 0)
+                            )
+                            factor = paid / max(order.total_amount, 1.0)
+                        for sr in order.rendered.all():
+                            sr.allocate_commission(discount_factor=factor)
+                    elif old_status in ("completed", "onCredit") and new_status in ("pending", "canceled"):
+                        for sr in order.rendered.all():
+                            sr.remove_commission()
 
-            if new_status == "onCredit":
-                Arrears.objects.get_or_create(
-                    service_order=order,
-                    branch=order.branch,
-                    defaults={"amount_owed": order.final_amount or 0},
-                )
-            else:
-                if hasattr(order, "arrears"):
-                    order.arrears.delete()
+                    order.status = new_status
+                    order.save()
+
+                    if new_status == "onCredit":
+                        Arrears.objects.get_or_create(
+                            service_order=order,
+                            branch=order.branch,
+                            defaults={"amount_owed": order.final_amount or 0},
+                        )
+                    else:
+                        if hasattr(order, "arrears"):
+                            order.arrears.delete()
+
+                # Handle Other Services
+                elif record_type == "other":
+                    other_order = get_object_or_404(OtherService, id=obj_id)
+                    if new_status == "completed":
+                        other_order.mark_completed()
+                    elif new_status == "canceled":
+                        other_order.mark_canceled()
+                    elif new_status == "onCredit":
+                        other_order.mark_on_credit()
+                    else:
+                        other_order.status = new_status
+                        other_order.save(update_fields=["status", "updated_at"])
+
+            except ValueError:
+                pass  # Ignore malformed checkboxes
 
         messages.success(request, "Selected orders have been updated.")
         return redirect("service_history")
 
-    aggregates = services_rendered.aggregate(
-        total_amount=Sum("total_amount"),
-        total_final=Sum("final_amount"),
-    )
-    total_amount = aggregates["total_amount"] or 0
-    total_final = aggregates["total_final"] or 0
+    # --- 6. Aggregates ---
+    core_agg = core_qs.aggregate(t_amount=Sum("total_amount"), t_final=Sum("final_amount"))
+    other_agg = other_qs.aggregate(t_amount=Sum("amount"))
 
-    return render(
-        request,
-        "layouts/workers/service_history.html",
-        {
-            "services_rendered": services_rendered,
-            "statuses": statuses,
-            "status_filter": status_filter,
-            "payment_methods": payment_methods,
-            "payment_filter": payment_filter,
-            "start_date_str": start_date_str,
-            "end_date_str": end_date_str,
-            "branches": branches,
-            "selected_branch_id": selected_branch_id,
-            "total_amount": total_amount,
-            "total_final": total_final,
-        },
+    total_amount = (core_agg["t_amount"] or 0) + (other_agg["t_amount"] or 0)
+    total_final = (core_agg["t_final"] or 0) + (other_agg["t_amount"] or 0)
+
+    # --- 7. Merge & Sort ---
+    # Chain them together and sort descending by display_date
+    combined_history = sorted(
+        chain(core_qs, other_qs),
+        key=lambda instance: instance.display_date,
+        reverse=True
     )
+
+    statuses = ServiceRenderedOrder.STATUS_CHOICES
+    payment_methods = [
+        "all", "cash", "momo", "loyalty",
+        "subscription", "subscription-cash", "subscription-momo"
+    ]
+
+    context = {
+        "combined_history": combined_history,
+        "statuses": statuses,
+        "status_filter": status_filter,
+        "payment_methods": payment_methods,
+        "payment_filter": payment_filter,
+        "start_date_str": start_date_str,
+        "end_date_str": end_date_str,
+        "branches": branches,
+        "type_filter": type_filter,
+        "selected_branch_id": selected_branch_id,
+        "total_amount": total_amount,
+        "total_final": total_final,
+    }
+
+    return render(request, "layouts/workers/service_history.html", context)
 
 
 def _get_filtered_services(request):
@@ -8257,3 +8277,249 @@ def export_arrears_pdf(request):
     return response
 
 
+@login_required(login_url='login')
+def daily_payment_targets(request):
+    user = request.user
+    is_admin_view = user.is_staff or user.is_superuser or user.groups.filter(name='GM').exists()
+
+    # --- 1. Branch Authorization ---
+    worker = None
+    if not is_admin_view:
+        worker = Worker.objects.filter(user=user).first()
+        if not worker:
+            messages.error(request, "You are not authorized to view this page.")
+            return redirect("index")
+
+    # --- 2. Handle Payment Submissions (POST) ---
+    if request.method == "POST":
+        for key, value in request.POST.items():
+            if key.startswith("amount_paid_"):
+                target_id = key.split("_")[-1]
+
+                try:
+                    target = DailyPaymentTarget.objects.get(id=target_id)
+                    new_paid_amount = float(value) if value else 0.0
+                except (DailyPaymentTarget.DoesNotExist, ValueError):
+                    continue
+
+                # Only update if the amount actually changed
+                if target.amount_paid != new_paid_amount:
+                    target.amount_paid = new_paid_amount
+                    target.save()  # Auto-updates is_settled flag
+
+                    # SYNCHRONIZE WITH EXPENSES (For accurate P&L)
+                    # This ensures that cash paid towards a target officially leaves the daily drawer.
+                    expense_desc = f"[Bill Settlement] {target.setup.description} (Due: {target.date.strftime('%Y-%m-%d')})"
+                    today = timezone.localdate()
+
+                    if new_paid_amount > 0:
+                        Expense.objects.update_or_create(
+                            branch=target.branch,
+                            description=expense_desc,
+                            date=today,  # Logs the cash leaving TODAY
+                            defaults={'amount': new_paid_amount, 'user': user}
+                        )
+                    else:
+                        # If they changed the payment back to 0, remove the expense
+                        Expense.objects.filter(branch=target.branch, description=expense_desc, date=today).delete()
+
+        messages.success(request, "Payments have been updated successfully.")
+        return redirect('daily_payment_targets')
+
+    # --- 3. GET Request & Filtering ---
+    # Default to showing today's targets
+    target_date_str = request.GET.get('date', timezone.localdate().strftime('%Y-%m-%d'))
+    try:
+        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        target_date = timezone.localdate()
+
+    qs = DailyPaymentTarget.objects.filter(date=target_date).select_related('setup', 'branch')
+
+    # Apply Branch Scope
+    branches = None
+    selected_branch_id = request.GET.get("branch", "")
+
+    if is_admin_view:
+        branches = Branch.objects.all()
+        if selected_branch_id:
+            qs = qs.filter(branch_id=selected_branch_id)
+    else:
+        qs = qs.filter(branch=worker.branch)
+
+    context = {
+        'targets': qs.order_by('is_settled', 'setup__description'),
+        'target_date_str': target_date.strftime('%Y-%m-%d'),
+        'branches': branches,
+        'selected_branch_id': selected_branch_id,
+        'is_admin_view': is_admin_view,
+    }
+
+    return render(request, 'layouts/workers/daily_targets.html', context)
+
+
+def is_gm_or_admin(user):
+    return user.is_superuser or user.groups.filter(name='GM').exists()
+
+
+@login_required
+@transaction.atomic  # Ensure all logs and stock updates happen together
+def product_management_list(request):
+    if not is_gm_or_admin(request.user):
+        messages.error(request, "Access Denied.")
+        return redirect('index')
+
+    if request.method == "POST":
+        # 1. HANDLE BULK RESTOCK (Additions)
+        for key, value in request.POST.items():
+            if key.startswith("restock_qty_") and value:
+                try:
+                    product_id = key.split("_")[-1]
+                    qty_to_add = int(value)
+                    product = Product.objects.get(id=product_id)
+
+                    old_val = product.stock
+                    product.stock += qty_to_add
+                    product.save()
+
+                    # Create the log
+                    ProductStockLog.objects.create(
+                        product=product,
+                        user=request.user,
+                        branch=product.branch.first(),  # Or logic to pick the active branch
+                        change_type='restock',
+                        quantity_changed=qty_to_add,
+                        old_quantity=old_val,
+                        new_quantity=product.stock,
+                        notes="Bulk restock from management page"
+                    )
+                except (ValueError, Product.DoesNotExist):
+                    continue
+
+        # 2. HANDLE BULK ADJUSTMENT (Overwrites)
+        for key, value in request.POST.items():
+            if key.startswith("adjust_total_") and value:
+                try:
+                    product_id = key.split("_")[-1]
+                    new_total = int(value)
+                    product = Product.objects.get(id=product_id)
+
+                    old_val = product.stock
+                    diff = new_total - old_val  # Calculate the variance for analytics
+
+                    product.stock = new_total
+                    product.save()
+
+                    # Create the log
+                    ProductStockLog.objects.create(
+                        product=product,
+                        user=request.user,
+                        branch=product.branch.first(),
+                        change_type='adjustment',
+                        quantity_changed=diff,  # This tells you if you gained or lost stock in audit
+                        old_quantity=old_val,
+                        new_quantity=new_total,
+                        notes="Manual stock adjustment/audit"
+                    )
+                except (ValueError, Product.DoesNotExist):
+                    continue
+
+        messages.success(request, "Inventory updated and logged for analytics.")
+        return redirect('product_management_list')
+
+    products = Product.objects.all().prefetch_related('branch', 'category')
+    return render(request, 'layouts/products/manage_products.html', {'products': products})
+
+
+@login_required
+def product_adjustment(request, pk):
+    """View to overwrite the total stock quantity (Set Total)"""
+    product = get_object_or_404(Product, pk=pk)
+    if not is_gm_or_admin(request.user):
+        return redirect('index')
+
+    if request.method == "POST":
+        new_total = int(request.POST.get('new_total', 0))
+        old_stock = product.stock
+        product.stock = new_total
+        product.save()
+        messages.warning(request, f"Stock Adjusted: {product.name} changed from {old_stock} to {new_total}.")
+        return redirect('product_management_list')
+
+    return render(request, 'layouts/products/adjustment_form.html', {'product': product})
+
+
+@login_required
+def product_create(request):
+    if not is_gm_or_admin(request.user):
+        return redirect('index')
+
+    if request.method == "POST":
+        name = request.POST.get('name')
+        category_id = request.POST.get('category')
+        price = request.POST.get('price')
+        cost = request.POST.get('cost')
+        stock = request.POST.get('stock')
+        branches = request.POST.getlist('branches')
+
+        product = Product.objects.create(
+            name=name,
+            category_id=category_id,
+            price=price,
+            cost=cost,
+            stock=stock
+        )
+        product.branch.set(branches)
+        messages.success(request, f"Product {name} created successfully.")
+        return redirect('product_management_list')
+
+    categories = ProductCategory.objects.all()
+    branches = Branch.objects.all()
+    return render(request, 'layouts/products/product_form.html', {
+        'categories': categories,
+        'branches': branches,
+        'title': 'Add New Product'
+    })
+
+
+@login_required
+def product_edit(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    if not is_gm_or_admin(request.user):
+        return redirect('index')
+
+    if request.method == "POST":
+        product.name = request.POST.get('name')
+        product.category_id = request.POST.get('category')
+        product.price = request.POST.get('price')
+        product.cost = request.POST.get('cost')
+        product.branch.set(request.POST.getlist('branches'))
+        product.save()
+
+        messages.success(request, f"Product {product.name} updated.")
+        return redirect('product_management_list')
+
+    categories = ProductCategory.objects.all()
+    branches = Branch.objects.all()
+    return render(request, 'layouts/products/product_form.html', {
+        'product': product,
+        'categories': categories,
+        'branches': branches,
+        'title': f'Edit {product.name}'
+    })
+
+
+@login_required
+def product_restock(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    if not is_gm_or_admin(request.user):
+        return redirect('index')
+
+    if request.method == "POST":
+        add_stock = int(request.POST.get('add_stock', 0))
+        product.stock += add_stock
+        product.save()
+        messages.success(request, f"Restocked {add_stock} units for {product.name}.")
+        return redirect('product_management_list')
+
+    return render(request, 'layouts/products/restock_form.html', {'product': product})

@@ -50,7 +50,7 @@
            alt="AutoDash Logo" style="max-width: 150px;">
       {% if request.user.is_authenticated %}
       <h4 class="mt-3 mb-0">
-        <a href="{% url 'index' %}">AutoDash Car Care & Detailers</a>
+        <a href="{% url 'index' %}" class="text-dark text-decoration-none">AutoDash Car Care & Detailers</a>
       </h4>
       {% else %}
        <h4 class="mt-3 mb-0">
@@ -58,11 +58,15 @@
       </h4>
       {% endif %}
       <p class="mb-0">
-        Teshie Fert. Road / Teshie Gornor Sch. / Ridge Towers,<br>
-        Home Service, Accra
+        Teshie Fert. Road / Teshie Gornor Sch. / Ridge Towers, Home Service, Accra
       </p>
-      <p class="mb-0">Tel: 024 398 3422</p>
-        <p>MoMo Details: {{service_order.branch.momo_number}} ({{service_order.branch.momo_name}})</p>
+      <p class="mb-0">
+        Tel: {{ service_order.branch.phone_number }}
+        {% if service_order.branch.alternate_phone_number %}
+           / {{ service_order.branch.alternate_phone_number }}
+        {% endif %}
+      </p>
+      <p>MTN MoMo Details: {{ service_order.branch.momo_number }} ({{ service_order.branch.momo_name }})</p>
     </div>
   </div>
 
@@ -80,38 +84,26 @@
   {# --------- Date & basic info --------- #}
   <div class="row mb-2">
     <div class="col-6">
-      <p class="mb-0"><strong>Date:</strong>
-        {{ service_order.date|date:"M j, Y H:i" }}</p>
-      <p class="mb-0"><strong>Order #:</strong>
-        {{ service_order.service_order_number }}</p>
+      <p class="mb-0"><strong>Date:</strong> {{ service_order.date|date:"M j, Y H:i" }}</p>
+      <p class="mb-0"><strong>Order #:</strong> {{ service_order.service_order_number }}</p>
     </div>
     <div class="col-6 text-end">
-      <p class="mb-0"><strong>Branch:</strong>
-        {{ service_order.branch.name }}</p>
+      <p class="mb-0 text-nowrap"><strong>Branch:</strong> {{ service_order.branch.name }}</p>
     </div>
   </div>
 
   {# --------- Customer & vehicle --------- #}
   <div class="row mb-4">
     <div class="col-6">
-      {% if service_order.customer %}
-        <p class="mb-1"><strong>Customer:</strong>
-          {{ service_order.customer.user.get_full_name }}</p>
-      {% else %}
-        <p><strong>No Customer Attached</strong></p>
-      {% endif %}
+      <p class="mb-1">
+        <strong>Customer:</strong> {{ service_order.display_customer_name }}
+        {% if service_order.is_walkin %}
+          <small class="text-muted">(Walk-In)</small>
+        {% endif %}
+      </p>
     </div>
     <div class="col-6 text-end">
-      {% if service_order.vehicle %}
-        <p class="mb-1"><strong>Vehicle:</strong>
-          {{ service_order.vehicle.car_make }}
-          {% if service_order.vehicle.car_color %}
-            ({{ service_order.vehicle.car_color }})
-          {% endif %}
-          – {{ service_order.vehicle.car_plate }}</p>
-      {% else %}
-        <p class="mb-1"><strong>Vehicle:</strong> Not Available</p>
-      {% endif %}
+      <p class="mb-1"><strong>Vehicle:</strong> {{ service_order.display_vehicle_info }}</p>
     </div>
   </div>
 
@@ -122,7 +114,9 @@
         <th>Service</th>
         <th class="text-end">Price (GHS)</th>
         <th class="text-center">Payment Type</th>
-        <th class="text-center">Loyalty Earned</th>
+        {% if not service_order.is_walkin %}
+          <th class="text-center">Loyalty Earned</th>
+        {% endif %}
       </tr>
     </thead>
     <tbody>
@@ -137,9 +131,11 @@
           {% endif %}
         </td>
         <td class="text-center">{{ sr.payment_type|default:"Cash" }}</td>
-        <td class="text-center">
-          {{ sr.service.loyalty_points_earned|default:"0" }}
-        </td>
+        {% if not service_order.is_walkin %}
+          <td class="text-center">
+            {{ sr.service.loyalty_points_earned|default:"0" }}
+          </td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>
@@ -183,23 +179,20 @@
         GHS {{ final_amount|floatformat:2 }}</p>
 
       <p class="mb-1 d-flex align-items-center justify-content-between">
-  <span class="d-inline-flex align-items-center gap-1">
+        <span class="d-inline-flex align-items-center gap-1">
+          <strong>Order Status:</strong>
+          <span class="mr-0">{{ service_order.status|title }}</span>
+        </span>
 
-    <strong>Order Status:</strong>
-    <span class="mr-0">{{ service_order.status }}</span>
-  </span>
-
-  {% if service_order.status == "completed" %}
-    <img
-      src="{% static 'assets/img/stamp.png' %}"
-      alt="Paid"
-      class="paid-inline ms-3 flex-shrink-0"
-      style="width: 130px; height:auto;"
-    >
-  {% endif %}
-
-        <p></p>
-</p>
+        {% if service_order.status == "completed" %}
+          <img
+            src="{% static 'assets/img/stamp.png' %}"
+            alt="Paid"
+            class="paid-inline ms-3 flex-shrink-0"
+            style="width: 130px; height:auto;"
+          >
+        {% endif %}
+      </p>
 
     </div>
   </div>

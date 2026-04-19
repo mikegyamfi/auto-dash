@@ -29,6 +29,12 @@ class CustomUserForm(UserCreationForm):
         fields = ['first_name', 'last_name', 'username', 'email', 'phone_number', 'password1', 'password2']
 
 
+from django import forms
+from .models import Customer, Service, Worker, Product, Branch, VehicleGroup
+import json
+
+
+
 class LogServiceForm(forms.Form):
     customer = forms.ModelChoiceField(
         queryset=Customer.objects.all(),
@@ -43,6 +49,22 @@ class LogServiceForm(forms.Form):
         empty_label="Select Vehicle",
         required=False
     )
+
+    # --- NEW: Walk-in Fields ---
+    is_walkin = forms.CharField(widget=forms.HiddenInput(), initial="false", required=False)
+    walkin_name = forms.CharField(max_length=150, required=False, widget=forms.TextInput(
+        attrs={'class': 'form-control', 'placeholder': 'e.g. John Doe'}))
+    walkin_phone = forms.CharField(max_length=20, required=False, widget=forms.TextInput(
+        attrs={'class': 'form-control', 'placeholder': 'e.g. 024XXXXXXX'}))
+    walkin_vehicle_group = forms.ModelChoiceField(
+        queryset=VehicleGroup.objects.all(),
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'walkin-vehicle-group'}),
+        empty_label="Select Car Type", required=False
+    )
+    walkin_vehicle_make = forms.CharField(max_length=100, required=False, widget=forms.TextInput(
+        attrs={'class': 'form-control', 'placeholder': 'e.g. Toyota Corolla'}))
+    walkin_vehicle_plate = forms.CharField(max_length=50, required=False, widget=forms.TextInput(
+        attrs={'class': 'form-control', 'placeholder': 'e.g. GW 1234-22'}))
 
     service = forms.ModelMultipleChoiceField(
         queryset=Service.objects.none(),
@@ -65,16 +87,45 @@ class LogServiceForm(forms.Form):
         attrs={'class': 'form-control', 'placeholder': 'Leave notes or comments on the service been logged'}),
                                required=False)
 
-    products = forms.ModelMultipleChoiceField(queryset=Product.objects.all(), widget=forms.CheckboxSelectMultiple,
+    products = forms.ModelMultipleChoiceField(queryset=Product.objects.none(), widget=forms.CheckboxSelectMultiple,
                                               required=False)
-    product_quantities = forms.CharField(widget=forms.HiddenInput(),
-                                         required=False)  # To capture quantities via JavaScript
+    product_quantities = forms.CharField(widget=forms.HiddenInput(), required=False)
     negotiated_prices = forms.CharField(widget=forms.HiddenInput(), required=False)
 
-    def __init__(self, branch, *args, **kwargs):
+    def __init__(self, user, branch=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['workers'].queryset = Worker.objects.filter(branch=branch)
-        self.fields['products'].queryset = Product.objects.filter(branch=branch, stock__gt=0)
+        self.user = user
+        is_gm_or_super = user.is_superuser or user.groups.filter(name='GM').exists()
+
+        # 1. Conditionally add Branch field for GMs / Superusers
+        if is_gm_or_super:
+            self.fields['branch'] = forms.ModelChoiceField(
+                queryset=Branch.objects.all(),
+                widget=forms.Select(attrs={'class': 'form-control', 'id': 'branch-select'}),
+                empty_label="Select Branch",
+                required=True
+            )
+
+        # 2. Determine active branch for filtering workers/products
+        active_branch = branch
+        if is_gm_or_super and 'branch' in self.data:
+            try:
+                active_branch = Branch.objects.get(id=int(self.data.get('branch')))
+            except (ValueError, TypeError, Branch.DoesNotExist):
+                active_branch = None
+
+        # 3. Filter Workers & Products
+        if active_branch:
+            self.fields['workers'].queryset = Worker.objects.filter(branch=active_branch)
+            self.fields['products'].queryset = Product.objects.filter(branch=active_branch, stock__gt=0)
+        else:
+            if is_gm_or_super:
+                # If GM hasn't selected a branch yet, show all to avoid empty dropdowns on first load
+                self.fields['workers'].queryset = Worker.objects.all()
+                self.fields['products'].queryset = Product.objects.all()
+            else:
+                self.fields['workers'].queryset = Worker.objects.none()
+                self.fields['products'].queryset = Product.objects.none()
 
         # Set vehicle queryset based on customer
         if 'customer' in self.data:
@@ -82,34 +133,56 @@ class LogServiceForm(forms.Form):
                 customer_id = int(self.data.get('customer'))
                 self.fields['vehicle'].queryset = models.CustomerVehicle.objects.filter(customer_id=customer_id)
             except (ValueError, TypeError):
-                pass  # Invalid input
+                pass
         else:
             self.fields['vehicle'].queryset = models.CustomerVehicle.objects.all()
+
 
         # Set service queryset based on vehicle
         if 'vehicle' in self.data:
             try:
                 vehicle_id = int(self.data.get('vehicle'))
                 vehicle = models.CustomerVehicle.objects.get(id=vehicle_id)
-                vehicle_group = vehicle.vehicle_group
-                self.fields['service'].queryset = Service.objects.filter(vehicle_group=vehicle_group, active=True)
+                self.fields['service'].queryset = Service.objects.filter(vehicle_group=vehicle.vehicle_group, active=True)
             except (ValueError, TypeError, models.CustomerVehicle.DoesNotExist):
                 pass
         elif self.initial.get('vehicle'):
             try:
                 vehicle = models.CustomerVehicle.objects.get(id=self.initial.get('vehicle'))
-                vehicle_group = vehicle.vehicle_group
-                self.fields['service'].queryset = Service.objects.filter(vehicle_group=vehicle_group, active=True)
+                self.fields['service'].queryset = Service.objects.filter(vehicle_group=vehicle.vehicle_group, active=True)
             except (ValueError, TypeError, models.CustomerVehicle.DoesNotExist):
                 pass
         else:
             self.fields['service'].queryset = Service.objects.none()
 
-    def clean_service(self):
-        services = self.cleaned_data.get('service')
-        if not services:
-            raise forms.ValidationError("Please select at least one service.")
-        return services
+        # --- DYNAMIC SERVICE QUERYSET LOGIC ---
+        walkin_flag = self.data.get('is_walkin') == 'true'
+
+        if walkin_flag and self.data.get('walkin_vehicle_group'):
+            # Load services based on Walk-in Car Type
+            group_id = int(self.data.get('walkin_vehicle_group'))
+            self.fields['service'].queryset = Service.objects.filter(vehicle_group_id=group_id, active=True)
+        elif not walkin_flag and self.data.get('vehicle'):
+            # Load services based on Registered Vehicle
+            vehicle = models.CustomerVehicle.objects.filter(id=self.data.get('vehicle')).first()
+            if vehicle:
+                self.fields['service'].queryset = Service.objects.filter(vehicle_group=vehicle.vehicle_group,
+                                                                         active=True)
+        else:
+            self.fields['service'].queryset = Service.objects.none()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        is_walkin = cleaned_data.get('is_walkin') == 'true'
+
+        if is_walkin:
+            if not cleaned_data.get('walkin_vehicle_group'):
+                self.add_error('walkin_vehicle_group', "Car Type is required for walk-in services.")
+        else:
+            if not cleaned_data.get('vehicle'):
+                self.add_error('vehicle', "Please select a registered vehicle.")
+
+        return cleaned_data
 
     def clean_negotiated_prices(self):
         data = self.cleaned_data.get('negotiated_prices') or "{}"

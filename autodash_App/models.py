@@ -33,6 +33,7 @@ class Branch(models.Model):
     name = models.CharField(max_length=100)
     location = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=15)
+    alternate_phone_number = models.CharField(max_length=15, null=True, blank=True)
     network_choices = (
         ("MTN", "MTN"),
         ("AT", "AT"),
@@ -215,6 +216,32 @@ class Product(models.Model):
 
     def __str__(self):
         return f"{self.name} - GHS{self.price} - Stock: {self.stock}"
+
+
+class ProductStockLog(models.Model):
+    CHANGE_TYPES = (
+        ('restock', 'Restock (Addition)'),
+        ('adjustment', 'Adjustment (Overwrite)'),
+        ('sale', 'Sale (Deduction)'),
+    )
+
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='stock_logs')
+    user = models.ForeignKey('CustomUser', on_delete=models.SET_NULL, null=True, blank=True)
+    branch = models.ForeignKey('Branch', on_delete=models.CASCADE)  # Track which branch triggered it
+
+    change_type = models.CharField(max_length=20, choices=CHANGE_TYPES)
+    quantity_changed = models.IntegerField(help_text="The amount added or removed")
+    old_quantity = models.IntegerField()
+    new_quantity = models.IntegerField()
+
+    notes = models.TextField(null=True, blank=True)
+    date = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.product.name} - {self.change_type} ({self.quantity_changed})"
 
 
 # ---------------------- New Model: Standalone Product Sales ----------------------
@@ -473,6 +500,32 @@ class ServiceRenderedOrder(models.Model):
     loyalty_points_amount_deduction = models.FloatField(null=True,
                                                         blank=True)  # This shoes the amount that using the loyalty points saved the user which is useful for display on the receipt
     cash_paid = models.FloatField(null=True, blank=True, default=0.0)
+    is_walkin = models.BooleanField(default=False)
+    walkin_name = models.CharField(max_length=150, null=True, blank=True)
+    walkin_phone = models.CharField(max_length=20, null=True, blank=True)
+    walkin_vehicle_group = models.ForeignKey(VehicleGroup, on_delete=models.SET_NULL, null=True, blank=True)
+    walkin_vehicle_make = models.CharField(max_length=100, null=True, blank=True)
+    walkin_vehicle_plate = models.CharField(max_length=50, null=True, blank=True)
+
+    @property
+    def display_customer_name(self):
+        if self.customer:
+            return f"{self.customer.user.first_name} {self.customer.user.last_name}"
+        return self.walkin_name or "Walk-In Customer"
+
+    @property
+    def display_vehicle_info(self):
+        if self.vehicle:
+            return f"{self.vehicle.car_plate} ({self.vehicle.car_make})"
+        return f"{self.walkin_vehicle_plate} ({self.walkin_vehicle_make})"
+
+    @property
+    def display_date(self):
+        return self.date
+
+    @property
+    def record_type(self):
+        return "core"
 
     def __str__(self):
         if self.customer:
@@ -715,6 +768,62 @@ class RecurringExpense(models.Model):
 
     def __str__(self):
         return f"{self.description} {self.amount}"
+
+
+class RecurringPaymentSetup(models.Model):
+    """
+    The master configuration for a recurring bill (e.g., 'Facility Rent', GHS 100 on Mondays).
+    """
+    WEEKDAY_CHOICES = [
+        (0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'),
+        (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
+    ]
+
+    branch = models.ForeignKey('Branch', on_delete=models.CASCADE, related_name='recurring_setups')
+    description = models.CharField(max_length=255)
+    base_amount = models.FloatField(help_text="The baseline amount due every time this triggers.")
+    apply_on = models.JSONField(
+        default=list,
+        help_text="List of weekdays (0=Mon … 6=Sun) this payment is due."
+    )
+
+    def applies_today(self, d=None):
+        d = d or timezone.localdate()
+        return d.weekday() in self.apply_on
+
+    def __str__(self):
+        return f"{self.description} - GHS {self.base_amount} ({self.branch.name})"
+
+
+class DailyPaymentTarget(models.Model):
+    """
+    The actual generated bill for a specific day. Tracks rollover debt and actual payments.
+    """
+    setup = models.ForeignKey(RecurringPaymentSetup, on_delete=models.CASCADE, related_name='daily_targets')
+    branch = models.ForeignKey('Branch', on_delete=models.CASCADE, related_name='payment_targets')
+    date = models.DateField(default=timezone.now)
+
+    # The Math
+    base_amount = models.FloatField(default=0.0, help_text="What is due just for today")
+    brought_forward = models.FloatField(default=0.0, help_text="Unpaid debt rolled over from previous days")
+    total_target = models.FloatField(default=0.0, help_text="Base Amount + Brought Forward")
+
+    # The Action
+    amount_paid = models.FloatField(default=0.0, help_text="How much was actually paid towards this today")
+    is_settled = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ('setup', 'date')
+        ordering = ['-date', 'setup__description']
+
+    def save(self, *args, **kwargs):
+        # Auto-calculate the total target and settlement status before saving
+        self.total_target = self.base_amount + self.brought_forward
+        self.is_settled = self.amount_paid >= self.total_target
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.setup.description} [{self.date}] - Due: GHS {self.total_target}"
 
 
 class SalesTarget(models.Model):
@@ -969,6 +1078,14 @@ class OtherService(models.Model):
     # audit
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def display_date(self):
+        return self.created_at
+
+    @property
+    def record_type(self):
+        return "other"
 
     class Meta:
         ordering = ["-created_at"]

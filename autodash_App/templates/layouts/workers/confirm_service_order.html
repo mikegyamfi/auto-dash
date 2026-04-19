@@ -55,12 +55,9 @@
   .coverage-table tbody tr:nth-child(even) td {
     background-color: #fbfcfd;
   }
-  /* Extra padding for card body */
   .card-body {
     padding: 1.5rem;
   }
-
-  /* Keep the cash method select compact and inline */
   .type-cell .cash-method {
     display: none;
     width: auto;
@@ -81,22 +78,31 @@
       {% include 'inc/header.html' %}
       <div class="content-wrapper container-p-y">
 
-        <h4 class="fw-bold py-3 mb-4">Confirm Logged Service</h4>
+        <h4 class="fw-bold py-3 mb-4">
+          Confirm Logged Service
+          {% if order.is_walkin %}
+            <span class="badge bg-label-info ms-2 align-middle fs-6">Walk-In Customer</span>
+          {% else %}
+            <span class="badge bg-label-primary ms-2 align-middle fs-6">Registered Customer</span>
+          {% endif %}
+        </h4>
 
         <form method="POST">
           {% csrf_token %}
 
-          <!-- Service Order Details Card -->
           <div class="card mb-4">
-            <div class="card-header">
+            <div class="card-header border-bottom">
               <h5 class="mb-0">Service Order Details</h5>
             </div>
-            <div class="card-body">
+            <div class="card-body mt-2">
               <div class="row">
-                <!-- Left Column -->
-                <div class="col-md-6 mb-3">
-                  <h6 class="text-uppercase text-muted mb-2">Vehicle</h6>
-                  <p class="mb-4">{{ order.vehicle }}</p>
+                <div class="col-md-6 mb-3 border-end">
+
+                  <h6 class="text-uppercase text-muted mb-1">Customer / Contact</h6>
+                  <p class="mb-3 fw-bold">{{ order.display_customer_name }}</p>
+
+                  <h6 class="text-uppercase text-muted mb-1">Vehicle Info</h6>
+                  <p class="mb-4">{{ order.display_vehicle_info }}</p>
 
                   <h6 class="text-uppercase text-muted mb-2">Assigned Workers</h6>
                   {% if order.workers.all %}
@@ -116,41 +122,51 @@
                   <p>{{ order.comments|default:"No comments available." }}</p>
                 </div>
 
-                <!-- Right Column -->
-                <div class="col-md-6">
-                  <h6 class="text-uppercase text-muted mb-2">Loyalty Points</h6>
-                  <p class="mb-4"><strong>{{ loyalty_points }}</strong></p>
+                <div class="col-md-6 ps-md-4">
 
-                  <h6 class="text-uppercase text-muted mb-2">Subscription</h6>
-                  {% if subscription_active %}
-                    <p class="mb-4 {% if has_sub_remaining %}text-success{% else %}text-danger{% endif %}">
-                      <strong>{{ sub_name }}</strong><br>
-                      Remaining: GHS {{ cust_sub_remaining|floatformat:2 }}<br>
-                      Expires: {{ sub_expires|date:"Y-m-d" }}
-                    </p>
-                  {% else %}
-                    <p class="mb-4 text-danger"><strong>No Active Subscription</strong></p>
-                  {% endif %}
+                  <div class="row">
+                    <div class="col-6">
+                      <h6 class="text-uppercase text-muted mb-1">Loyalty Points</h6>
+                      {% if order.is_walkin %}
+                        <p class="mb-4 text-muted"><i class="bx bx-block me-1"></i>N/A</p>
+                      {% else %}
+                        <p class="mb-4 text-primary fw-bold">{{ loyalty_points }} pts</p>
+                      {% endif %}
+                    </div>
+                    <div class="col-6">
+                      <h6 class="text-uppercase text-muted mb-1">Subscription</h6>
+                      {% if order.is_walkin %}
+                        <p class="mb-4 text-muted"><i class="bx bx-block me-1"></i>N/A</p>
+                      {% elif subscription_active %}
+                        <p class="mb-4 {% if has_sub_remaining %}text-success{% else %}text-danger{% endif %}">
+                          <strong>{{ sub_name }}</strong><br>
+                          Remaining: GHS {{ cust_sub_remaining|floatformat:2 }}<br>
+                          Expires: {{ sub_expires|date:"Y-m-d" }}
+                        </p>
+                      {% else %}
+                        <p class="mb-4 text-danger">No Active Sub</p>
+                      {% endif %}
+                    </div>
+                  </div>
 
-                  <h6 class="text-uppercase text-muted mb-2">Order Status</h6>
-                  <select name="status" id="status" class="form-select mb-1">
-                    <option value="completed" {% if order.status == 'completed' %}selected{% endif %}>Completed</option>
-                    <option value="pending"   {% if order.status == 'pending'   %}selected{% endif %}>Pending</option>
-                    <option value="canceled"  {% if order.status == 'canceled'  %}selected{% endif %}>Canceled</option>
-                    <option value="onCredit"  {% if order.status == 'onCredit'  %}selected{% endif %}>On Credit</option>
+                  <h6 class="text-uppercase text-muted mb-2 mt-3 border-top pt-3">Finalize Order Status</h6>
+                  <select name="status" id="status" class="form-select form-select-lg mb-1">
+                    <option value="completed" {% if order.status == 'completed' %}selected{% endif %}>✅ Completed</option>
+                    <option value="pending"   {% if order.status == 'pending'   %}selected{% endif %}>⏳ Pending</option>
+                    <option value="canceled"  {% if order.status == 'canceled'  %}selected{% endif %}>❌ Canceled</option>
+                    <option value="onCredit"  {% if order.status == 'onCredit'  %}selected{% endif %}>💳 On Credit</option>
                   </select>
                   <small id="on-credit-note" class="form-text text-danger" style="display:none;">
-                    On-Credit → No immediate payment.
+                    * Service marked On-Credit. No immediate cash required.
                   </small>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Coverage & Negotiation -->
           <div class="card mb-4">
             <div class="card-header">
-              <h5 class="mb-0">Coverage &amp; Negotiation</h5>
+              <h5 class="mb-0">Billing &amp; Payment Breakdown</h5>
             </div>
             <div class="card-body">
               <div class="table-responsive">
@@ -160,7 +176,7 @@
                       <th>Service</th>
                       <th>Category</th>
                       <th>Default</th>
-                      <th>Negotiated</th>
+                      <th>Final Price</th>
                       <th>Sub Cover</th>
                       <th>Use Loyalty?</th>
                       <th>Cash Due</th>
@@ -170,37 +186,44 @@
                   <tbody>
                     {% for c in covered_details %}
                     <tr data-default="{{ c.default_price }}" data-sub="{{ c.sub_cover }}">
-                      <td>{{ c.service_name }}</td>
-                      <td>{{ c.category }}</td>
+                      <td class="fw-bold">{{ c.service_name }}</td>
+                      <td><small class="text-muted">{{ c.category }}</small></td>
                       <td>GHS {{ c.default_price|floatformat:2 }}</td>
                       <td>
                         {% if c.negotiable %}
-                          <input type="number" step="0.01" min="0"
-                                 name="negotiated_{{ c.service_id }}"
-                                 class="form-control form-control-sm negotiable-price"
-                                 value="{{ c.negotiated_price|floatformat:2 }}">
+                          <div class="input-group input-group-sm" style="width: 140px; margin: 0 auto;">
+                            <span class="input-group-text">GHS</span>
+                            <input type="number" step="0.01" min="0"
+                                   name="negotiated_{{ c.service_id }}"
+                                   class="form-control negotiable-price"
+                                   value="{{ c.negotiated_price|floatformat:2 }}">
+                          </div>
                         {% else %}
                           GHS {{ c.negotiated_price|floatformat:2 }}
                         {% endif %}
                       </td>
-                      <td>GHS {{ c.sub_cover|floatformat:2 }}</td>
-                      <td>
-                        {% if c.loyalty_eligible %}
-                          <input type="checkbox"
-                                 name="use_loyalty_{{ c.service_id }}"
-                                 class="form-check-input loyalty-box">
+                      <td class="text-success">
+                        {% if c.sub_cover > 0 %}
+                          -GHS {{ c.sub_cover|floatformat:2 }}
                         {% else %}
                           &mdash;
                         {% endif %}
                       </td>
-                      <td class="cash-cell">GHS {{ c.cash_due|floatformat:2 }}</td>
+                      <td>
+                        {% if c.loyalty_eligible %}
+                          <div class="form-check d-flex justify-content-center">
+                            <input type="checkbox" name="use_loyalty_{{ c.service_id }}" class="form-check-input loyalty-box" style="transform: scale(1.3);">
+                          </div>
+                        {% else %}
+                          <span class="text-muted">&mdash;</span>
+                        {% endif %}
+                      </td>
+                      <td class="cash-cell fw-bold">GHS {{ c.cash_due|floatformat:2 }}</td>
                       <td class="type-cell">
-                        <span class="type-label">Cash</span>
-                        <!-- Only enabled/visible when computed type is exactly 'Cash' -->
-                        <select class="form-select form-select-sm cash-method"
-                                name="pay_method_{{ c.service_id }}">
+                        <span class="type-label badge bg-label-secondary fs-6">Cash</span>
+                        <select class="form-select form-select-sm cash-method" name="pay_method_{{ c.service_id }}">
                           <option value="cash" selected>Cash</option>
-                          <option value="momo">Momo</option>
+                          <option value="momo">MoMo</option>
                         </select>
                       </td>
                     </tr>
@@ -209,15 +232,14 @@
                 </table>
               </div>
 
-              <!-- Discount Controls -->
-              <div class="row g-3 align-items-center mb-3">
+              <div class="row g-3 align-items-center mb-3 mt-2 border-top pt-3">
                 <div class="col-auto">
-                  <label for="discount_type" class="form-label">Discount</label>
+                  <label for="discount_type" class="form-label fw-bold">Apply Discount:</label>
                 </div>
                 <div class="col-auto">
                   <select id="discount_type" name="discount_type" class="form-select">
-                    <option value="percentage" {% if order.discount_type == 'percentage' %}selected{% endif %}>%</option>
-                    <option value="amount"     {% if order.discount_type == 'amount'     %}selected{% endif %}>GHS</option>
+                    <option value="amount" {% if order.discount_type == 'amount' %}selected{% endif %}>GHS (Flat)</option>
+                    <option value="percentage" {% if order.discount_type == 'percentage' %}selected{% endif %}>% (Percent)</option>
                   </select>
                 </div>
                 <div class="col-auto">
@@ -227,17 +249,16 @@
                 </div>
               </div>
 
-              <p class="mb-0">
-                <strong>Approx. Total Due:</strong>
-                GHS <span id="approx_total">{{ total_cash_est|floatformat:2 }}</span>
-              </p>
+              <div class="d-flex justify-content-end align-items-center mt-4">
+                <h4 class="mb-0 me-3 text-muted">Total Due:</h4>
+                <h2 class="mb-0 text-primary fw-bold">GHS <span id="approx_total">{{ total_cash_est|floatformat:2 }}</span></h2>
+              </div>
             </div>
           </div>
 
-          <!-- Actions -->
-          <div class="d-flex justify-content-end gap-2 mb-4">
-            <button type="submit" class="btn btn-primary">Confirm</button>
-            <a href="{% url 'discard_order' order.id %}" class="btn btn-outline-danger">Discard</a>
+          <div class="d-flex justify-content-end gap-3 mb-4">
+            <a href="{% url 'discard_order' order.id %}" class="btn btn-outline-danger btn-lg px-4">Discard Order</a>
+            <button type="submit" class="btn btn-primary btn-lg px-5"><i class="bx bx-check-circle me-1"></i> Confirm & Save</button>
           </div>
         </form>
 
@@ -297,16 +318,19 @@ document.addEventListener('DOMContentLoaded', () => {
       const methodSelect = typeCell.querySelector('.cash-method');
 
       if (type === 'Cash' && cash > 0) {
-        // Enable and show the selector, label reflects selected method
         methodSelect.style.display = 'inline-block';
         methodSelect.disabled = false;
+
+        // Match label styling dynamically
         const selectedText = methodSelect.options[methodSelect.selectedIndex].textContent;
-        labelEl.textContent = selectedText; // shows 'Cash' or 'Momo'
+        labelEl.textContent = selectedText;
+        labelEl.className = selectedText === 'MoMo' ? 'type-label badge bg-label-warning fs-6' : 'type-label badge bg-label-success fs-6';
+
       } else {
-        // Hide/disable selector and show computed type label
         methodSelect.style.display = 'none';
         methodSelect.disabled = true;
         labelEl.textContent = type;
+        labelEl.className = 'type-label badge bg-label-secondary fs-6';
       }
     });
 
@@ -329,12 +353,14 @@ document.addEventListener('DOMContentLoaded', () => {
   discType.addEventListener('change', recalc);
   discVal.addEventListener('input', recalc);
 
-  // When user switches between Cash/Momo, keep label in sync (doesn't change totals)
+  // Keep label in sync when changing Cash/Momo dropdown
   document.querySelectorAll('.cash-method').forEach(sel => {
     sel.addEventListener('change', () => {
       const typeCell = sel.closest('.type-cell');
       const labelEl = typeCell.querySelector('.type-label');
-      labelEl.textContent = sel.options[sel.selectedIndex].textContent;
+      const selectedText = sel.options[sel.selectedIndex].textContent;
+      labelEl.textContent = selectedText;
+      labelEl.className = selectedText === 'MoMo' ? 'type-label badge bg-label-warning fs-6' : 'type-label badge bg-label-success fs-6';
     });
   });
 
