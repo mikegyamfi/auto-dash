@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import RecurringExpense, CustomerBooking, Notification, OtherService
+from .models import RecurringExpense, CustomerBooking, Notification, OtherService, MaintenanceLog
 from .models import Expense
 
 
@@ -81,6 +81,39 @@ def booking_created_worker_notification(sender, instance: CustomerBooking, creat
         title="New Booking Received",
         message=f"{services_text} for {vehicle_name} on {dt_text} at {branch_name}.",
         level=Notification.LEVEL_INFO,
+        target_url=target_url,
+    )
+
+
+@receiver(post_save, sender=MaintenanceLog)
+def maintenance_created_notification(sender, instance: MaintenanceLog, created, **kwargs):
+    """Branch-scoped notification when a new maintenance log is filed."""
+    if not created:
+        return
+
+    branch = instance.branch
+    reporter = instance.reported_by.get_full_name() if instance.reported_by else "Someone"
+    reporter = reporter.strip() or (instance.reported_by.username if instance.reported_by else "Someone")
+    priority_display = instance.get_priority_display()
+
+    try:
+        target_url = reverse("maintenance_detail", kwargs={"pk": instance.pk})
+    except Exception as e:
+        print(e)
+        target_url = None
+
+    # Map priority to notification level.
+    level = {
+        MaintenanceLog.PRIORITY_HIGH: Notification.LEVEL_WARNING,
+        MaintenanceLog.PRIORITY_MED: Notification.LEVEL_INFO,
+        MaintenanceLog.PRIORITY_LOW: Notification.LEVEL_INFO,
+    }.get(instance.priority, Notification.LEVEL_INFO)
+
+    Notification.objects.create(
+        branch=branch,
+        title=f"New Maintenance Log — {instance.title}",
+        message=f"{reporter} logged a {priority_display}-priority issue at {branch.name}.",
+        level=level,
         target_url=target_url,
     )
 
