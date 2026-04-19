@@ -9,23 +9,6 @@ from .models import RecurringExpense, CustomerBooking, Notification, OtherServic
 from .models import Expense
 
 
-@receiver(post_save, sender=RecurringExpense)
-def mint_recurring_expense_today(sender, instance, created, **kwargs):
-    """
-    Whenever a RecurringExpense is created or updated,
-    if it applies today, ensure there's an Expense row for today.
-    """
-    today = timezone.localdate()
-    if instance.applies_today(today):
-        Expense.objects.get_or_create(
-            branch=instance.branch,
-            description=f"[Recurring] {instance.description}",
-            amount=instance.amount,
-            date=today,
-            defaults={'user': None}
-        )
-
-
 # carwash/signals.py
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver

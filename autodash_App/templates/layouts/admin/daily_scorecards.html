@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% load static custom_filters %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper container-xxl flex-grow-1 container-p-y">
+
+        <!-- Header -->
+        <div class="d-flex align-items-center justify-content-between flex-wrap mb-4 gap-3">
+          <div>
+            <h4 class="fw-bold mb-1"><i class="bx bx-award me-2 text-primary"></i>Daily Scorecards</h4>
+            <small class="text-muted">
+              Every worker starts at <span class="fw-semibold text-success">100%</span> each day.
+              Click <span class="fw-semibold">Score</span> to record deductions.
+            </small>
+          </div>
+          <div class="text-muted small text-end">
+            <div>Showing</div>
+            <div class="fw-semibold text-body">{{ on_date|date:"l, F j, Y" }}</div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card mb-4 shadow-sm">
+          <div class="card-body py-3">
+            <form method="get" class="row g-3 align-items-end">
+              <div class="col-md-3">
+                <label class="form-label small text-muted">Date</label>
+                <input type="date" name="date" value="{{ on_date|date:'Y-m-d' }}" class="form-control">
+              </div>
+              {% if not hide_branch_selector %}
+              <div class="col-md-4">
+                <label class="form-label small text-muted">Branch</label>
+                <select name="branch" class="form-control">
+                  <option value="">All branches</option>
+                  {% for b in branches %}
+                    <option value="{{ b.id }}" {% if selected_branch and selected_branch.id == b.id %}selected{% endif %}>
+                      {{ b.name }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+              {% endif %}
+              <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">
+                  <i class="bx bx-filter-alt me-1"></i> Filter
+                </button>
+              </div>
+              <div class="col-md-2">
+                <a href="{% url 'daily_scorecards' %}" class="btn btn-outline-secondary w-100">Today</a>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Workers table -->
+        <div class="card shadow-sm">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 50px;">#</th>
+                  <th>Worker</th>
+                  <th>Position</th>
+                  <th>Branch</th>
+                  <th style="min-width: 220px;">Score</th>
+                  <th>Status</th>
+                  <th>Last updated</th>
+                  <th class="text-end">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  {% with score_pct=row.final_score|mul:100 %}
+                  <tr>
+                    <td class="text-muted">{{ forloop.counter }}</td>
+                    <td>
+                      <div class="d-flex align-items-center gap-2">
+                        <span class="avatar avatar-sm">
+                          <span class="avatar-initial rounded-circle bg-label-primary">
+                            {{ row.worker.user.first_name|first|upper }}{{ row.worker.user.last_name|first|upper }}
+                          </span>
+                        </span>
+                        <div>
+                          <div class="fw-semibold">{{ row.worker.user.get_full_name|default:row.worker.user.username }}</div>
+                          <small class="text-muted">{{ row.worker.user.phone_number|default:'—' }}</small>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{{ row.worker.position|default:'—' }}</td>
+                    <td>{{ row.worker.branch.name }}</td>
+                    <td>
+                      <div class="d-flex align-items-center gap-2">
+                        <div class="flex-grow-1">
+                          <div class="progress" style="height: 8px;">
+                            <div class="progress-bar
+                                {% if row.final_score >= 0.8 %}bg-success
+                                {% elif row.final_score >= 0.5 %}bg-warning
+                                {% else %}bg-danger{% endif %}"
+                              role="progressbar"
+                              style="width: {{ score_pct|floatformat:0 }}%;"></div>
+                          </div>
+                        </div>
+                        <div class="fw-bold text-end" style="min-width: 52px;">
+                          <span class="{% if row.final_score >= 0.8 %}text-success
+                              {% elif row.final_score >= 0.5 %}text-warning
+                              {% else %}text-danger{% endif %}">
+                            {{ row.final_score|percent:0 }}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {% if row.scorecard %}
+                        <span class="badge bg-label-success"><i class="bx bx-check-circle"></i> Scored</span>
+                      {% else %}
+                        <span class="badge bg-label-secondary">Default</span>
+                      {% endif %}
+                    </td>
+                    <td class="text-muted small">
+                      {% if row.updated_at %}
+                        {{ row.updated_at|date:"M j, H:i" }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-end">
+                      <a href="{% url 'score_worker' row.worker.id %}?date={{ on_date|date:'Y-m-d' }}"
+                         class="btn btn-sm btn-primary">
+                        <i class="bx bx-edit-alt me-1"></i> Score
+                      </a>
+                    </td>
+                  </tr>
+                  {% endwith %}
+                {% empty %}
+                  <tr>
+                    <td colspan="8" class="text-center py-5">
+                      <i class="bx bx-user-x text-muted" style="font-size: 2.5rem;"></i>
+                      <div class="text-muted mt-2">No workers found for this filter.</div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+      {% include 'inc/footer.html' %}
+    </div>
+  </div>
+</div>
+{% endblock %}

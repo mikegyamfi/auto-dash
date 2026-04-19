@@ -40,6 +40,29 @@ def get_item(dictionary, key):
     return dictionary.get(key)
 
 
+@register.filter
+def percent(value, decimals=0):
+    """Render a 0.0–1.0 float as a percentage string, e.g. 0.4 → '40%'."""
+    try:
+        v = float(value) * 100
+    except (TypeError, ValueError):
+        return ""
+    try:
+        d = int(decimals)
+    except (TypeError, ValueError):
+        d = 0
+    return f"{v:.{d}f}%"
+
+
+@register.filter
+def mul(value, arg):
+    """Multiply two numbers; used for weight×100 in editable inputs."""
+    try:
+        return float(value) * float(arg)
+    except (TypeError, ValueError):
+        return ""
+
+
 
 
 

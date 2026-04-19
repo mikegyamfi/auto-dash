@@ -10,7 +10,8 @@ from .models import (
     ServiceRenderedOrder, ServiceRendered, Commission,
     Expense, DailyExpenseBudget, Revenue, Product,
     ProductCategory, ProductPurchased, ProductSale, RecurringExpense, WeeklyBudget, WorkerReference, WorkerGuarantor,
-    WorkerEmployment, WorkerEducation, DailySalesTarget, Arrears, DailyPaymentTarget, RecurringPaymentSetup
+    WorkerEmployment, WorkerEducation, DailySalesTarget, Arrears, DailyPaymentTarget, RecurringPaymentSetup,
+    ScorecardCategory, ScorecardCriterion, DailyScorecard, DailyScoreEntry,
 )
 
 
@@ -763,5 +764,41 @@ class DailyPaymentTargetAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related('setup', 'branch')
 
 
+# ---------------------- Scorecard admin ----------------------
+class ScorecardCriterionInline(admin.TabularInline):
+    model = ScorecardCriterion
+    extra = 1
+    fields = ('name', 'max_points', 'display_order', 'active')
 
 
+@admin.register(ScorecardCategory)
+class ScorecardCategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'weight', 'display_order', 'active')
+    list_editable = ('weight', 'display_order', 'active')
+    ordering = ('display_order', 'name')
+    inlines = [ScorecardCriterionInline]
+
+
+@admin.register(ScorecardCriterion)
+class ScorecardCriterionAdmin(admin.ModelAdmin):
+    list_display = ('name', 'category', 'max_points', 'display_order', 'active')
+    list_filter = ('category', 'active')
+    list_editable = ('max_points', 'display_order', 'active')
+    search_fields = ('name', 'category__name')
+
+
+class DailyScoreEntryInline(admin.TabularInline):
+    model = DailyScoreEntry
+    extra = 0
+    readonly_fields = ('criterion', 'adjusted_by', 'updated_at')
+    fields = ('criterion', 'points_awarded', 'reason', 'adjusted_by', 'updated_at')
+
+
+@admin.register(DailyScorecard)
+class DailyScorecardAdmin(admin.ModelAdmin):
+    list_display = ('worker', 'date', 'branch', 'final_score', 'updated_at')
+    list_filter = ('branch', 'date')
+    search_fields = ('worker__user__first_name', 'worker__user__last_name')
+    date_hierarchy = 'date'
+    readonly_fields = ('final_score', 'created_at', 'updated_at', 'branch')
+    inlines = [DailyScoreEntryInline]

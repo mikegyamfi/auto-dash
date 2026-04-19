@@ -1174,3 +1174,117 @@ class MaintenanceExpense(models.Model):
     def __str__(self):
         return f"GHS {self.amount:.2f} – {self.note or 'Expense'}"
 
+
+# ---------------------------------------------------------------------
+# SCORECARD: daily employee performance scoring
+# ---------------------------------------------------------------------
+class ScorecardCategory(models.Model):
+    """Top-level scorecard category. Weights across active categories should sum to 1.0."""
+    name = models.CharField(max_length=100, unique=True)
+    weight = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text="Fraction of the final score this category contributes (0.0 – 1.0).",
+    )
+    display_order = models.PositiveIntegerField(default=0)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["display_order", "name"]
+        verbose_name = "Scorecard Category"
+        verbose_name_plural = "Scorecard Categories"
+
+    def __str__(self):
+        return f"{self.name} ({self.weight:.0%})"
+
+
+class ScorecardCriterion(models.Model):
+    """A sub-criterion under a category. Workers start each day at full max_points."""
+    category = models.ForeignKey(
+        ScorecardCategory, on_delete=models.CASCADE, related_name="criteria"
+    )
+    name = models.CharField(max_length=100)
+    max_points = models.FloatField(
+        default=100.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Full-marks value for this criterion.",
+    )
+    display_order = models.PositiveIntegerField(default=0)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["category__display_order", "display_order", "name"]
+        unique_together = ("category", "name")
+
+    def __str__(self):
+        return f"{self.category.name} – {self.name}"
+
+
+class DailyScorecard(models.Model):
+    """One scorecard per worker per day. Entries default to full marks; GMs deduct where needed."""
+    worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name="scorecards")
+    date = models.DateField(default=timezone.localdate)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="scorecards")
+    final_score = models.FloatField(default=0.0, help_text="Cached weighted score 0.0–1.0.")
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("worker", "date")
+        ordering = ["-date", "worker__user__last_name"]
+
+    def save(self, *args, **kwargs):
+        if self.worker_id and (not self.branch_id or self.branch_id != self.worker.branch_id):
+            self.branch = self.worker.branch
+        super().save(*args, **kwargs)
+
+    def recalc(self):
+        """Recompute final_score from current entries. Returns a value in [0,1]."""
+        entries = self.entries.select_related("criterion", "criterion__category").all()
+        totals = {}
+        for entry in entries:
+            cat = entry.criterion.category
+            awarded, mx, weight = totals.get(cat.id, (0.0, 0.0, cat.weight))
+            totals[cat.id] = (
+                awarded + (entry.points_awarded or 0.0),
+                mx + (entry.criterion.max_points or 0.0),
+                cat.weight,
+            )
+        score = 0.0
+        for awarded, mx, weight in totals.values():
+            if mx > 0:
+                score += (awarded / mx) * weight
+        self.final_score = round(score, 4)
+        return self.final_score
+
+    def __str__(self):
+        return f"{self.worker} – {self.date} – {self.final_score:.0%}"
+
+
+class DailyScoreEntry(models.Model):
+    """Per-criterion score on a daily scorecard. Starts at criterion.max_points."""
+    scorecard = models.ForeignKey(
+        DailyScorecard, on_delete=models.CASCADE, related_name="entries"
+    )
+    criterion = models.ForeignKey(
+        ScorecardCriterion, on_delete=models.CASCADE, related_name="entries"
+    )
+    points_awarded = models.FloatField(default=0.0)
+    reason = models.TextField(blank=True, default="")
+    adjusted_by = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="scorecard_adjustments",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("scorecard", "criterion")
+        ordering = ["criterion__category__display_order", "criterion__display_order"]
+
+    def __str__(self):
+        return (
+            f"{self.scorecard} – {self.criterion.name}: "
+            f"{self.points_awarded}/{self.criterion.max_points}"
+        )
+

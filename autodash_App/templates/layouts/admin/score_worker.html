@@ -1,0 +1,211 @@
+{% extends 'base.html' %}
+{% load static custom_filters %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper container-xxl flex-grow-1 container-p-y">
+
+        <!-- Back link -->
+        <a href="{% url 'daily_scorecards' %}?date={{ on_date|date:'Y-m-d' }}" class="text-muted small mb-2 d-inline-block">
+          <i class="bx bx-chevron-left"></i> Back to all scorecards
+        </a>
+
+        <!-- Worker header card -->
+        {% with score_pct=scorecard.final_score|mul:100 %}
+        <div class="card mb-4 shadow-sm border-0"
+             style="background: linear-gradient(135deg,
+                {% if scorecard.final_score >= 0.8 %}#28c76f22,#28c76f08
+                {% elif scorecard.final_score >= 0.5 %}#ff9f4322,#ff9f4308
+                {% else %}#ea545422,#ea545408{% endif %});">
+          <div class="card-body">
+            <div class="row g-3 align-items-center">
+              <div class="col-md-7 d-flex align-items-center gap-3">
+                <span class="avatar avatar-lg">
+                  <span class="avatar-initial rounded-circle bg-label-primary fs-4">
+                    {{ worker.user.first_name|first|upper }}{{ worker.user.last_name|first|upper }}
+                  </span>
+                </span>
+                <div>
+                  <h4 class="fw-bold mb-1">{{ worker.user.get_full_name|default:worker.user.username }}</h4>
+                  <div class="text-muted small">
+                    <span class="me-3"><i class="bx bx-user-voice"></i> {{ worker.position|default:'No position' }}</span>
+                    <span class="me-3"><i class="bx bx-building-house"></i> {{ worker.branch.name }}</span>
+                  </div>
+                  <div class="text-muted small mt-1">
+                    <i class="bx bx-calendar"></i> {{ on_date|date:"l, F j, Y" }}
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-5 text-md-end">
+                <div class="small text-muted">Final Score</div>
+                <div class="display-5 fw-bold mb-1
+                    {% if scorecard.final_score >= 0.8 %}text-success
+                    {% elif scorecard.final_score >= 0.5 %}text-warning
+                    {% else %}text-danger{% endif %}">
+                  {{ scorecard.final_score|percent:0 }}
+                </div>
+                <div class="progress mx-md-auto" style="height: 8px; max-width: 280px;">
+                  <div class="progress-bar
+                      {% if scorecard.final_score >= 0.8 %}bg-success
+                      {% elif scorecard.final_score >= 0.5 %}bg-warning
+                      {% else %}bg-danger{% endif %}"
+                    style="width: {{ score_pct|floatformat:0 }}%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endwith %}
+
+        {% if messages %}
+          {% for m in messages %}
+            <div class="alert alert-{{ m.tags|default:'info' }} alert-dismissible fade show">
+              {{ m }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        <form method="post" novalidate id="score-form">
+          {% csrf_token %}
+          <input type="hidden" name="date" value="{{ on_date|date:'Y-m-d' }}">
+
+          {% for group in grouped %}
+            <div class="card mb-4 shadow-sm">
+              <div class="card-header border-bottom bg-body d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                  <h6 class="mb-0">{{ group.category.name }}</h6>
+                  <small class="text-muted">
+                    Weight <span class="fw-semibold text-body">{{ group.category.weight|percent:0 }}</span>
+                    &nbsp;·&nbsp;
+                    Contributing <span class="fw-semibold text-body">{{ group.weighted|percent:1 }}</span> of final
+                  </small>
+                </div>
+                <div class="text-end" style="min-width: 200px;">
+                  <div class="d-flex align-items-center gap-2 justify-content-end">
+                    <div class="progress flex-grow-1" style="height: 6px; max-width: 140px;">
+                      <div class="progress-bar
+                          {% if group.pct >= 0.8 %}bg-success
+                          {% elif group.pct >= 0.5 %}bg-warning
+                          {% else %}bg-danger{% endif %}"
+                        style="width: {{ group.pct|mul:100|floatformat:0 }}%;"></div>
+                    </div>
+                    <span class="fw-bold small
+                        {% if group.pct >= 0.8 %}text-success
+                        {% elif group.pct >= 0.5 %}text-warning
+                        {% else %}text-danger{% endif %}">
+                      {{ group.pct|percent:0 }}
+                    </span>
+                  </div>
+                  <small class="text-muted">{{ group.awarded|floatformat:'-1' }} / {{ group.max|floatformat:'-1' }} pts</small>
+                </div>
+              </div>
+
+              <div class="card-body">
+                {% for entry in group.entries %}
+                  {% with crit_pct=entry.points_awarded|mul:100 %}
+                  <div class="row g-3 align-items-center py-2 {% if not forloop.last %}border-bottom{% endif %}">
+                    <div class="col-md-4">
+                      <div class="fw-semibold">{{ entry.criterion.name }}</div>
+                      <small class="text-muted">Max {{ entry.criterion.max_points|floatformat:'-1' }} pts</small>
+                    </div>
+
+                    <div class="col-md-3">
+                      <div class="input-group input-group-sm">
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="{{ entry.criterion.max_points }}"
+                          name="points_{{ entry.id }}"
+                          value="{{ entry.points_awarded|floatformat:'-2' }}"
+                          data-max="{{ entry.criterion.max_points }}"
+                          class="form-control points-input text-end fw-semibold"
+                        >
+                        <span class="input-group-text">/ {{ entry.criterion.max_points|floatformat:'-1' }}</span>
+                      </div>
+                      {% if entry.criterion.max_points > 0 %}
+                        <small class="text-muted d-block mt-1 text-end points-pct">
+                          {% widthratio entry.points_awarded entry.criterion.max_points 100 %}% of max
+                        </small>
+                      {% endif %}
+                    </div>
+
+                    <div class="col-md-5">
+                      <input
+                        type="text"
+                        name="reason_{{ entry.id }}"
+                        value="{{ entry.reason }}"
+                        placeholder="Reason (required when deducting)"
+                        class="form-control form-control-sm"
+                      >
+                      {% if entry.adjusted_by %}
+                        <small class="text-muted d-block mt-1">
+                          <i class="bx bx-time-five"></i>
+                          Last updated by {{ entry.adjusted_by.get_full_name|default:entry.adjusted_by.username }} · {{ entry.updated_at|date:"M j, H:i" }}
+                        </small>
+                      {% endif %}
+                    </div>
+                  </div>
+                  {% endwith %}
+                {% endfor %}
+              </div>
+            </div>
+          {% empty %}
+            <div class="card shadow-sm">
+              <div class="card-body text-center py-5">
+                <i class="bx bx-error-circle text-warning" style="font-size: 3rem;"></i>
+                <h6 class="mt-3 mb-1">No active criteria configured</h6>
+                <p class="text-muted small mb-0">
+                  Ask an admin to set up the scorecard structure before scoring workers.
+                </p>
+              </div>
+            </div>
+          {% endfor %}
+
+          {% if grouped %}
+            <div class="card mb-4 shadow-sm">
+              <div class="card-header border-bottom bg-body">
+                <h6 class="mb-0"><i class="bx bx-note me-1"></i> Notes</h6>
+              </div>
+              <div class="card-body">
+                <textarea name="notes" rows="3" class="form-control"
+                          placeholder="Optional notes for this day (e.g. 'Worker attended customer complaint well').">{{ scorecard.notes }}</textarea>
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mb-4">
+              <a href="{% url 'daily_scorecards' %}?date={{ on_date|date:'Y-m-d' }}" class="btn btn-outline-secondary">
+                Cancel
+              </a>
+              <button type="submit" class="btn btn-success">
+                <i class="bx bx-save me-1"></i> Save Scorecard
+              </button>
+            </div>
+          {% endif %}
+        </form>
+
+      </div>
+      {% include 'inc/footer.html' %}
+    </div>
+  </div>
+</div>
+
+<script>
+  // Live-update the "X% of max" hint next to each points input.
+  document.querySelectorAll('.points-input').forEach(function(inp) {
+    inp.addEventListener('input', function() {
+      var max = parseFloat(inp.getAttribute('data-max')) || 0;
+      var val = parseFloat(inp.value) || 0;
+      if (max <= 0) return;
+      var pct = Math.max(0, Math.min(100, (val / max) * 100));
+      var hint = inp.closest('.col-md-3').querySelector('.points-pct');
+      if (hint) hint.textContent = pct.toFixed(0) + '% of max';
+    });
+  });
+</script>
+{% endblock %}

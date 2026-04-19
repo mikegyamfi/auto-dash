@@ -29,12 +29,31 @@
     <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Close"></button>
   </div>
 {% endif %}
-          <h4 class="fw-bold py-3 mb-4">Dashboard - {{ branch.name }}</h4>
+          <h4 class="fw-bold py-3 mb-4">
+            Dashboard
+            <span class="text-muted fw-normal fs-5">
+              —
+              {% if is_all_branches_view %}
+                All Branches
+              {% else %}
+                {{ branch.name }}
+              {% endif %}
+            </span>
+          </h4>
 
 
           <form method="GET" class="row mb-4 g-3 align-items-end" id="dateRangeForm">
-  <!-- keep branch -->
-  <input type="hidden" name="branch_id" value="{{ branch.id }}">
+  {% if show_branch_selector %}
+    <div class="col-md-3">
+      <label for="branch_id" class="form-label">Branch</label>
+      <select name="branch_id" id="branch_id" class="form-control">
+        <option value="">All Branches</option>
+        {% for b in all_branches %}
+          <option value="{{ b.id }}" {% if branch and branch.id == b.id %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  {% endif %}
 
   <div class="col-md-3">
     <label for="start_date" class="form-label">Start Date</label>
@@ -80,110 +99,135 @@
           <!-- =========================== SERVICES SECTION =========================== -->
           <h5 class="mb-3">Services</h5>
 
-          <!-- First row of service cards -->
-          <div class="row mb-3">
-            <!-- Total Orders -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Total Orders</h6>
-                  <p class="display-6">{{ total_orders }}</p>
+          <!-- First row: service counts (.col auto-distributes, 7 always fit) -->
+          <div class="row g-2 mb-3 flex-nowrap">
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Total Orders</div>
+                  <div class="fs-4 fw-bold">{{ total_orders }}</div>
                 </div>
               </div>
             </div>
-            <!-- Completed Orders -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Completed Orders</h6>
-                  <p class="display-6">{{ completed_orders_count }}</p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Completed</div>
+                  <div class="fs-4 fw-bold">{{ completed_orders_count }}</div>
                 </div>
               </div>
             </div>
-            <!-- Pending Orders -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Pending Orders</h6>
-                  <p class="display-6">{{ pending_orders_count }}</p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Pending</div>
+                  <div class="fs-4 fw-bold">{{ pending_orders_count }}</div>
                 </div>
               </div>
             </div>
-            <!-- Canceled Orders -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Canceled Orders</h6>
-                  <p class="display-6">{{ canceled_orders_count }}</p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Canceled</div>
+                  <div class="fs-4 fw-bold">{{ canceled_orders_count }}</div>
                 </div>
               </div>
             </div>
-
-              <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">On Credit</h6>
-                  <p class="display-6">{{ on_credit_orders_count }}</p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">On Credit</div>
+                  <div class="fs-4 fw-bold">{{ on_credit_orders_count }}</div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Core Services</div>
+                  <div class="fs-4 fw-bold">{{ core_services_count }}</div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Other Services</div>
+                  <div class="fs-4 fw-bold">{{ other_services_count }}</div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Second row of service cards -->
-          <div class="row mb-2">
-            <!-- On Credit Orders -->
-            <!-- Revenue Today -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Revenue</h6>
-                  <p class="display-6">
-                    GHS {{ revenue_today|floatformat:2|intcomma }}
-                  </p>
+          <!-- Second row: money metrics (.col auto-distributes, 7 always fit) -->
+          <div class="row g-2 mb-4 flex-nowrap">
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Revenue</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ revenue_today|floatformat:2|intcomma }}">
+                    GHS {{ revenue_today|floatformat:0|intcomma }}
+                  </div>
                 </div>
               </div>
             </div>
-            <!-- Commission Today -->
-            <div class="col-md-3 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Commission</h6>
-                  <p class="display-6">
-                    GHS {{ total_commission|default:0|floatformat:2|intcomma }}
-                  </p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Commission</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ total_commission|default:0|floatformat:2|intcomma }}">
+                    GHS {{ total_commission|default:0|floatformat:0|intcomma }}
+                  </div>
                 </div>
               </div>
             </div>
-            <!-- Gross Sales -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Gross Sales</h6>
-                  <p class="display-6">
-                    GHS {{ gross_sales|default:0|floatformat:2|intcomma }}
-                  </p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Gross Sales</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ gross_sales|default:0|floatformat:2|intcomma }}">
+                    GHS {{ gross_sales|default:0|floatformat:0|intcomma }}
+                  </div>
                 </div>
               </div>
             </div>
-            <!-- Expenses Today -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Expenses</h6>
-                  <p class="display-6">
-                    GHS {{ expenses_today|floatformat:2|intcomma }}
-                  </p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Expenses</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ expenses_today|floatformat:2|intcomma }}">
+                    GHS {{ expenses_today|floatformat:0|intcomma }}
+                  </div>
                 </div>
               </div>
             </div>
-            <!-- Net Sales -->
-            <div class="col-md-2 col-sm-6 mb-4">
-              <div class="card">
-                <div class="card-body">
-                  <h6 class="card-title">Net Sales</h6>
-                  <p class="display-6">
-                    GHS {{ net_sales|default:0|floatformat:2|intcomma }}
-                  </p>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Net Sales</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ net_sales|default:0|floatformat:2|intcomma }}">
+                    GHS {{ net_sales|default:0|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Payments</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ payments_made|default:0|floatformat:2|intcomma }}">
+                    GHS {{ payments_made|default:0|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Gross Profit</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ gross_profit|default:0|floatformat:2|intcomma }}">
+                    GHS {{ gross_profit|default:0|floatformat:0|intcomma }}
+                  </div>
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@ from django.conf.urls.static import static
 from django.conf import settings
 from autodash_App import views
 from autodash_App.auth import auth_views
+from autodash_App.scorecard import scorecard_views
 from autodash_App.views import standalone_product_receipt, worker_commissions, enroll_worker, generate_report, \
     create_customer_page, create_vehicle_page
 
@@ -224,6 +225,14 @@ urlpatterns = [
                        name='worker_performance_mtd'),
                   path('reports/traffic-analysis/', views.traffic_analysis_report_view,
                        name='traffic_analysis_report'),
+
+                  # -------------------- Scorecard --------------------
+                  path('elevated/scorecard/setup/', scorecard_views.scorecard_structure,
+                       name='scorecard_structure'),
+                  path('elevated/scorecards/', scorecard_views.daily_scorecards,
+                       name='daily_scorecards'),
+                  path('elevated/scorecards/worker/<int:worker_id>/', scorecard_views.score_worker,
+                       name='score_worker'),
 
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 

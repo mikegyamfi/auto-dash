@@ -285,6 +285,13 @@
           </a>
         </li>
 
+        <li class="menu-item">
+          <a href="{% url 'daily_scorecards' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-award"></i>
+            <div data-i18n="Scorecards">Daily Scorecards</div>
+          </a>
+        </li>
+
         {% if request.user.is_superuser %}
           
           {% if not request.user|has_group:"GM" %}
@@ -414,6 +421,15 @@
                 </a>
               </li>
             </ul>
+          </li>
+          {% endif %}
+
+          {% if request.user.is_superuser and not request.user|has_group:"GM" %}
+          <li class="menu-item">
+            <a href="{% url 'scorecard_structure' %}" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-cog"></i>
+              <div data-i18n="Scorecard Setup">Scorecard Setup</div>
+            </a>
           </li>
           {% endif %}
 
