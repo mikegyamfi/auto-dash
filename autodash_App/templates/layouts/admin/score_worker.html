@@ -106,48 +106,87 @@
               </div>
 
               <div class="card-body">
-                {% for entry in group.entries %}
-                  {% with crit_pct=entry.points_awarded|mul:100 %}
+                {% for row in group.entries %}
+                  {% with entry=row.entry %}
                   <div class="row g-3 align-items-center py-2 {% if not forloop.last %}border-bottom{% endif %}">
                     <div class="col-md-4">
-                      <div class="fw-semibold">{{ entry.criterion.name }}</div>
-                      <small class="text-muted">Max {{ entry.criterion.max_points|floatformat:'-1' }} pts</small>
+                      <div class="fw-semibold">
+                        {{ entry.criterion.name }}
+                        {% if entry.criterion.is_auto %}
+                          <span class="badge bg-label-info ms-1" title="Auto-computed from actual work">
+                            <i class="bx bx-bot"></i> Auto
+                          </span>
+                        {% endif %}
+                      </div>
+                      <small class="text-muted">
+                        {% if entry.criterion.is_auto %}
+                          {{ row.auto_label }}: <span class="fw-semibold text-body">{{ row.actual }}</span>
+                          / target <span class="fw-semibold text-body">{{ row.target|floatformat:'-1' }}</span>
+                          {% if not row.target or row.target == 0 %}
+                            <span class="text-warning">(no target set — awarding full marks)</span>
+                          {% endif %}
+                        {% else %}
+                          Max {{ entry.criterion.max_points|floatformat:'-1' }} pts
+                        {% endif %}
+                      </small>
                     </div>
 
                     <div class="col-md-3">
-                      <div class="input-group input-group-sm">
-                        <input
-                          type="number"
-                          step="0.5"
-                          min="0"
-                          max="{{ entry.criterion.max_points }}"
-                          name="points_{{ entry.id }}"
-                          value="{{ entry.points_awarded|floatformat:'-2' }}"
-                          data-max="{{ entry.criterion.max_points }}"
-                          class="form-control points-input text-end fw-semibold"
-                        >
-                        <span class="input-group-text">/ {{ entry.criterion.max_points|floatformat:'-1' }}</span>
-                      </div>
-                      {% if entry.criterion.max_points > 0 %}
-                        <small class="text-muted d-block mt-1 text-end points-pct">
+                      {% if entry.criterion.is_auto %}
+                        <div class="input-group input-group-sm">
+                          <input
+                            type="text"
+                            value="{{ entry.points_awarded|floatformat:'-2' }}"
+                            class="form-control text-end fw-semibold bg-light"
+                            readonly
+                          >
+                          <span class="input-group-text">/ {{ entry.criterion.max_points|floatformat:'-1' }}</span>
+                        </div>
+                        <small class="text-muted d-block mt-1 text-end">
                           {% widthratio entry.points_awarded entry.criterion.max_points 100 %}% of max
                         </small>
+                      {% else %}
+                        <div class="input-group input-group-sm">
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            max="{{ entry.criterion.max_points }}"
+                            name="points_{{ entry.id }}"
+                            value="{{ entry.points_awarded|floatformat:'-2' }}"
+                            data-max="{{ entry.criterion.max_points }}"
+                            class="form-control points-input text-end fw-semibold"
+                          >
+                          <span class="input-group-text">/ {{ entry.criterion.max_points|floatformat:'-1' }}</span>
+                        </div>
+                        {% if entry.criterion.max_points > 0 %}
+                          <small class="text-muted d-block mt-1 text-end points-pct">
+                            {% widthratio entry.points_awarded entry.criterion.max_points 100 %}% of max
+                          </small>
+                        {% endif %}
                       {% endif %}
                     </div>
 
                     <div class="col-md-5">
-                      <input
-                        type="text"
-                        name="reason_{{ entry.id }}"
-                        value="{{ entry.reason }}"
-                        placeholder="Reason (required when deducting)"
-                        class="form-control form-control-sm"
-                      >
-                      {% if entry.adjusted_by %}
-                        <small class="text-muted d-block mt-1">
-                          <i class="bx bx-time-five"></i>
-                          Last updated by {{ entry.adjusted_by.get_full_name|default:entry.adjusted_by.username }} · {{ entry.updated_at|date:"M j, H:i" }}
+                      {% if entry.criterion.is_auto %}
+                        <small class="text-muted">
+                          <i class="bx bx-info-circle"></i>
+                          Auto-scored — can't be overridden. Set the worker's targets to change this.
                         </small>
+                      {% else %}
+                        <input
+                          type="text"
+                          name="reason_{{ entry.id }}"
+                          value="{{ entry.reason }}"
+                          placeholder="Reason (required when deducting)"
+                          class="form-control form-control-sm"
+                        >
+                        {% if entry.adjusted_by %}
+                          <small class="text-muted d-block mt-1">
+                            <i class="bx bx-time-five"></i>
+                            Last updated by {{ entry.adjusted_by.get_full_name|default:entry.adjusted_by.username }} · {{ entry.updated_at|date:"M j, H:i" }}
+                          </small>
+                        {% endif %}
                       {% endif %}
                     </div>
                   </div>

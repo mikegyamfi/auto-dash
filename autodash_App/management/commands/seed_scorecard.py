@@ -25,9 +25,11 @@ SCORECARD_STRUCTURE = [
         "weight": 0.40,
         "display_order": 1,
         "criteria": [
-            # The sheet computes "% Achievement" as Actual/Target. We model it
-            # as a single 0-100 criterion that GMs adjust.
-            {"name": "% Achievement", "max_points": 100.0, "display_order": 1},
+            # Two auto-computed criteria. Points are filled from the worker's
+            # actual orders / services vs their daily_orders_target /
+            # daily_services_target. GMs can't edit these manually.
+            {"name": "Total Orders",   "max_points": 100.0, "display_order": 1, "auto_source": "orders"},
+            {"name": "Total Services", "max_points": 100.0, "display_order": 2, "auto_source": "services"},
         ],
     },
     {
@@ -117,6 +119,7 @@ class Command(BaseCommand):
                         "max_points": crit_spec["max_points"],
                         "display_order": crit_spec["display_order"],
                         "active": True,
+                        "auto_source": crit_spec.get("auto_source", ""),
                     },
                 )
                 if crit_created:

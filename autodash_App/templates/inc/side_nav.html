@@ -434,6 +434,20 @@
           {% endif %}
 
           <li class="menu-item">
+            <a href="{% url 'scorecard_targets' %}" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-target-lock"></i>
+              <div data-i18n="Productivity Targets">Productivity Targets</div>
+            </a>
+          </li>
+
+          <li class="menu-item">
+            <a href="{% url 'scorecard_report' %}" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-line-chart"></i>
+              <div data-i18n="Scorecard Report">Scorecard Report</div>
+            </a>
+          </li>
+
+          <li class="menu-item">
             <a href="{% url 'maintenance_list' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-wrench"></i>
               <div data-i18n="Analytics">Maintenance Log</div>

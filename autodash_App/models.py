@@ -108,6 +108,10 @@ class Worker(models.Model):
     is_phone_number_approved = models.BooleanField(default=True)
     daily_commission = models.FloatField(default=0)
 
+    # Per-worker daily productivity targets (fed into the scorecard).
+    daily_orders_target = models.FloatField(default=0, help_text="Target number of service orders per day.")
+    daily_services_target = models.FloatField(default=0, help_text="Target number of services rendered per day.")
+
     def __str__(self):
         return f"{self.user.get_full_name()}  @ {self.branch.name}"
 
@@ -1200,6 +1204,16 @@ class ScorecardCategory(models.Model):
 
 class ScorecardCriterion(models.Model):
     """A sub-criterion under a category. Workers start each day at full max_points."""
+
+    AUTO_SOURCE_NONE = ""
+    AUTO_SOURCE_ORDERS = "orders"
+    AUTO_SOURCE_SERVICES = "services"
+    AUTO_SOURCE_CHOICES = [
+        (AUTO_SOURCE_NONE, "Manual (GM adjusts)"),
+        (AUTO_SOURCE_ORDERS, "Auto — Orders actual / target"),
+        (AUTO_SOURCE_SERVICES, "Auto — Services actual / target"),
+    ]
+
     category = models.ForeignKey(
         ScorecardCategory, on_delete=models.CASCADE, related_name="criteria"
     )
@@ -1211,6 +1225,10 @@ class ScorecardCriterion(models.Model):
     )
     display_order = models.PositiveIntegerField(default=0)
     active = models.BooleanField(default=True)
+    auto_source = models.CharField(
+        max_length=20, choices=AUTO_SOURCE_CHOICES, blank=True, default=AUTO_SOURCE_NONE,
+        help_text="If set, this criterion is auto-computed from actual work vs worker's target.",
+    )
 
     class Meta:
         ordering = ["category__display_order", "display_order", "name"]
@@ -1218,6 +1236,10 @@ class ScorecardCriterion(models.Model):
 
     def __str__(self):
         return f"{self.category.name} – {self.name}"
+
+    @property
+    def is_auto(self) -> bool:
+        return bool(self.auto_source)
 
 
 class DailyScorecard(models.Model):

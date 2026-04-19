@@ -229,10 +229,14 @@ urlpatterns = [
                   # -------------------- Scorecard --------------------
                   path('elevated/scorecard/setup/', scorecard_views.scorecard_structure,
                        name='scorecard_structure'),
+                  path('elevated/scorecard/targets/', scorecard_views.scorecard_targets,
+                       name='scorecard_targets'),
                   path('elevated/scorecards/', scorecard_views.daily_scorecards,
                        name='daily_scorecards'),
                   path('elevated/scorecards/worker/<int:worker_id>/', scorecard_views.score_worker,
                        name='score_worker'),
+                  path('elevated/scorecards/report/', scorecard_views.scorecard_report,
+                       name='scorecard_report'),
 
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 

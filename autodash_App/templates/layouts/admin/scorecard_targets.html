@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper container-xxl flex-grow-1 container-p-y">
+
+        <div class="d-flex align-items-center justify-content-between flex-wrap mb-4 gap-3">
+          <div>
+            <h4 class="fw-bold mb-1"><i class="bx bx-target-lock me-2 text-primary"></i>Productivity Targets</h4>
+            <small class="text-muted">
+              Daily targets per worker. Actuals pulled from real work feed the Productivity (40%) category automatically.
+            </small>
+          </div>
+        </div>
+
+        {% if messages %}
+          {% for m in messages %}
+            <div class="alert alert-{{ m.tags|default:'info' }} alert-dismissible fade show">
+              {{ m }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        {% if not hide_branch_selector %}
+        <form method="get" class="row g-2 align-items-end mb-3">
+          <div class="col-md-4">
+            <label class="form-label small text-muted">Branch</label>
+            <select name="branch" class="form-control form-control-sm">
+              <option value="">All branches</option>
+              {% for b in branches %}
+                <option value="{{ b.id }}" {% if selected_branch and selected_branch.id == b.id %}selected{% endif %}>
+                  {{ b.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-outline-primary btn-sm w-100">Filter</button>
+          </div>
+        </form>
+        {% endif %}
+
+        <form method="post">
+          {% csrf_token %}
+          <div class="card shadow-sm">
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 50px;">#</th>
+                    <th>Worker</th>
+                    <th>Position</th>
+                    <th>Branch</th>
+                    <th class="text-end" style="width: 180px;">Orders Target / Day</th>
+                    <th class="text-end" style="width: 180px;">Services Target / Day</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for w in workers %}
+                    <tr>
+                      <td class="text-muted">{{ forloop.counter }}</td>
+                      <td class="fw-semibold">{{ w.user.get_full_name|default:w.user.username }}</td>
+                      <td>{{ w.position|default:'—' }}</td>
+                      <td>{{ w.branch.name }}</td>
+                      <td class="text-end">
+                        <input type="number" step="1" min="0"
+                               name="orders_{{ w.id }}"
+                               value="{{ w.daily_orders_target|floatformat:'-2' }}"
+                               class="form-control form-control-sm text-end">
+                      </td>
+                      <td class="text-end">
+                        <input type="number" step="1" min="0"
+                               name="services_{{ w.id }}"
+                               value="{{ w.daily_services_target|floatformat:'-2' }}"
+                               class="form-control form-control-sm text-end">
+                      </td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="6" class="text-center text-muted py-4">No workers found.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {% if workers %}
+          <div class="d-flex justify-content-end mt-3">
+            <button type="submit" class="btn btn-success">
+              <i class="bx bx-save me-1"></i> Save Targets
+            </button>
+          </div>
+          {% endif %}
+        </form>
+
+      </div>
+      {% include 'inc/footer.html' %}
+    </div>
+  </div>
+</div>
+{% endblock %}
