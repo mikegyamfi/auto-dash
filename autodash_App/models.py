@@ -473,7 +473,8 @@ class ServiceRenderedOrder(models.Model):
             ('loyalty', 'Loyalty Points'),
             ('subscription', 'Subscription'),
             ('cash', 'Cash'),
-            ('momo', 'MoMo')
+            ('momo', 'MoMo'),
+            ('split', 'Cash + MoMo'),
         ],
         null=True,
         blank=True
@@ -504,6 +505,7 @@ class ServiceRenderedOrder(models.Model):
     loyalty_points_amount_deduction = models.FloatField(null=True,
                                                         blank=True)  # This shoes the amount that using the loyalty points saved the user which is useful for display on the receipt
     cash_paid = models.FloatField(null=True, blank=True, default=0.0)
+    momo_amount = models.FloatField(null=True, blank=True, default=0.0)
     is_walkin = models.BooleanField(default=False)
     walkin_name = models.CharField(max_length=150, null=True, blank=True)
     walkin_phone = models.CharField(max_length=20, null=True, blank=True)
@@ -689,7 +691,7 @@ class Revenue(models.Model):
 class Arrears(models.Model):
     """
     Tracks on-credit services (where final_amount wasn't paid by the customer).
-    Once paid, record date_paid.
+    Once paid, record date_paid and how the payment was split between cash / momo.
     """
     service_order = models.OneToOneField(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='arrears')
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='arrears')
@@ -697,6 +699,8 @@ class Arrears(models.Model):
     date_created = models.DateTimeField(auto_now_add=True)
     date_paid = models.DateTimeField(null=True, blank=True)
     is_paid = models.BooleanField(default=False)
+    paid_cash_amount = models.FloatField(default=0.0, help_text="Portion of arrears paid in cash.")
+    paid_momo_amount = models.FloatField(default=0.0, help_text="Portion of arrears paid via MoMo.")
 
     def __str__(self):
         return f"Arrears - {self.service_order.service_order_number} - Owed: {self.amount_owed}"

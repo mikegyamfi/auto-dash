@@ -122,6 +122,7 @@
                       <th>Branch</th>
                       <th>Status</th>
                       <th>Amount (GHS)</th>
+                      <th>Payment</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -212,6 +213,29 @@
                         </td>
 
                         <td>
+                          {% if item.record_type == 'core' %}
+                            {% if item.cash_paid or item.momo_amount %}
+                              <div class="small">
+                                {% if item.cash_paid %}
+                                  <span class="badge bg-label-success"><i class="bx bx-money"></i> {{ item.cash_paid|floatformat:2 }}</span>
+                                {% endif %}
+                                {% if item.momo_amount %}
+                                  <span class="badge bg-label-warning"><i class="bx bx-mobile"></i> {{ item.momo_amount|floatformat:2 }}</span>
+                                {% endif %}
+                              </div>
+                            {% elif item.subscription_amount_used %}
+                              <span class="badge bg-label-info">Subscription</span>
+                            {% elif item.loyalty_points_amount_deduction %}
+                              <span class="badge bg-label-primary">Loyalty</span>
+                            {% else %}
+                              <span class="text-muted small">—</span>
+                            {% endif %}
+                          {% else %}
+                            <span class="text-muted small">—</span>
+                          {% endif %}
+                        </td>
+
+                        <td>
                           <div class="dropdown">
                             <button type="button" class="btn p-0 dropdown-toggle hide-arrow" data-bs-toggle="dropdown">
                               <i class="bx bx-dots-vertical-rounded"></i>
@@ -233,10 +257,7 @@
                         </td>
 
                       </tr>
-                    {% empty %}
-                      <tr>
-                        <td colspan="10" class="text-center py-4">No service history found for the selected criteria.</td>
-                      </tr>
+
                     {% endfor %}
                   </tbody>
                 </table>

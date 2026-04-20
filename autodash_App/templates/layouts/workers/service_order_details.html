@@ -39,6 +39,32 @@
                   <p><strong>Discount Value:</strong> GHS{{ service_order.discount_value }}</p>
                   <p><strong>Discount Type:</strong> {{ service_order.discount_type }}</p>
                   <p><strong>Final Amount:</strong> GHS{{ service_order.final_amount }}</p>
+
+                  <div class="mb-2">
+                    <strong>Payment Breakdown:</strong>
+                    <ul class="list-unstyled ms-3 mb-0">
+                      {% if service_order.subscription_amount_used %}
+                        <li><i class="bx bx-card text-info me-1"></i>
+                          Subscription: <strong>GHS {{ service_order.subscription_amount_used|floatformat:2 }}</strong></li>
+                      {% endif %}
+                      {% if service_order.loyalty_points_amount_deduction %}
+                        <li><i class="bx bx-star text-primary me-1"></i>
+                          Loyalty: <strong>GHS {{ service_order.loyalty_points_amount_deduction|floatformat:2 }}</strong></li>
+                      {% endif %}
+                      {% if service_order.cash_paid %}
+                        <li><i class="bx bx-money text-success me-1"></i>
+                          Cash: <strong>GHS {{ service_order.cash_paid|floatformat:2 }}</strong></li>
+                      {% endif %}
+                      {% if service_order.momo_amount %}
+                        <li><i class="bx bx-mobile text-warning me-1"></i>
+                          MoMo: <strong>GHS {{ service_order.momo_amount|floatformat:2 }}</strong></li>
+                      {% endif %}
+                      {% if not service_order.subscription_amount_used and not service_order.loyalty_points_amount_deduction and not service_order.cash_paid and not service_order.momo_amount %}
+                        <li class="text-muted">No payment recorded yet.</li>
+                      {% endif %}
+                    </ul>
+                  </div>
+
                   <p><strong>Customer Feedback:</strong> {{ service_order.customer_feedback }}</p>
                   <p><strong>Customer Rating:</strong>
                     {% if service_order.customer_rating %}

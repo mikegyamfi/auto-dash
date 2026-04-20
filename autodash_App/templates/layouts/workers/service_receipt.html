@@ -170,9 +170,18 @@
           GHS {{ service_order.loyalty_points_amount_deduction|floatformat:2 }}</p>
       {% endif %}
 
-      {% if service_order.cash_paid %}
-        <p class="mb-1"><strong>Cash Paid:</strong>
-          GHS {{ service_order.cash_paid|floatformat:2 }}</p>
+      {% if service_order.cash_paid or service_order.momo_amount %}
+        <p class="mb-1"><strong>Payment Breakdown:</strong></p>
+        <ul class="list-unstyled ps-3 mb-2">
+          {% if service_order.cash_paid %}
+            <li class="mb-0"><i class="bx bx-money me-1 text-success"></i>
+              Cash: <strong>GHS {{ service_order.cash_paid|floatformat:2 }}</strong></li>
+          {% endif %}
+          {% if service_order.momo_amount %}
+            <li class="mb-0"><i class="bx bx-mobile me-1 text-warning"></i>
+              MoMo: <strong>GHS {{ service_order.momo_amount|floatformat:2 }}</strong></li>
+          {% endif %}
+        </ul>
       {% endif %}
 
       <p class="mb-1"><strong>Final Amount Paid:</strong>

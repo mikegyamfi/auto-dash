@@ -784,6 +784,10 @@ def confirm_service(request, pk):
             cash_due = negotiated_p - sub_cover
             total_cash_est += cash_due
 
+            # Detect whether loyalty was previously applied to this service
+            # so the checkbox can be pre-checked on re-open.
+            prev_used_loyalty = "loyalty" in (sr.payment_type or "").lower()
+
             covered_details.append({
                 "service_id": sr.id,
                 "service_name": sr.service.service_type,
@@ -797,7 +801,13 @@ def confirm_service(request, pk):
                         not is_walkin and customer and
                         0 < sr.service.loyalty_points_required <= loyalty_pts
                 ),
+                "loyalty_previously_used": prev_used_loyalty,
             })
+
+        # Previously-saved payment split (so re-opening shows what was stored).
+        saved_cash = float(order.cash_paid or 0)
+        saved_momo = float(order.momo_amount or 0)
+        has_saved_payment = (saved_cash + saved_momo) > 0
 
         return render(
             request,
@@ -813,6 +823,12 @@ def confirm_service(request, pk):
                 "sub_expires": cust_sub.end_date if cust_sub else None,
                 "loyalty_points": loyalty_pts,
                 "is_walkin": is_walkin,
+
+                # Pre-populated from previous save (falls back to defaults in template).
+                "saved_cash": saved_cash,
+                "saved_momo": saved_momo,
+                "has_saved_payment": has_saved_payment,
+                "was_previously_saved": order.status in ("completed", "onCredit") or has_saved_payment,
             },
         )
 
@@ -961,17 +977,14 @@ def confirm_service(request, pk):
                 )
         leftover -= loy_cov
 
-        # cash / momo distinction
+        # cash / momo distinction — decided per-ORDER, not per-service.
+        # We'll allocate the actual amounts after this loop using cash_amount
+        # and momo_amount from the form.
         if leftover > 0:
-            pay_method = (request.POST.get(f"pay_method_{sr.id}", "cash") or "cash").lower()
-            cash_label = "Momo" if pay_method == "momo" else "Cash"
-            try:
-                order.payment_method = pay_method
-                order.save()
-            except Exception as e:
-                pass
-            parts.append(cash_label)
             cash_total += leftover
+            # Placeholder label; will be overwritten with the final split
+            # label after we know the order-level breakdown.
+            parts.append("Payment")
 
         seen = set()
         unique_parts = []
@@ -1018,11 +1031,57 @@ def confirm_service(request, pk):
     const_final_cash = max(0.0, cash_total - disc_amt)
     final_cash = const_final_cash
 
+    # 5b. cash / momo split from the form. Accept only if order is completed
+    # (on-credit orders don't have a payment yet — that happens at arrears time).
+    cash_part = 0.0
+    momo_part = 0.0
+    if new_status == "completed" and final_cash > 0:
+        try:
+            cash_part = max(0.0, float(request.POST.get("cash_amount", "0") or 0))
+        except ValueError:
+            cash_part = 0.0
+        try:
+            momo_part = max(0.0, float(request.POST.get("momo_amount", "0") or 0))
+        except ValueError:
+            momo_part = 0.0
+
+        total_entered = cash_part + momo_part
+        # If they entered nothing, default to all cash. If they overpaid or
+        # underpaid, normalise proportionally so the stored amounts always
+        # sum to final_cash (prevents drift between fields and receipt total).
+        if total_entered <= 0:
+            cash_part, momo_part = final_cash, 0.0
+        elif abs(total_entered - final_cash) > 0.01:
+            scale = final_cash / total_entered
+            cash_part = round(cash_part * scale, 2)
+            momo_part = round(final_cash - cash_part, 2)
+
+        # Decide payment_method label for the order.
+        if cash_part > 0 and momo_part > 0:
+            order.payment_method = "split"
+        elif momo_part > 0:
+            order.payment_method = "momo"
+        else:
+            order.payment_method = "cash"
+
+        # Update per-service payment_type label to reflect what really happened.
+        if cash_part > 0 and momo_part > 0:
+            split_label = "Cash + MoMo"
+        elif momo_part > 0:
+            split_label = "MoMo"
+        else:
+            split_label = "Cash"
+        for sr in sr_list:
+            if sr.payment_type and "Payment" in sr.payment_type:
+                sr.payment_type = sr.payment_type.replace("Payment", split_label)
+                sr.save(update_fields=["payment_type"])
+
     # 6. finalise order totals
     order.subscription_amount_used = used_sub_total
     order.loyalty_points_used = used_loyalty_pts
     order.loyalty_points_amount_deduction = loyalty_cover
-    order.cash_paid = final_cash
+    order.cash_paid = cash_part if new_status == "completed" else 0.0
+    order.momo_amount = momo_part if new_status == "completed" else 0.0
     order.discount_type = d_type
     order.discount_value = d_val
     order.final_amount = final_cash
@@ -1049,6 +1108,7 @@ def confirm_service(request, pk):
                          (order.subscription_amount_used or 0)
                          + (order.loyalty_points_amount_deduction or 0)
                          + (order.cash_paid or 0)
+                         + (order.momo_amount or 0)
                  ) / max(order.total_amount, 1.0)
     for sr in sr_list:
         sr.allocate_commission(discount_factor=factor)
@@ -3993,6 +4053,7 @@ def mark_arrears_as_paid(request, arrears_id):
     """
     Marks the given Arrears record as paid.
     - Sets is_paid=True, date_paid=now
+    - Records how the payment was split between cash and MoMo
     - Creates a Revenue record for the current date with amount=arrears.amount_owed
     - Sends an SMS to the customer indicating the arrears are cleared.
     - Only workers from the same branch or staff can mark it as paid.
@@ -4017,14 +4078,39 @@ def mark_arrears_as_paid(request, arrears_id):
         messages.info(request, "This arrears is already marked as paid.")
         return redirect('arrears_list')
 
-    # Mark as paid
+    # Parse the cash / momo split from the form. Fallback: treat the full amount
+    # as cash if neither is provided (keeps old links working).
+    total_owed = float(arrears.amount_owed or 0)
+    try:
+        cash_part = max(0.0, float(request.POST.get("cash_amount", "0") or 0))
+    except (TypeError, ValueError):
+        cash_part = 0.0
+    try:
+        momo_part = max(0.0, float(request.POST.get("momo_amount", "0") or 0))
+    except (TypeError, ValueError):
+        momo_part = 0.0
+
+    total_entered = cash_part + momo_part
+    if total_entered <= 0:
+        # No split supplied → legacy path, treat as all cash.
+        cash_part, momo_part = total_owed, 0.0
+    elif abs(total_entered - total_owed) > 0.01:
+        # Normalise so the split sums to the amount owed.
+        scale = total_owed / total_entered
+        cash_part = round(cash_part * scale, 2)
+        momo_part = round(total_owed - cash_part, 2)
+
+    # Mark as paid with the recorded split
     arrears.is_paid = True
     arrears.date_paid = timezone.now()
+    arrears.paid_cash_amount = cash_part
+    arrears.paid_momo_amount = momo_part
     arrears.save()
 
-    # Create a Revenue record for the day it's paid
+    # Create the Revenue row first. The ServiceRenderedOrder post_save signal
+    # below will pick this up via update_or_create, preventing a duplicate.
     Revenue.objects.create(
-        service_rendered=arrears.service_order,  # Optionally link back to the ServiceRenderedOrder
+        service_rendered=arrears.service_order,
         branch=arrears.branch,
         amount=arrears.amount_owed,
         final_amount=arrears.amount_owed,
@@ -4032,8 +4118,17 @@ def mark_arrears_as_paid(request, arrears_id):
         date=timezone.now().date(),
     )
 
-    # Send an SMS to the customer if a phone number is available
+    # Mirror the split onto the underlying service order so it shows in
+    # receipts / history the same way a normal completed order would.
     service_order = arrears.service_order
+    service_order.cash_paid = cash_part
+    service_order.momo_amount = momo_part
+    if cash_part > 0 and momo_part > 0:
+        service_order.payment_method = "split"
+    elif momo_part > 0:
+        service_order.payment_method = "momo"
+    else:
+        service_order.payment_method = "cash"
     service_order.status = "completed"
     service_order.save()
     if service_order and service_order.customer and service_order.customer.user.phone_number:
@@ -4079,6 +4174,13 @@ def arrears_details(request, arrears_id):
         'final_amount': service_order.final_amount,
         'status': service_order.status,
         'payment_method': service_order.payment_method or 'N/A',
+        'cash_paid': float(service_order.cash_paid or 0),
+        'momo_amount': float(service_order.momo_amount or 0),
+        'subscription_amount_used': float(service_order.subscription_amount_used or 0),
+        'loyalty_amount': float(service_order.loyalty_points_amount_deduction or 0),
+        'arrears_paid_cash': float(arrears.paid_cash_amount or 0),
+        'arrears_paid_momo': float(arrears.paid_momo_amount or 0),
+        'arrears_is_paid': arrears.is_paid,
         'vehicle': None,
         'workers': [],
         'services': [],

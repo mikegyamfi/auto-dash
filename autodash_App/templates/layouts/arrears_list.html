@@ -88,13 +88,18 @@
                           <td>
                             <div class="d-flex flex-wrap gap-2">
                               {% if not arr.is_paid %}
-                                <a
-                                  href="{% url 'mark_arrears_as_paid' arr.id %}"
-                                  class="btn btn-sm btn-primary"
-                                  onclick="return confirm('Mark this arrears as paid?');"
+                                <button
+                                  type="button"
+                                  class="btn btn-sm btn-primary open-pay-modal"
+                                  data-bs-toggle="modal"
+                                  data-bs-target="#arrearsPayModal"
+                                  data-arrears-id="{{ arr.id }}"
+                                  data-amount="{{ arr.amount_owed|floatformat:2 }}"
+                                  data-action="{% url 'mark_arrears_as_paid' arr.id %}"
+                                  data-order="{{ arr.service_order.service_order_number }}"
                                 >
-                                  Mark as Paid
-                                </a>
+                                  <i class="bx bx-check-circle me-1"></i> Mark as Paid
+                                </button>
                                 <a
                                   href="{% url 'send_arrears_reminder' arr.id %}"
                                   class="btn btn-sm btn-warning"
@@ -158,6 +163,11 @@
         <p><strong>Payment Method:</strong> <span id="detail-payment-method"></span></p>
         <p><strong>Final Amount:</strong> GHS <span id="detail-final-amount"></span></p>
 
+        <h6 class="mt-3">Payment Breakdown</h6>
+        <ul id="detail-payment-breakdown" class="list-unstyled ms-3 mb-3">
+          <li class="text-muted">No payment recorded yet.</li>
+        </ul>
+
         <h6>Vehicle Info</h6>
         <p id="vehicle-info"></p>
 
@@ -179,6 +189,62 @@
   </div>
 </div>
 <!-- / Modal -->
+
+<!-- Modal: split-payment for marking arrears as paid -->
+<div class="modal fade" id="arrearsPayModal" tabindex="-1" aria-labelledby="arrearsPayModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="pay-arrears-form">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="arrearsPayModalLabel"><i class="bx bx-wallet me-1"></i> Record Arrears Payment</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3 text-muted small">
+            Order <span id="pay-order-number" class="fw-semibold text-body"></span> &middot;
+            Amount owed <span class="fw-semibold text-body">GHS <span id="pay-owed"></span></span>
+          </div>
+
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">Cash (GHS)</label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="bx bx-money"></i></span>
+                <input type="number" step="0.01" min="0" name="cash_amount" id="pay-cash" class="form-control" value="0.00">
+              </div>
+            </div>
+            <div class="col-6">
+              <label class="form-label">MoMo (GHS)</label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="bx bx-mobile"></i></span>
+                <input type="number" step="0.01" min="0" name="momo_amount" id="pay-momo" class="form-control" value="0.00">
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-3 d-flex justify-content-between align-items-center">
+            <div class="btn-group btn-group-sm" role="group">
+              <button type="button" class="btn btn-outline-secondary" id="pay-all-cash">All Cash</button>
+              <button type="button" class="btn btn-outline-secondary" id="pay-all-momo">All MoMo</button>
+              <button type="button" class="btn btn-outline-secondary" id="pay-5050">50 / 50</button>
+            </div>
+            <div class="text-end">
+              <div class="small text-muted">Total entered</div>
+              <div class="fw-bold">GHS <span id="pay-total">0.00</span></div>
+            </div>
+          </div>
+          <div id="pay-status" class="small mt-2"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="pay-submit"><i class="bx bx-check me-1"></i> Record Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- / Arrears pay modal -->
 
 {% endblock %}
 
@@ -203,6 +269,36 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('detail-status').textContent = orderData.status;
             document.getElementById('detail-payment-method').textContent = orderData.payment_method;
             document.getElementById('detail-final-amount').textContent = parseFloat(orderData.final_amount).toFixed(2);
+
+            // Payment breakdown (subscription / loyalty / cash / momo)
+            const breakdownEl = document.getElementById('detail-payment-breakdown');
+            breakdownEl.innerHTML = '';
+            const lines = [];
+            if ((orderData.subscription_amount_used || 0) > 0) {
+              lines.push(`<li><i class="bx bx-card text-info me-1"></i> Subscription: <strong>GHS ${orderData.subscription_amount_used.toFixed(2)}</strong></li>`);
+            }
+            if ((orderData.loyalty_amount || 0) > 0) {
+              lines.push(`<li><i class="bx bx-star text-primary me-1"></i> Loyalty: <strong>GHS ${orderData.loyalty_amount.toFixed(2)}</strong></li>`);
+            }
+            if ((orderData.cash_paid || 0) > 0) {
+              lines.push(`<li><i class="bx bx-money text-success me-1"></i> Cash: <strong>GHS ${orderData.cash_paid.toFixed(2)}</strong></li>`);
+            }
+            if ((orderData.momo_amount || 0) > 0) {
+              lines.push(`<li><i class="bx bx-mobile text-warning me-1"></i> MoMo: <strong>GHS ${orderData.momo_amount.toFixed(2)}</strong></li>`);
+            }
+            if (orderData.arrears_is_paid &&
+                ((orderData.arrears_paid_cash || 0) > 0 || (orderData.arrears_paid_momo || 0) > 0)) {
+              lines.push(`<li class="mt-2 pt-2 border-top small text-muted">Arrears settled via:</li>`);
+              if ((orderData.arrears_paid_cash || 0) > 0) {
+                lines.push(`<li><i class="bx bx-money text-success me-1"></i> Cash: <strong>GHS ${orderData.arrears_paid_cash.toFixed(2)}</strong></li>`);
+              }
+              if ((orderData.arrears_paid_momo || 0) > 0) {
+                lines.push(`<li><i class="bx bx-mobile text-warning me-1"></i> MoMo: <strong>GHS ${orderData.arrears_paid_momo.toFixed(2)}</strong></li>`);
+              }
+            }
+            breakdownEl.innerHTML = lines.length
+              ? lines.join('')
+              : '<li class="text-muted">No payment recorded yet.</li>';
 
             // Vehicle
             const vehicleDiv = document.getElementById('vehicle-info');
@@ -245,6 +341,80 @@ document.addEventListener('DOMContentLoaded', function() {
           alert("Error fetching details. Please try again.");
         });
     });
+  });
+
+});
+
+// Arrears "Mark as Paid" modal — isolated so any error in the details
+// block above can't block it. Uses Bootstrap's declarative data-bs-toggle
+// + show.bs.modal event, so the modal opens even if this JS fails.
+document.addEventListener('DOMContentLoaded', function () {
+  const payModalEl = document.getElementById('arrearsPayModal');
+  if (!payModalEl) return;
+
+  const payForm  = document.getElementById('pay-arrears-form');
+  const cashEl   = document.getElementById('pay-cash');
+  const momoEl   = document.getElementById('pay-momo');
+  const totalEl  = document.getElementById('pay-total');
+  const statusEl = document.getElementById('pay-status');
+  const submitBtn = document.getElementById('pay-submit');
+  let currentOwed = 0;
+
+  function refreshTotals() {
+    const c = parseFloat(cashEl.value) || 0;
+    const m = parseFloat(momoEl.value) || 0;
+    const t = c + m;
+    totalEl.textContent = t.toFixed(2);
+    const diff = +(t - currentOwed).toFixed(2);
+    if (Math.abs(diff) < 0.01) {
+      statusEl.textContent = '✓ Matches amount owed.';
+      statusEl.className = 'small mt-2 text-success fw-semibold';
+      submitBtn.disabled = false;
+    } else if (diff > 0) {
+      statusEl.textContent = 'Over by GHS ' + diff.toFixed(2);
+      statusEl.className = 'small mt-2 text-danger fw-semibold';
+      submitBtn.disabled = true;
+    } else {
+      statusEl.textContent = 'Short by GHS ' + (-diff).toFixed(2);
+      statusEl.className = 'small mt-2 text-danger fw-semibold';
+      submitBtn.disabled = true;
+    }
+  }
+
+  // Fires when Bootstrap is about to show the modal. relatedTarget is the
+  // button that triggered it — that's where our data-attrs live.
+  payModalEl.addEventListener('show.bs.modal', function (event) {
+    const btn = event.relatedTarget;
+    if (!btn) return;
+    currentOwed = parseFloat(btn.dataset.amount) || 0;
+    payForm.setAttribute('action', btn.dataset.action || '');
+    document.getElementById('pay-order-number').textContent = btn.dataset.order || '—';
+    document.getElementById('pay-owed').textContent = currentOwed.toFixed(2);
+    cashEl.value = currentOwed.toFixed(2);
+    momoEl.value = '0.00';
+    refreshTotals();
+  });
+
+  cashEl.addEventListener('input', refreshTotals);
+  momoEl.addEventListener('input', refreshTotals);
+  const allCash = document.getElementById('pay-all-cash');
+  const allMomo = document.getElementById('pay-all-momo');
+  const fifty   = document.getElementById('pay-5050');
+  if (allCash) allCash.addEventListener('click', () => {
+    cashEl.value = currentOwed.toFixed(2);
+    momoEl.value = '0.00';
+    refreshTotals();
+  });
+  if (allMomo) allMomo.addEventListener('click', () => {
+    cashEl.value = '0.00';
+    momoEl.value = currentOwed.toFixed(2);
+    refreshTotals();
+  });
+  if (fifty) fifty.addEventListener('click', () => {
+    const half = currentOwed / 2;
+    cashEl.value = half.toFixed(2);
+    momoEl.value = half.toFixed(2);
+    refreshTotals();
   });
 });
 </script>
