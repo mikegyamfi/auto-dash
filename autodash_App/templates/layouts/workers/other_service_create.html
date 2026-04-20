@@ -15,6 +15,20 @@
             <div class="card-body">
               <form method="post" class="row g-3">
                 {% csrf_token %}
+
+                {% if show_branch %}
+                  <div class="col-12">
+                    <label class="form-label fw-semibold">
+                      Branch <span class="text-danger">*</span>
+                    </label>
+                    {{ form.branch }}
+                    <small class="text-muted">You're logging as an admin — pick the branch this service belongs to.</small>
+                    {% if form.branch.errors %}
+                      <div class="text-danger small mt-1">{{ form.branch.errors|join:", " }}</div>
+                    {% endif %}
+                  </div>
+                {% endif %}
+
                 <div class="col-md-6">
                   <label class="form-label">Service name</label>
                   {{ form.service_name }}

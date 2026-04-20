@@ -843,8 +843,9 @@ class CustomerVehicleForm(forms.ModelForm):
 class OtherServiceForm(forms.ModelForm):
     class Meta:
         model = OtherService
-        fields = ["service_name", "amount", "contact_name", "contact_phone", "notes", "status", "workers"]
+        fields = ["branch", "service_name", "amount", "contact_name", "contact_phone", "notes", "status", "workers"]
         widgets = {
+            "branch": forms.Select(attrs={"class": "form-select"}),
             "service_name": forms.TextInput(attrs={"class": "form-control"}),
             "amount": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
             "contact_name": forms.TextInput(attrs={"class": "form-control"}),
@@ -856,12 +857,26 @@ class OtherServiceForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         branch = kwargs.pop("branch", None)
+        # show_branch=True lets admins/GMs pick any branch on the form;
+        # for plain workers the branch is inferred from their worker profile.
+        show_branch = kwargs.pop("show_branch", False)
         super().__init__(*args, **kwargs)
-        # limit workers to current worker's branch (if provided)
-        if branch is not None:
-            self.fields["workers"].queryset = Worker.objects.filter(branch=branch)
+
+        if show_branch:
+            # Admin / GM / branch-admin / superuser: force a branch choice and
+            # expose all workers so they can log on any branch's behalf.
+            self.fields["branch"].required = True
+            self.fields["branch"].queryset = Branch.objects.all()
+            self.fields["workers"].queryset = Worker.objects.select_related(
+                "user", "branch"
+            ).order_by("branch__name", "user__first_name")
         else:
-            self.fields["workers"].queryset = Worker.objects.none()
+            # Regular worker — branch is fixed by their profile, hide the field.
+            self.fields.pop("branch", None)
+            if branch is not None:
+                self.fields["workers"].queryset = Worker.objects.filter(branch=branch)
+            else:
+                self.fields["workers"].queryset = Worker.objects.none()
 
 
 class MaintenanceLogForm(forms.ModelForm):

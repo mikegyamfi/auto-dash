@@ -14,8 +14,47 @@
   <div class="menu-inner-shadow"></div>
   <ul class="menu-inner py-1">
 
+    {# ----- Product Management group: product-only nav (overrides everything else) ----- #}
+    {% if request.user|has_group:"Product Management" and not request.user.is_superuser %}
+      <li class="menu-item active">
+        <a href="{% url 'product_dashboard' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bx-package"></i>
+          <div data-i18n="Dashboard">Dashboard</div>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="{% url 'product_management_list' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bx-box"></i>
+          <div data-i18n="Manage Products">Manage Products</div>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="{% url 'sell_product' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bx-cart-alt"></i>
+          <div data-i18n="Sell Product">Sell Product</div>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="{% url 'product_sales_report' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bx-line-chart"></i>
+          <div data-i18n="Product Sales Report">Sales Report</div>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="{% url 'product_report' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bxs-report"></i>
+          <div data-i18n="Product Report">Detailed Report</div>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="{% url 'product_stock_report' %}" class="menu-link">
+          <i class="menu-icon tf-icons bx bx-clipboard"></i>
+          <div data-i18n="Stock Audit">Stock Audit</div>
+        </a>
+      </li>
+
     {# ------------------ Customer ------------------ #}
-    {% if request.user.role == "customer" %}
+    {% elif request.user.role == "customer" %}
       <li class="menu-item active">
         <a href="{% url 'customer_dashboard' %}" class="menu-link">
           <i class="menu-icon tf-icons bx bx-home-circle"></i>

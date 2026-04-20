@@ -226,6 +226,9 @@ urlpatterns = [
                   path('reports/traffic-analysis/', views.traffic_analysis_report_view,
                        name='traffic_analysis_report'),
 
+                  # -------------------- Product Management group --------------------
+                  path('products/dashboard/', views.product_dashboard, name='product_dashboard'),
+
                   # -------------------- Scorecard --------------------
                   path('elevated/scorecard/setup/', scorecard_views.scorecard_structure,
                        name='scorecard_structure'),

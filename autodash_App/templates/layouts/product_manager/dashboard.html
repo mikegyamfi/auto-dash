@@ -1,0 +1,219 @@
+{% extends 'base.html' %}
+{% load static humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper container-xxl flex-grow-1 container-p-y">
+
+        <!-- Header -->
+        <div class="d-flex align-items-center justify-content-between flex-wrap mb-4 gap-3">
+          <div>
+            <h4 class="fw-bold mb-1"><i class="bx bx-package me-2 text-primary"></i>Product Dashboard</h4>
+            <small class="text-muted">
+              {% if branch %}{{ branch.name }}{% else %}All branches{% endif %}
+              &nbsp;·&nbsp;
+              {{ start_dt|date:"M j, Y" }} → {{ end_dt|date:"M j, Y" }}
+            </small>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <form method="get" class="row g-3 align-items-end mb-4" id="dateRangeForm">
+          {% if show_branch_selector %}
+            <div class="col-md-3">
+              <label class="form-label small text-muted">Branch</label>
+              <select name="branch_id" class="form-control">
+                <option value="">All branches</option>
+                {% for b in branches %}
+                  <option value="{{ b.id }}" {% if branch and branch.id == b.id %}selected{% endif %}>{{ b.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          {% endif %}
+          <div class="col-md-3">
+            <label class="form-label small text-muted">Start Date</label>
+            <input type="date" name="start_date" value="{{ start_date_str }}" id="start_date" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-muted">End Date</label>
+            <input type="date" name="end_date" value="{{ end_date_str }}" id="end_date" class="form-control">
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="bx bx-filter-alt me-1"></i> Filter
+            </button>
+          </div>
+          <div class="col-md-1">
+            <button type="button" id="todayButton" class="btn btn-outline-secondary w-100">Today</button>
+          </div>
+        </form>
+
+        <!-- Revenue / Cost / Profit -->
+        <h5 class="fw-bold mb-3">Revenue</h5>
+        <div class="row g-3 mb-4">
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="d-flex align-items-center gap-3">
+                  <span class="avatar">
+                    <span class="avatar-initial rounded bg-label-success"><i class="bx bx-dollar fs-4"></i></span>
+                  </span>
+                  <div>
+                    <div class="text-muted small">Sales</div>
+                    <div class="fs-4 fw-bold text-success">GHS {{ total_revenue|floatformat:2|intcomma }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="d-flex align-items-center gap-3">
+                  <span class="avatar">
+                    <span class="avatar-initial rounded bg-label-warning"><i class="bx bx-money-withdraw fs-4"></i></span>
+                  </span>
+                  <div>
+                    <div class="text-muted small">Cost</div>
+                    <div class="fs-4 fw-bold text-warning">GHS {{ total_cost|floatformat:2|intcomma }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="d-flex align-items-center gap-3">
+                  <span class="avatar">
+                    <span class="avatar-initial rounded {% if profit >= 0 %}bg-label-primary{% else %}bg-label-danger{% endif %}">
+                      <i class="bx bx-trending-up fs-4"></i>
+                    </span>
+                  </span>
+                  <div>
+                    <div class="text-muted small">Profit</div>
+                    <div class="fs-4 fw-bold {% if profit >= 0 %}text-primary{% else %}text-danger{% endif %}">
+                      GHS {{ profit|floatformat:2|intcomma }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sales Volumes -->
+        <h5 class="fw-bold mb-3">Sales Volumes</h5>
+        <div class="row g-3 mb-4">
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="text-muted small">Car Care</div>
+                <div class="fs-3 fw-bold">
+                  {% if car_care %}{{ car_care.qty|intcomma }}{% else %}0{% endif %}
+                </div>
+                <small class="text-muted">units sold</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="text-muted small">Cold Drinks</div>
+                <div class="fs-3 fw-bold">
+                  {% if cold_drinks %}{{ cold_drinks.qty|intcomma }}{% else %}0{% endif %}
+                </div>
+                <small class="text-muted">units sold</small>
+              </div>
+            </div>
+          </div>
+
+          {% for cat in other_categories %}
+            <div class="col-md-4 col-sm-6">
+              <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                  <div class="text-muted small">{{ cat.name }}</div>
+                  <div class="fs-3 fw-bold">{{ cat.qty|intcomma }}</div>
+                  <small class="text-muted">units sold</small>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <!-- Sales Values -->
+        <h5 class="fw-bold mb-3">Sales Values</h5>
+        <div class="row g-3 mb-4">
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="text-muted small">Car Care</div>
+                <div class="fs-3 fw-bold text-success">
+                  GHS {% if car_care %}{{ car_care.value|floatformat:2|intcomma }}{% else %}0.00{% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="text-muted small">Cold Drinks</div>
+                <div class="fs-3 fw-bold text-success">
+                  GHS {% if cold_drinks %}{{ cold_drinks.value|floatformat:2|intcomma }}{% else %}0.00{% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {% for cat in other_categories %}
+            <div class="col-md-4 col-sm-6">
+              <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                  <div class="text-muted small">{{ cat.name }}</div>
+                  <div class="fs-3 fw-bold text-success">
+                    GHS {{ cat.value|floatformat:2|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        {% if not all_categories %}
+          <div class="alert alert-info">
+            <i class="bx bx-info-circle me-1"></i>
+            No product sales in this period.
+          </div>
+        {% endif %}
+
+      </div>
+      {% include 'inc/footer.html' %}
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const today = document.getElementById('todayButton');
+  if (today) {
+    today.addEventListener('click', function () {
+      const d = new Date();
+      const s = d.getFullYear() + '-'
+              + String(d.getMonth() + 1).padStart(2, '0') + '-'
+              + String(d.getDate()).padStart(2, '0');
+      document.getElementById('start_date').value = s;
+      document.getElementById('end_date').value = s;
+      document.getElementById('dateRangeForm').submit();
+    });
+  }
+});
+</script>
+{% endblock %}

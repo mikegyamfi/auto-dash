@@ -137,6 +137,10 @@ def home(request):
     from django.db.models.functions import Coalesce
     user = request.user
 
+    # Product Management group: dedicated product-only dashboard, no service info.
+    if user.groups.filter(name__iexact=PRODUCT_MGMT_GROUP_NAME).exists() and not user.is_superuser:
+        return product_dashboard(request)
+
     # 1) Detect branch-admin flag
     is_branch_admin = False
     branch_admin_profile = None
@@ -3806,14 +3810,24 @@ from django.contrib import messages
 from .models import ProductSale, ProductCategory
 
 
-@staff_or_branch_admin_required
+@login_required(login_url='login')
 def product_sales_report(request):
     """
     Shows a product sales report with filters for date/month/year,
     plus branch & category filters. Branch-admins see only their branch
-    (no branch dropdown); staff see all branches.
+    (no branch dropdown); staff see all branches. Product Management group
+    users are allowed too (scoped to their worker branch when present).
     """
     user = request.user
+    allowed = (
+        user.is_superuser or user.is_staff
+        or _user_is_branch_admin(user)
+        or user.groups.filter(name__iexact='Product Management').exists()
+    )
+    if not allowed:
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
+
     is_branch_admin = _user_is_branch_admin(user)
     hide_branch_selector = is_branch_admin
 
@@ -6697,23 +6711,42 @@ def _get_worker_and_branch_or_redirect(request):
 @transaction.atomic
 def other_service_create(request):
     worker, branch = _get_worker_and_branch_or_redirect(request)
-    if branch is None and not request.user.is_superuser:
+    user = request.user
+
+    # Admin / GM / superuser / staff / branch-admin get to choose the branch
+    # on the form — plain workers are locked to their own branch.
+    is_elevated = (
+        user.is_superuser
+        or user.is_staff
+        or user.groups.filter(name='GM').exists()
+        or (worker is not None and worker.is_branch_admin)
+    )
+    show_branch = is_elevated
+
+    if branch is None and not is_elevated:
         return redirect("index")
 
     if request.method == "POST":
-        form = OtherServiceForm(request.POST, branch=branch)
+        form = OtherServiceForm(request.POST, branch=branch, show_branch=show_branch)
         if form.is_valid():
             svc = form.save(commit=False)
             svc.user = request.user
-            svc.branch = branch if branch else svc.branch
+            # Elevated users' branch comes from the form; regular workers use theirs.
+            if show_branch:
+                svc.branch = form.cleaned_data['branch']
+            else:
+                svc.branch = branch
             svc.save()
             form.save_m2m()  # <-- save selected workers
             messages.success(request, "Other service logged.")
             return redirect("other_service_history")
     else:
-        form = OtherServiceForm(branch=branch)
+        form = OtherServiceForm(branch=branch, show_branch=show_branch)
 
-    return render(request, "layouts/workers/other_service_create.html", {"form": form})
+    return render(request, "layouts/workers/other_service_create.html", {
+        "form": form,
+        "show_branch": show_branch,
+    })
 
 
 @login_required(login_url='login')
@@ -8492,7 +8525,17 @@ def daily_payment_targets(request):
 
 
 def is_gm_or_admin(user):
-    return user.is_superuser or user.groups.filter(name='GM').exists()
+    """True for superusers, GM group members, or Product Management group.
+
+    Product Management users need to be able to CRUD products + stock, so they
+    pass this gate too, but their scope ends at product-related pages — they
+    land on the product dashboard by default and have no service links in nav.
+    """
+    return (
+        user.is_superuser
+        or user.groups.filter(name='GM').exists()
+        or user.groups.filter(name__iexact='Product Management').exists()
+    )
 
 
 @login_required
@@ -8671,3 +8714,148 @@ def product_restock(request, pk):
         return redirect('product_management_list')
 
     return render(request, 'layouts/products/restock_form.html', {'product': product})
+
+
+# ---------------------------------------------------------------------
+# Product Management group: dedicated dashboard (no service info)
+# ---------------------------------------------------------------------
+PRODUCT_MGMT_GROUP_NAME = "Product Management"
+
+
+def is_product_manager(user) -> bool:
+    """True if the user is in the 'Product Management' Django group."""
+    if not user.is_authenticated:
+        return False
+    return user.groups.filter(name__iexact=PRODUCT_MGMT_GROUP_NAME).exists()
+
+
+@login_required(login_url='login')
+def product_dashboard(request):
+    """
+    Dashboard for Product Management group users. Shows only product
+    revenue/cost/profit and per-category sales volume & value. No service
+    order information is surfaced here.
+    """
+    user = request.user
+
+    # Only Product Management group, superusers, or staff can view. Everyone
+    # else is redirected back to the default home dispatcher.
+    if not (user.is_superuser or user.is_staff or is_product_manager(user)):
+        return redirect('index')
+
+    # Branch scoping: product-manager worker-profiles are scoped to their
+    # branch; staff/superuser can pick via ?branch_id (or aggregate all).
+    branch = None
+    wp = getattr(user, 'worker_profile', None)
+    if wp and wp.branch_id and not user.is_superuser and not user.is_staff:
+        branch = wp.branch
+    else:
+        b_id = request.GET.get('branch_id') or request.GET.get('branch')
+        branch = Branch.objects.filter(pk=b_id).first() if b_id else None
+
+    # Date range
+    today = timezone.now().date()
+    start_str = request.GET.get('start_date', '')
+    end_str = request.GET.get('end_date', '')
+    if not start_str and not end_str:
+        start_dt = today - timedelta(days=6)
+        end_dt = today
+    else:
+        try:
+            start_dt = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today
+        except ValueError:
+            start_dt = today
+        try:
+            end_dt = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+        except ValueError:
+            end_dt = today
+        if end_dt < start_dt:
+            start_dt, end_dt = end_dt, start_dt
+
+    # Branch filter helpers (empty dict when no branch → aggregate all).
+    ps_branch_kw = {'branch': branch} if branch else {}
+    pp_branch_kw = {'service_order__branch': branch} if branch else {}
+
+    # Standalone product sales
+    ps_qs = ProductSale.objects.filter(
+        date_sold__date__range=[start_dt, end_dt],
+        **ps_branch_kw,
+    ).select_related('product', 'product__category')
+
+    # Product sales via service orders
+    pp_qs = models.ProductPurchased.objects.filter(
+        service_order__date__date__range=[start_dt, end_dt],
+        **pp_branch_kw,
+    ).select_related('product', 'product__category')
+
+    # ── Revenue / Cost / Profit ─────────────────────────────────────
+    ps_revenue = ps_qs.aggregate(t=Sum('total_price'))['t'] or 0
+    pp_revenue = pp_qs.aggregate(t=Sum('total_price'))['t'] or 0
+    total_revenue = float(ps_revenue) + float(pp_revenue)
+
+    ps_cost = ps_qs.annotate(
+        line_cost=F('quantity') * F('product__cost')
+    ).aggregate(t=Sum('line_cost'))['t'] or 0
+    pp_cost = pp_qs.annotate(
+        line_cost=F('quantity') * F('product__cost')
+    ).aggregate(t=Sum('line_cost'))['t'] or 0
+    total_cost = float(ps_cost) + float(pp_cost)
+
+    profit = total_revenue - total_cost
+
+    # ── Per-category aggregation: volume + value ────────────────────
+    by_cat = {}
+    for row in ps_qs.values('product__category__id', 'product__category__name').annotate(
+        qty=Sum('quantity'),
+        value=Sum('total_price'),
+    ):
+        cid = row['product__category__id']
+        name = row['product__category__name'] or 'Uncategorised'
+        bucket = by_cat.setdefault(cid, {'name': name, 'qty': 0, 'value': 0})
+        bucket['qty'] += row['qty'] or 0
+        bucket['value'] += float(row['value'] or 0)
+
+    for row in pp_qs.values('product__category__id', 'product__category__name').annotate(
+        qty=Sum('quantity'),
+        value=Sum('total_price'),
+    ):
+        cid = row['product__category__id']
+        name = row['product__category__name'] or 'Uncategorised'
+        bucket = by_cat.setdefault(cid, {'name': name, 'qty': 0, 'value': 0})
+        bucket['qty'] += row['qty'] or 0
+        bucket['value'] += float(row['value'] or 0)
+
+    category_list = sorted(by_cat.values(), key=lambda r: r['value'], reverse=True)
+
+    # Pick out "car care" and "cold drinks" explicitly (case-insensitive) for
+    # the highlighted cards the spec asks for; everything else goes in a
+    # fallback "Other categories" list.
+    def find_cat(keyword):
+        kw = keyword.lower()
+        return next((c for c in category_list if kw in c['name'].lower()), None)
+
+    car_care = find_cat('car care') or find_cat('carcare')
+    cold_drinks = find_cat('cold drinks') or find_cat('drinks')
+
+    highlighted_ids = {id(c) for c in (car_care, cold_drinks) if c}
+    other_categories = [c for c in category_list if id(c) not in highlighted_ids]
+
+    context = {
+        'branch': branch,
+        'branches': Branch.objects.all() if (user.is_superuser or user.is_staff) else None,
+        'show_branch_selector': (user.is_superuser or user.is_staff),
+        'start_date_str': start_str,
+        'end_date_str': end_str,
+        'start_dt': start_dt,
+        'end_dt': end_dt,
+
+        'total_revenue': total_revenue,
+        'total_cost': total_cost,
+        'profit': profit,
+
+        'car_care': car_care,
+        'cold_drinks': cold_drinks,
+        'other_categories': other_categories,
+        'all_categories': category_list,
+    }
+    return render(request, 'layouts/product_manager/dashboard.html', context)
