@@ -40,7 +40,13 @@ from .forms import (
     CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm, OtherServiceForm, MaintenanceLogForm,
     MaintenanceExpenseForm
 )
-from .helper import send_sms, send_sms_club
+# from .helper import send_sms, send_sms_club  # SMS disabled
+def send_sms(*args, **kwargs):
+    # SMS disabled
+    return None
+def send_sms_club(*args, **kwargs):
+    # SMS disabled
+    return None
 from .models import (
     CustomerSubscription, CustomUser,
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
@@ -917,11 +923,12 @@ def confirm_service(request, pk):
 
             def _send_initial():
                 try:
-                    send_sms(phone, sms_text)
+                    # send_sms(phone, sms_text)  # SMS disabled
+                    pass
                 except Exception as e:
                     print(e)
 
-            transaction.on_commit(_send_initial)
+            # transaction.on_commit(_send_initial)  # SMS disabled
 
     if new_status in ("pending", "canceled"):
         messages.info(request, f"Order marked {new_status}.")
@@ -1132,49 +1139,49 @@ def confirm_service(request, pk):
                 order=order,
             )
 
-    # 10. SMS
-    def _send_completed_sms():
-        try:
-            cash = order.cash_paid or 0.0
-            plate = order.display_vehicle_info or "your vehicle"
-            send_sms(
-                phone,
-                (
-                    f"Payment received: GHS{cash:.2f} for {plate}. "
-                    f"Receipt: https://management.autodashgh.com/service/{order.id}/receipt/"
-                ),
-            )
-        except Exception as e:
-            print(e)
-
-    def _send_credit_sms():
-        try:
-            owed = 0.0
-            if hasattr(order, "arrears") and order.arrears and not order.arrears.is_paid:
-                owed = order.arrears.amount_owed or 0.0
-            else:
-                owed = order.cash_paid or 0.0
-            send_sms(
-                phone,
-                (
-                    f"Service on credit: {order.service_order_number}. "
-                    f"Amount owed: GHS{owed:.2f}. "
-                    f"Details: https://management.autodashgh.com/service/{order.id}/receipt/"
-                ),
-            )
-        except Exception as e:
-            print(e)
-
-    if phone:
-        if new_status == "completed" and not getattr(order, "completed_sms_sent", False):
-            order.completed_sms_sent = True
-            order.save(update_fields=["completed_sms_sent"])
-            transaction.on_commit(_send_completed_sms)
-
-        elif new_status == "onCredit" and not getattr(order, "credit_sms_sent", False):
-            order.credit_sms_sent = True
-            order.save(update_fields=["credit_sms_sent"])
-            transaction.on_commit(_send_credit_sms)
+    # 10. SMS  -- SMS disabled
+    # def _send_completed_sms():
+    #     try:
+    #         cash = order.cash_paid or 0.0
+    #         plate = order.display_vehicle_info or "your vehicle"
+    #         send_sms(
+    #             phone,
+    #             (
+    #                 f"Payment received: GHS{cash:.2f} for {plate}. "
+    #                 f"Receipt: https://management.autodashgh.com/service/{order.id}/receipt/"
+    #             ),
+    #         )
+    #     except Exception as e:
+    #         print(e)
+    #
+    # def _send_credit_sms():
+    #     try:
+    #         owed = 0.0
+    #         if hasattr(order, "arrears") and order.arrears and not order.arrears.is_paid:
+    #             owed = order.arrears.amount_owed or 0.0
+    #         else:
+    #             owed = order.cash_paid or 0.0
+    #         send_sms(
+    #             phone,
+    #             (
+    #                 f"Service on credit: {order.service_order_number}. "
+    #                 f"Amount owed: GHS{owed:.2f}. "
+    #                 f"Details: https://management.autodashgh.com/service/{order.id}/receipt/"
+    #             ),
+    #         )
+    #     except Exception as e:
+    #         print(e)
+    #
+    # if phone:
+    #     if new_status == "completed" and not getattr(order, "completed_sms_sent", False):
+    #         order.completed_sms_sent = True
+    #         order.save(update_fields=["completed_sms_sent"])
+    #         transaction.on_commit(_send_completed_sms)
+    #
+    #     elif new_status == "onCredit" and not getattr(order, "credit_sms_sent", False):
+    #         order.credit_sms_sent = True
+    #         order.save(update_fields=["credit_sms_sent"])
+    #         transaction.on_commit(_send_credit_sms)
 
     messages.success(request, f"Service updated to {new_status}.")
     return redirect("service_receipt", pk=order.pk)
@@ -1403,18 +1410,18 @@ def create_vehicle(request):
             car_color=car_color,
         )
 
-        # Send SMS to the customer's phone number about new vehicle
-        phone_number = customer.user.phone_number
-        if phone_number:
-            msg = (
-                f"Dear {customer.user.first_name}, "
-                f"a new vehicle ({car_make} - {car_plate}, {car_color}) has been added to your profile."
-            )
-            try:
-                send_sms(phone_number, msg)
-                print(msg)
-            except Exception as e:
-                print("SMS sending error:", e)
+        # Send SMS to the customer's phone number about new vehicle  -- SMS disabled
+        # phone_number = customer.user.phone_number
+        # if phone_number:
+        #     msg = (
+        #         f"Dear {customer.user.first_name}, "
+        #         f"a new vehicle ({car_make} - {car_plate}, {car_color}) has been added to your profile."
+        #     )
+        #     try:
+        #         send_sms(phone_number, msg)
+        #         print(msg)
+        #     except Exception as e:
+        #         print("SMS sending error:", e)
 
         return JsonResponse({
             'success': True,
@@ -1596,15 +1603,15 @@ def create_customer(request):
             )
             new_customer = Customer.objects.create(user=new_custom_user, branch=worker.branch)
 
-            # Send an SMS: "Welcome to our service!"
-            try:
-                send_sms(
-                    phone_number,
-                    f"Hello {first_name}, thanks for registering with us!\nAutoDash GH welcomes you!"
-                )
-                print("sms")
-            except Exception as e:
-                print("SMS sending error:", e)
+            # Send an SMS: "Welcome to our service!"  -- SMS disabled
+            # try:
+            #     send_sms(
+            #         phone_number,
+            #         f"Hello {first_name}, thanks for registering with us!\nAutoDash GH welcomes you!"
+            #     )
+            #     print("sms")
+            # except Exception as e:
+            #     print("SMS sending error:", e)
 
             return JsonResponse({
                 'success': True,
@@ -2796,19 +2803,21 @@ def manage_customers(request):
                 messages.error(request, "No branch selected for reassignment.")
 
         elif action_type == 'send_sms':
-            phone_number = customer.user.phone_number
-            if not phone_number:
-                messages.warning(request, "Customer has no phone number.")
-            else:
-                sms_message = request.POST.get('sms_message', '').strip()
-                if sms_message:
-                    try:
-                        send_sms(phone_number, sms_message)
-                        messages.success(request, f"SMS sent to {phone_number}.")
-                    except Exception as e:
-                        messages.error(request, f"Failed to send SMS: {e}")
-                else:
-                    messages.error(request, "SMS message is empty.")
+            # SMS disabled -- all sending paths are commented out
+            messages.info(request, "SMS sending is currently disabled.")
+            # phone_number = customer.user.phone_number
+            # if not phone_number:
+            #     messages.warning(request, "Customer has no phone number.")
+            # else:
+            #     sms_message = request.POST.get('sms_message', '').strip()
+            #     if sms_message:
+            #         try:
+            #             send_sms(phone_number, sms_message)
+            #             messages.success(request, f"SMS sent to {phone_number}.")
+            #         except Exception as e:
+            #             messages.error(request, f"Failed to send SMS: {e}")
+            #     else:
+            #         messages.error(request, "SMS message is empty.")
 
         return redirect('manage_customers')
 
@@ -4145,20 +4154,21 @@ def mark_arrears_as_paid(request, arrears_id):
         service_order.payment_method = "cash"
     service_order.status = "completed"
     service_order.save()
-    if service_order and service_order.customer and service_order.customer.user.phone_number:
-        phone_number = service_order.customer.user.phone_number
-        # Customize your message text as needed
-        message_text = (
-            f"Hello {service_order.customer.user.first_name}, "
-            f"your on-credit service (Order #{service_order.service_order_number}) for GHS {arrears.amount_owed:.2f} has now been fully paid."
-            "Thank you for clearing your balance!"
-        )
-        try:
-            send_sms(phone_number, message_text)
-        except Exception as sms_exc:
-            messages.warning(request, f"Arrears paid, but SMS could not be sent: {sms_exc}")
+    # SMS disabled -- arrears-paid notification will not be sent
+    # if service_order and service_order.customer and service_order.customer.user.phone_number:
+    #     phone_number = service_order.customer.user.phone_number
+    #     # Customize your message text as needed
+    #     message_text = (
+    #         f"Hello {service_order.customer.user.first_name}, "
+    #         f"your on-credit service (Order #{service_order.service_order_number}) for GHS {arrears.amount_owed:.2f} has now been fully paid."
+    #         "Thank you for clearing your balance!"
+    #     )
+    #     try:
+    #         send_sms(phone_number, message_text)
+    #     except Exception as sms_exc:
+    #         messages.warning(request, f"Arrears paid, but SMS could not be sent: {sms_exc}")
 
-    messages.success(request, "Arrears has been marked as paid, revenue recorded, and SMS notification sent.")
+    messages.success(request, "Arrears has been marked as paid and revenue recorded.")
     return redirect('arrears_list')
 
 
@@ -4258,15 +4268,15 @@ def send_arrears_reminder(request, arrears_id):
         # Actually send it (pseudo-code):
         # send_email(to=customer_email, subject=subject, body=body)
 
-    # Or send SMS if you have an SMS gateway
-    message = f"Dear {customer.user.get_full_name()},\n\n" \
-              f"You have an outstanding arrears of GHS {arrears.amount_owed} " \
-              f"for Service Order #{service_order.service_order_number}. " \
-              f"Kindly settle this as soon as possible.\n\n" \
-              f"Thank you!"
-    send_sms(phone_number, message)
+    # Or send SMS if you have an SMS gateway  -- SMS disabled
+    # message = f"Dear {customer.user.get_full_name()},\n\n" \
+    #           f"You have an outstanding arrears of GHS {arrears.amount_owed} " \
+    #           f"for Service Order #{service_order.service_order_number}. " \
+    #           f"Kindly settle this as soon as possible.\n\n" \
+    #           f"Thank you!"
+    # send_sms(phone_number, message)
 
-    messages.success(request, "Reminder has been sent to the customer.")
+    messages.success(request, "Reminder has been processed (SMS sending is disabled).")
     return redirect('arrears_list')
 
 
@@ -4575,13 +4585,13 @@ def enroll_worker(request):
                     f"Thank you!"
                 )
 
-            # send SMS (if phone provided)
-            if phone_number:
-                try:
-                    send_sms(phone_number, message)
-                except Exception as e:
-                    # log or print as needed
-                    print("SMS failed:", e)
+            # send SMS (if phone provided)  -- SMS disabled
+            # if phone_number:
+            #     try:
+            #         send_sms(phone_number, message)
+            #     except Exception as e:
+            #         # log or print as needed
+            #         print("SMS failed:", e)
 
             # optionally: send email
             # send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
@@ -4659,16 +4669,17 @@ def create_customer_page(request):
                 car_color=car_color,
             )
 
-            # 6. Send SMS
-            try:
-                sms_text = (
-                    f"Hello {first_name}, you have been registered as a Customer at Autodash. "
-                    f"Your phone: {phone_number}. Welcome aboard!"
-                )
-                # send_sms(phone_number, sms_text)
-                messages.success(request, f"Customer + Vehicle created, SMS sent to {phone_number}.")
-            except Exception as e:
-                messages.warning(request, f"Customer + Vehicle created, but SMS not sent: {str(e)}")
+            # 6. Send SMS  -- SMS disabled
+            # try:
+            #     sms_text = (
+            #         f"Hello {first_name}, you have been registered as a Customer at Autodash. "
+            #         f"Your phone: {phone_number}. Welcome aboard!"
+            #     )
+            #     # send_sms(phone_number, sms_text)
+            #     messages.success(request, f"Customer + Vehicle created, SMS sent to {phone_number}.")
+            # except Exception as e:
+            #     messages.warning(request, f"Customer + Vehicle created, but SMS not sent: {str(e)}")
+            messages.success(request, "Customer + Vehicle created.")
 
             # 7. Redirect or show success
             return redirect('create_customer_page')  # or maybe to a "manage_customers" view
@@ -4705,25 +4716,26 @@ def create_vehicle_page(request):
                 car_color=car_color
             )
 
-            # Send SMS to the customer's phone
-            try:
-                phone_number = customer.user.phone_number
-            except Exception as e:
-                print(e)
-                messages.info(request, "Vehicle created.")
-                return redirect('create_vehicle_page')
-            if phone_number:
-                try:
-                    sms_text = (
-                        f"Hello {customer.user.first_name}, "
-                        f"a new vehicle: {car_make} - {car_plate} has been assigned to your account."
-                    )
-                    send_sms(phone_number, sms_text)
-                    messages.success(request, f"Vehicle created, and SMS sent to {phone_number}.")
-                except Exception as e:
-                    messages.warning(request, f"Vehicle created, but SMS not sent: {str(e)}")
-            else:
-                messages.info(request, "Vehicle created. No phone number available for SMS.")
+            # Send SMS to the customer's phone  -- SMS disabled
+            # try:
+            #     phone_number = customer.user.phone_number
+            # except Exception as e:
+            #     print(e)
+            #     messages.info(request, "Vehicle created.")
+            #     return redirect('create_vehicle_page')
+            # if phone_number:
+            #     try:
+            #         sms_text = (
+            #             f"Hello {customer.user.first_name}, "
+            #             f"a new vehicle: {car_make} - {car_plate} has been assigned to your account."
+            #         )
+            #         send_sms(phone_number, sms_text)
+            #         messages.success(request, f"Vehicle created, and SMS sent to {phone_number}.")
+            #     except Exception as e:
+            #         messages.warning(request, f"Vehicle created, but SMS not sent: {str(e)}")
+            # else:
+            #     messages.info(request, "Vehicle created. No phone number available for SMS.")
+            messages.success(request, "Vehicle created.")
 
             return redirect('create_vehicle_page')  # or wherever
         else:
@@ -5966,16 +5978,16 @@ def create_customer_booking(request):
 
                 phone = getattr(customer.user, "phone_number", None)
 
-                # Send only after the transaction fully commits
-                if phone:
-                    def _send():
-                        try:
-                            send_sms_club(phone, message)
-                        except Exception as e:
-                            # don't block the request if SMS fails
-                            print(e)
-
-                    transaction.on_commit(_send)
+                # Send only after the transaction fully commits  -- SMS disabled
+                # if phone:
+                #     def _send():
+                #         try:
+                #             send_sms_club(phone, message)
+                #         except Exception as e:
+                #             # don't block the request if SMS fails
+                #             print(e)
+                #
+                #     transaction.on_commit(_send)
 
             messages.success(request, "Booking created successfully.")
             # Redirect to a detail or history page you already have
