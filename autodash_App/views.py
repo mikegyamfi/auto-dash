@@ -40,13 +40,7 @@ from .forms import (
     CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm, OtherServiceForm, MaintenanceLogForm,
     MaintenanceExpenseForm
 )
-# from .helper import send_sms, send_sms_club  # SMS disabled
-def send_sms(*args, **kwargs):
-    # SMS disabled
-    return None
-def send_sms_club(*args, **kwargs):
-    # SMS disabled
-    return None
+from .helper import send_sms, send_sms_club
 from .models import (
     CustomerSubscription, CustomUser,
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
@@ -923,12 +917,11 @@ def confirm_service(request, pk):
 
             def _send_initial():
                 try:
-                    # send_sms(phone, sms_text)  # SMS disabled
-                    pass
+                    send_sms(phone, sms_text)
                 except Exception as e:
                     print(e)
 
-            # transaction.on_commit(_send_initial)  # SMS disabled
+            transaction.on_commit(_send_initial)
 
     if new_status in ("pending", "canceled"):
         messages.info(request, f"Order marked {new_status}.")
@@ -1139,49 +1132,49 @@ def confirm_service(request, pk):
                 order=order,
             )
 
-    # 10. SMS  -- SMS disabled
-    # def _send_completed_sms():
-    #     try:
-    #         cash = order.cash_paid or 0.0
-    #         plate = order.display_vehicle_info or "your vehicle"
-    #         send_sms(
-    #             phone,
-    #             (
-    #                 f"Payment received: GHS{cash:.2f} for {plate}. "
-    #                 f"Receipt: https://management.autodashgh.com/service/{order.id}/receipt/"
-    #             ),
-    #         )
-    #     except Exception as e:
-    #         print(e)
-    #
-    # def _send_credit_sms():
-    #     try:
-    #         owed = 0.0
-    #         if hasattr(order, "arrears") and order.arrears and not order.arrears.is_paid:
-    #             owed = order.arrears.amount_owed or 0.0
-    #         else:
-    #             owed = order.cash_paid or 0.0
-    #         send_sms(
-    #             phone,
-    #             (
-    #                 f"Service on credit: {order.service_order_number}. "
-    #                 f"Amount owed: GHS{owed:.2f}. "
-    #                 f"Details: https://management.autodashgh.com/service/{order.id}/receipt/"
-    #             ),
-    #         )
-    #     except Exception as e:
-    #         print(e)
-    #
-    # if phone:
-    #     if new_status == "completed" and not getattr(order, "completed_sms_sent", False):
-    #         order.completed_sms_sent = True
-    #         order.save(update_fields=["completed_sms_sent"])
-    #         transaction.on_commit(_send_completed_sms)
-    #
-    #     elif new_status == "onCredit" and not getattr(order, "credit_sms_sent", False):
-    #         order.credit_sms_sent = True
-    #         order.save(update_fields=["credit_sms_sent"])
-    #         transaction.on_commit(_send_credit_sms)
+    # 10. SMS
+    def _send_completed_sms():
+        try:
+            cash = order.cash_paid or 0.0
+            plate = order.display_vehicle_info or "your vehicle"
+            send_sms(
+                phone,
+                (
+                    f"Payment received: GHS{cash:.2f} for {plate}. "
+                    f"Receipt: https://management.autodashgh.com/service/{order.id}/receipt/"
+                ),
+            )
+        except Exception as e:
+            print(e)
+
+    def _send_credit_sms():
+        try:
+            owed = 0.0
+            if hasattr(order, "arrears") and order.arrears and not order.arrears.is_paid:
+                owed = order.arrears.amount_owed or 0.0
+            else:
+                owed = order.cash_paid or 0.0
+            send_sms(
+                phone,
+                (
+                    f"Service on credit: {order.service_order_number}. "
+                    f"Amount owed: GHS{owed:.2f}. "
+                    f"Details: https://management.autodashgh.com/service/{order.id}/receipt/"
+                ),
+            )
+        except Exception as e:
+            print(e)
+
+    if phone:
+        if new_status == "completed" and not getattr(order, "completed_sms_sent", False):
+            order.completed_sms_sent = True
+            order.save(update_fields=["completed_sms_sent"])
+            transaction.on_commit(_send_completed_sms)
+
+        elif new_status == "onCredit" and not getattr(order, "credit_sms_sent", False):
+            order.credit_sms_sent = True
+            order.save(update_fields=["credit_sms_sent"])
+            transaction.on_commit(_send_credit_sms)
 
     messages.success(request, f"Service updated to {new_status}.")
     return redirect("service_receipt", pk=order.pk)
@@ -1410,18 +1403,18 @@ def create_vehicle(request):
             car_color=car_color,
         )
 
-        # Send SMS to the customer's phone number about new vehicle  -- SMS disabled
-        # phone_number = customer.user.phone_number
-        # if phone_number:
-        #     msg = (
-        #         f"Dear {customer.user.first_name}, "
-        #         f"a new vehicle ({car_make} - {car_plate}, {car_color}) has been added to your profile."
-        #     )
-        #     try:
-        #         send_sms(phone_number, msg)
-        #         print(msg)
-        #     except Exception as e:
-        #         print("SMS sending error:", e)
+        # Send SMS to the customer's phone number about new vehicle
+        phone_number = customer.user.phone_number
+        if phone_number:
+            msg = (
+                f"Dear {customer.user.first_name}, "
+                f"a new vehicle ({car_make} - {car_plate}, {car_color}) has been added to your profile."
+            )
+            try:
+                send_sms(phone_number, msg)
+                print(msg)
+            except Exception as e:
+                print("SMS sending error:", e)
 
         return JsonResponse({
             'success': True,
@@ -1603,15 +1596,15 @@ def create_customer(request):
             )
             new_customer = Customer.objects.create(user=new_custom_user, branch=worker.branch)
 
-            # Send an SMS: "Welcome to our service!"  -- SMS disabled
-            # try:
-            #     send_sms(
-            #         phone_number,
-            #         f"Hello {first_name}, thanks for registering with us!\nAutoDash GH welcomes you!"
-            #     )
-            #     print("sms")
-            # except Exception as e:
-            #     print("SMS sending error:", e)
+            # Send an SMS: "Welcome to our service!"
+            try:
+                send_sms(
+                    phone_number,
+                    f"Hello {first_name}, thanks for registering with us!\nAutoDash GH welcomes you!"
+                )
+                print("sms")
+            except Exception as e:
+                print("SMS sending error:", e)
 
             return JsonResponse({
                 'success': True,
@@ -2803,21 +2796,19 @@ def manage_customers(request):
                 messages.error(request, "No branch selected for reassignment.")
 
         elif action_type == 'send_sms':
-            # SMS disabled -- all sending paths are commented out
-            messages.info(request, "SMS sending is currently disabled.")
-            # phone_number = customer.user.phone_number
-            # if not phone_number:
-            #     messages.warning(request, "Customer has no phone number.")
-            # else:
-            #     sms_message = request.POST.get('sms_message', '').strip()
-            #     if sms_message:
-            #         try:
-            #             send_sms(phone_number, sms_message)
-            #             messages.success(request, f"SMS sent to {phone_number}.")
-            #         except Exception as e:
-            #             messages.error(request, f"Failed to send SMS: {e}")
-            #     else:
-            #         messages.error(request, "SMS message is empty.")
+            phone_number = customer.user.phone_number
+            if not phone_number:
+                messages.warning(request, "Customer has no phone number.")
+            else:
+                sms_message = request.POST.get('sms_message', '').strip()
+                if sms_message:
+                    try:
+                        send_sms(phone_number, sms_message)
+                        messages.success(request, f"SMS sent to {phone_number}.")
+                    except Exception as e:
+                        messages.error(request, f"Failed to send SMS: {e}")
+                else:
+                    messages.error(request, "SMS message is empty.")
 
         return redirect('manage_customers')
 
@@ -3717,6 +3708,8 @@ def financial_overview(request):
         messages.warning(request, "Start date after end date; swapping.")
         start_date, end_date = end_date, start_date
 
+    from django.db.models import Count, Q
+
     # Base querysets
     revenue_qs = Revenue.objects.filter(date__range=[start_date, end_date])
     expense_qs = Expense.objects.filter(date__range=[start_date, end_date])
@@ -3725,6 +3718,9 @@ def financial_overview(request):
         date_created__date__gte=start_date,
         date_created__date__lte=end_date
     )
+    payment_targets_qs = DailyPaymentTarget.objects.filter(
+        date__range=[start_date, end_date]
+    ).select_related('setup', 'branch')
 
     # Apply branch filter if any
     if selected_branch_id:
@@ -3732,6 +3728,7 @@ def financial_overview(request):
         expense_qs = expense_qs.filter(branch_id=selected_branch_id)
         commission_qs = commission_qs.filter(worker__branch_id=selected_branch_id)
         arrears_qs = arrears_qs.filter(branch_id=selected_branch_id)
+        payment_targets_qs = payment_targets_qs.filter(branch_id=selected_branch_id)
 
     # Summaries
     total_revenue = revenue_qs.aggregate(total=Sum('final_amount'))['total'] or 0
@@ -3739,11 +3736,44 @@ def financial_overview(request):
     total_commissions = commission_qs.aggregate(total=Sum('amount'))['total'] or 0
     total_arrears = arrears_qs.aggregate(total=Sum('amount_owed'))['total'] or 0
 
+    payments_totals = payment_targets_qs.aggregate(
+        total_paid=Sum('amount_paid'),
+        total_due=Sum('total_target'),
+        total_base=Sum('base_amount'),
+        total_brought_forward=Sum('brought_forward'),
+    )
+    total_payments = payments_totals['total_paid'] or 0
+    total_payments_due = payments_totals['total_due'] or 0
+    total_payments_outstanding = max(total_payments_due - total_payments, 0)
+
+    # Per-setup recurring-payments breakdown
+    payments_breakdown = list(
+        payment_targets_qs
+        .values('setup_id', 'setup__description', 'branch__name')
+        .annotate(
+            total_base=Sum('base_amount'),
+            total_brought_forward=Sum('brought_forward'),
+            total_due=Sum('total_target'),
+            total_paid=Sum('amount_paid'),
+            days_due=Count('id'),
+            days_settled=Count('id', filter=Q(is_settled=True)),
+        )
+        .order_by('branch__name', 'setup__description')
+    )
+    for row in payments_breakdown:
+        row['outstanding'] = max((row['total_due'] or 0) - (row['total_paid'] or 0), 0)
+        row['days_unsettled'] = (row['days_due'] or 0) - (row['days_settled'] or 0)
+        row['settlement_pct'] = (
+            (row['total_paid'] or 0) / row['total_due'] * 100
+            if row['total_due'] else 0
+        )
+
     # Build daily series
     daily_data = {}
     d = start_date
     while d <= end_date:
-        daily_data[d] = {'revenue': 0, 'expense': 0, 'commission': 0, 'arrears': 0, 'net': 0}
+        daily_data[d] = {'revenue': 0, 'expense': 0, 'commission': 0,
+                         'arrears': 0, 'payment': 0, 'net': 0}
         d += timedelta(days=1)
 
     for e in revenue_qs.values('date').annotate(sum_rev=Sum('final_amount')):
@@ -3756,9 +3786,13 @@ def financial_overview(request):
         dd = arr.date_created.date()
         if dd in daily_data:
             daily_data[dd]['arrears'] += float(arr.amount_owed or 0)
-    # compute net
+    for e in payment_targets_qs.values('date').annotate(sum_pay=Sum('amount_paid')):
+        if e['date'] in daily_data:
+            daily_data[e['date']]['payment'] = float(e['sum_pay'] or 0)
+
+    # Net of true cash outflow: revenue – (expenses + bill payments)
     for dd, vals in daily_data.items():
-        vals['net'] = vals['revenue'] - vals['expense']
+        vals['net'] = vals['revenue'] - vals['expense'] - vals['payment']
 
     # Prepare for chart & table
     sorted_days = sorted(daily_data)
@@ -3767,12 +3801,14 @@ def financial_overview(request):
     chart_expenses = [daily_data[d]['expense'] for d in sorted_days]
     chart_commissions = [daily_data[d]['commission'] for d in sorted_days]
     chart_arrears = [daily_data[d]['arrears'] for d in sorted_days]
+    chart_payments = [daily_data[d]['payment'] for d in sorted_days]
     chart_nets = [daily_data[d]['net'] for d in sorted_days]
 
     daily_data_list = [
         {'date': d.strftime("%Y-%m-%d"),
          'revenue': daily_data[d]['revenue'],
          'expense': daily_data[d]['expense'],
+         'payment': daily_data[d]['payment'],
          'net': daily_data[d]['net']}
         for d in sorted_days
     ]
@@ -3792,6 +3828,10 @@ def financial_overview(request):
         'total_expenses': total_expenses,
         'total_commissions': total_commissions,
         'total_arrears': total_arrears,
+        'total_payments': total_payments,
+        'total_payments_due': total_payments_due,
+        'total_payments_outstanding': total_payments_outstanding,
+        'payments_breakdown': payments_breakdown,
 
         'daily_data_list': daily_data_list,
         'months': [
@@ -3805,6 +3845,7 @@ def financial_overview(request):
         'chart_expenses_json': json.dumps(chart_expenses),
         'chart_commissions_json': json.dumps(chart_commissions),
         'chart_arrears_json': json.dumps(chart_arrears),
+        'chart_payments_json': json.dumps(chart_payments),
         'chart_nets_json': json.dumps(chart_nets),
     }
     return render(request, 'layouts/financial_overview.html', context)
@@ -4154,21 +4195,20 @@ def mark_arrears_as_paid(request, arrears_id):
         service_order.payment_method = "cash"
     service_order.status = "completed"
     service_order.save()
-    # SMS disabled -- arrears-paid notification will not be sent
-    # if service_order and service_order.customer and service_order.customer.user.phone_number:
-    #     phone_number = service_order.customer.user.phone_number
-    #     # Customize your message text as needed
-    #     message_text = (
-    #         f"Hello {service_order.customer.user.first_name}, "
-    #         f"your on-credit service (Order #{service_order.service_order_number}) for GHS {arrears.amount_owed:.2f} has now been fully paid."
-    #         "Thank you for clearing your balance!"
-    #     )
-    #     try:
-    #         send_sms(phone_number, message_text)
-    #     except Exception as sms_exc:
-    #         messages.warning(request, f"Arrears paid, but SMS could not be sent: {sms_exc}")
+    if service_order and service_order.customer and service_order.customer.user.phone_number:
+        phone_number = service_order.customer.user.phone_number
+        # Customize your message text as needed
+        message_text = (
+            f"Hello {service_order.customer.user.first_name}, "
+            f"your on-credit service (Order #{service_order.service_order_number}) for GHS {arrears.amount_owed:.2f} has now been fully paid."
+            "Thank you for clearing your balance!"
+        )
+        try:
+            send_sms(phone_number, message_text)
+        except Exception as sms_exc:
+            messages.warning(request, f"Arrears paid, but SMS could not be sent: {sms_exc}")
 
-    messages.success(request, "Arrears has been marked as paid and revenue recorded.")
+    messages.success(request, "Arrears has been marked as paid, revenue recorded, and SMS notification sent.")
     return redirect('arrears_list')
 
 
@@ -4268,15 +4308,15 @@ def send_arrears_reminder(request, arrears_id):
         # Actually send it (pseudo-code):
         # send_email(to=customer_email, subject=subject, body=body)
 
-    # Or send SMS if you have an SMS gateway  -- SMS disabled
-    # message = f"Dear {customer.user.get_full_name()},\n\n" \
-    #           f"You have an outstanding arrears of GHS {arrears.amount_owed} " \
-    #           f"for Service Order #{service_order.service_order_number}. " \
-    #           f"Kindly settle this as soon as possible.\n\n" \
-    #           f"Thank you!"
-    # send_sms(phone_number, message)
+    # Or send SMS if you have an SMS gateway
+    message = f"Dear {customer.user.get_full_name()},\n\n" \
+              f"You have an outstanding arrears of GHS {arrears.amount_owed} " \
+              f"for Service Order #{service_order.service_order_number}. " \
+              f"Kindly settle this as soon as possible.\n\n" \
+              f"Thank you!"
+    send_sms(phone_number, message)
 
-    messages.success(request, "Reminder has been processed (SMS sending is disabled).")
+    messages.success(request, "Reminder has been sent to the customer.")
     return redirect('arrears_list')
 
 
@@ -4585,13 +4625,13 @@ def enroll_worker(request):
                     f"Thank you!"
                 )
 
-            # send SMS (if phone provided)  -- SMS disabled
-            # if phone_number:
-            #     try:
-            #         send_sms(phone_number, message)
-            #     except Exception as e:
-            #         # log or print as needed
-            #         print("SMS failed:", e)
+            # send SMS (if phone provided)
+            if phone_number:
+                try:
+                    send_sms(phone_number, message)
+                except Exception as e:
+                    # log or print as needed
+                    print("SMS failed:", e)
 
             # optionally: send email
             # send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
@@ -4669,17 +4709,16 @@ def create_customer_page(request):
                 car_color=car_color,
             )
 
-            # 6. Send SMS  -- SMS disabled
-            # try:
-            #     sms_text = (
-            #         f"Hello {first_name}, you have been registered as a Customer at Autodash. "
-            #         f"Your phone: {phone_number}. Welcome aboard!"
-            #     )
-            #     # send_sms(phone_number, sms_text)
-            #     messages.success(request, f"Customer + Vehicle created, SMS sent to {phone_number}.")
-            # except Exception as e:
-            #     messages.warning(request, f"Customer + Vehicle created, but SMS not sent: {str(e)}")
-            messages.success(request, "Customer + Vehicle created.")
+            # 6. Send SMS
+            try:
+                sms_text = (
+                    f"Hello {first_name}, you have been registered as a Customer at Autodash. "
+                    f"Your phone: {phone_number}. Welcome aboard!"
+                )
+                # send_sms(phone_number, sms_text)
+                messages.success(request, f"Customer + Vehicle created, SMS sent to {phone_number}.")
+            except Exception as e:
+                messages.warning(request, f"Customer + Vehicle created, but SMS not sent: {str(e)}")
 
             # 7. Redirect or show success
             return redirect('create_customer_page')  # or maybe to a "manage_customers" view
@@ -4716,26 +4755,25 @@ def create_vehicle_page(request):
                 car_color=car_color
             )
 
-            # Send SMS to the customer's phone  -- SMS disabled
-            # try:
-            #     phone_number = customer.user.phone_number
-            # except Exception as e:
-            #     print(e)
-            #     messages.info(request, "Vehicle created.")
-            #     return redirect('create_vehicle_page')
-            # if phone_number:
-            #     try:
-            #         sms_text = (
-            #             f"Hello {customer.user.first_name}, "
-            #             f"a new vehicle: {car_make} - {car_plate} has been assigned to your account."
-            #         )
-            #         send_sms(phone_number, sms_text)
-            #         messages.success(request, f"Vehicle created, and SMS sent to {phone_number}.")
-            #     except Exception as e:
-            #         messages.warning(request, f"Vehicle created, but SMS not sent: {str(e)}")
-            # else:
-            #     messages.info(request, "Vehicle created. No phone number available for SMS.")
-            messages.success(request, "Vehicle created.")
+            # Send SMS to the customer's phone
+            try:
+                phone_number = customer.user.phone_number
+            except Exception as e:
+                print(e)
+                messages.info(request, "Vehicle created.")
+                return redirect('create_vehicle_page')
+            if phone_number:
+                try:
+                    sms_text = (
+                        f"Hello {customer.user.first_name}, "
+                        f"a new vehicle: {car_make} - {car_plate} has been assigned to your account."
+                    )
+                    send_sms(phone_number, sms_text)
+                    messages.success(request, f"Vehicle created, and SMS sent to {phone_number}.")
+                except Exception as e:
+                    messages.warning(request, f"Vehicle created, but SMS not sent: {str(e)}")
+            else:
+                messages.info(request, "Vehicle created. No phone number available for SMS.")
 
             return redirect('create_vehicle_page')  # or wherever
         else:
@@ -5978,16 +6016,16 @@ def create_customer_booking(request):
 
                 phone = getattr(customer.user, "phone_number", None)
 
-                # Send only after the transaction fully commits  -- SMS disabled
-                # if phone:
-                #     def _send():
-                #         try:
-                #             send_sms_club(phone, message)
-                #         except Exception as e:
-                #             # don't block the request if SMS fails
-                #             print(e)
-                #
-                #     transaction.on_commit(_send)
+                # Send only after the transaction fully commits
+                if phone:
+                    def _send():
+                        try:
+                            send_sms_club(phone, message)
+                        except Exception as e:
+                            # don't block the request if SMS fails
+                            print(e)
+
+                    transaction.on_commit(_send)
 
             messages.success(request, "Booking created successfully.")
             # Redirect to a detail or history page you already have
@@ -8484,22 +8522,6 @@ def daily_payment_targets(request):
                 if target.amount_paid != new_paid_amount:
                     target.amount_paid = new_paid_amount
                     target.save()  # Auto-updates is_settled flag
-
-                    # SYNCHRONIZE WITH EXPENSES (For accurate P&L)
-                    # This ensures that cash paid towards a target officially leaves the daily drawer.
-                    expense_desc = f"[Bill Settlement] {target.setup.description} (Due: {target.date.strftime('%Y-%m-%d')})"
-                    today = timezone.localdate()
-
-                    if new_paid_amount > 0:
-                        Expense.objects.update_or_create(
-                            branch=target.branch,
-                            description=expense_desc,
-                            date=today,  # Logs the cash leaving TODAY
-                            defaults={'amount': new_paid_amount, 'user': user}
-                        )
-                    else:
-                        # If they changed the payment back to 0, remove the expense
-                        Expense.objects.filter(branch=target.branch, description=expense_desc, date=today).delete()
 
         messages.success(request, "Payments have been updated successfully.")
         return redirect('daily_payment_targets')

@@ -106,8 +106,8 @@
           <!-- / Filter Form -->
 
           <!-- Overview Cards -->
-          <div class="row mb-4">
-            <div class="col-md-3">
+          <div class="row mb-4 g-3">
+            <div class="col-md-3 col-sm-6">
               <div class="card text-white bg-success">
                 <div class="card-body">
                   <h5 class="card-title">Total Revenue</h5>
@@ -115,7 +115,7 @@
                 </div>
               </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 col-sm-6">
               <div class="card text-white bg-danger">
                 <div class="card-body">
                   <h5 class="card-title">Total Expenses</h5>
@@ -123,7 +123,7 @@
                 </div>
               </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 col-sm-6">
               <div class="card text-white bg-info">
                 <div class="card-body">
                   <h5 class="card-title">Total Commissions</h5>
@@ -131,11 +131,29 @@
                 </div>
               </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 col-sm-6">
               <div class="card text-white bg-warning">
                 <div class="card-body">
                   <h5 class="card-title">Total Arrears</h5>
                   <p class="card-text display-6">GHS {{ total_arrears|floatformat:2 }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4 col-sm-6">
+              <div class="card text-white" style="background-color:#6f42c1;">
+                <div class="card-body">
+                  <h5 class="card-title">Payments Made (Recurring Bills)</h5>
+                  <p class="card-text display-6">GHS {{ total_payments|floatformat:2 }}</p>
+                  <small class="d-block">of GHS {{ total_payments_due|floatformat:2 }} due</small>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4 col-sm-6">
+              <div class="card text-white bg-secondary">
+                <div class="card-body">
+                  <h5 class="card-title">Outstanding Bills</h5>
+                  <p class="card-text display-6">GHS {{ total_payments_outstanding|floatformat:2 }}</p>
+                  <small class="d-block">unpaid in selected range</small>
                 </div>
               </div>
             </div>
@@ -151,10 +169,10 @@
           </div>
 
           <!-- Daily Breakdown Table -->
-          <div class="card">
+          <div class="card mb-4">
             <div class="card-body">
               <h5 class="card-title">
-                Daily Breakdown 
+                Daily Breakdown
                 ({{ start_date|date:'Y-m-d' }} to {{ end_date|date:'Y-m-d' }})
               </h5>
               <div class="table-responsive">
@@ -162,21 +180,87 @@
                   <thead>
                     <tr>
                       <th>Date</th>
-                      <th>Revenue</th>
-                      <th>Expense</th>
-                      <th>Net (Revenue - Expense)</th>
+                      <th class="text-end">Revenue</th>
+                      <th class="text-end">Expense</th>
+                      <th class="text-end">Payments</th>
+                      <th class="text-end">Net (Revenue − Expense − Payments)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {% for row in daily_data_list %}
                       <tr>
                         <td>{{ row.date }}</td>
-                        <td>GHS {{ row.revenue|floatformat:2 }}</td>
-                        <td>GHS {{ row.expense|floatformat:2 }}</td>
-                        <td>GHS {{ row.net|floatformat:2 }}</td>
+                        <td class="text-end">GHS {{ row.revenue|floatformat:2 }}</td>
+                        <td class="text-end">GHS {{ row.expense|floatformat:2 }}</td>
+                        <td class="text-end">GHS {{ row.payment|floatformat:2 }}</td>
+                        <td class="text-end">GHS {{ row.net|floatformat:2 }}</td>
                       </tr>
                     {% endfor %}
                   </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recurring Payments Breakdown -->
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">Recurring Payments Breakdown</h5>
+              <p class="text-muted small mb-3">
+                Per-bill summary across the selected range. "Brought Forward" is
+                unpaid debt rolled over from earlier days; a negative value means
+                an overpayment carried as a credit.
+              </p>
+              <div class="table-responsive">
+                <table class="table table-bordered table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th>Branch</th>
+                      <th>Bill</th>
+                      <th class="text-end">Base Due</th>
+                      <th class="text-end">Brought Forward</th>
+                      <th class="text-end">Total Due</th>
+                      <th class="text-end">Paid</th>
+                      <th class="text-end">Outstanding</th>
+                      <th class="text-end">Settled / Days</th>
+                      <th class="text-end">% Settled</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in payments_breakdown %}
+                      <tr>
+                        <td>{{ row.branch__name|default:"—" }}</td>
+                        <td>{{ row.setup__description }}</td>
+                        <td class="text-end">GHS {{ row.total_base|floatformat:2 }}</td>
+                        <td class="text-end">GHS {{ row.total_brought_forward|floatformat:2 }}</td>
+                        <td class="text-end">GHS {{ row.total_due|floatformat:2 }}</td>
+                        <td class="text-end">GHS {{ row.total_paid|floatformat:2 }}</td>
+                        <td class="text-end {% if row.outstanding > 0 %}text-danger fw-bold{% endif %}">
+                          GHS {{ row.outstanding|floatformat:2 }}
+                        </td>
+                        <td class="text-end">{{ row.days_settled }} / {{ row.days_due }}</td>
+                        <td class="text-end">{{ row.settlement_pct|floatformat:1 }}%</td>
+                      </tr>
+                    {% empty %}
+                      <tr>
+                        <td colspan="9" class="text-center text-muted">
+                          No recurring payments configured for this range.
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                  {% if payments_breakdown %}
+                  <tfoot>
+                    <tr class="fw-bold">
+                      <td colspan="5" class="text-end">Totals</td>
+                      <td class="text-end">GHS {{ total_payments|floatformat:2 }}</td>
+                      <td class="text-end {% if total_payments_outstanding > 0 %}text-danger{% endif %}">
+                        GHS {{ total_payments_outstanding|floatformat:2 }}
+                      </td>
+                      <td colspan="2"></td>
+                    </tr>
+                  </tfoot>
+                  {% endif %}
                 </table>
               </div>
             </div>
@@ -225,6 +309,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const chartExpenses = JSON.parse('{{ chart_expenses_json|safe }}');
   const chartCommissions = JSON.parse('{{ chart_commissions_json|safe }}');
   const chartArrears = JSON.parse('{{ chart_arrears_json|safe }}');
+  const chartPayments = JSON.parse('{{ chart_payments_json|safe }}');
   const chartNets = JSON.parse('{{ chart_nets_json|safe }}');
 
   const ctx = document.getElementById('financeChart').getContext('2d');
@@ -266,7 +351,15 @@ document.addEventListener('DOMContentLoaded', function() {
           tension: 0.1
         },
         {
-          label: 'Net (Revenue - Expense)',
+          label: 'Payments (Recurring Bills)',
+          data: chartPayments,
+          borderColor: '#6f42c1',
+          backgroundColor: 'rgba(111, 66, 193, 0.05)',
+          fill: true,
+          tension: 0.1
+        },
+        {
+          label: 'Net (Revenue − Expense − Payments)',
           data: chartNets,
           borderColor: 'purple',
           backgroundColor: 'rgba(128, 0, 128, 0.05)',
