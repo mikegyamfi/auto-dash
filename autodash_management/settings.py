@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from decouple import config, Csv
+import dj_database_url
 
 from autodash_App.templatetags import custom_filters
 
@@ -66,7 +67,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'autodash_management.wsgi.application'
 
-# Database: Use SQLite in development, PostgreSQL in production
+# Database: Use SQLite in development, PostgreSQL in production.
+# In production, set DATABASE_URL (Heroku Postgres provides this automatically):
+#   postgres://USER:PASSWORD@HOST:PORT/NAME
 if DEBUG:
     DATABASES = {
         'default': {
@@ -76,14 +79,11 @@ if DEBUG:
     }
 else:
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql_psycopg2',
-            'NAME': config('DB_NAME'),
-            'USER': config('DB_USER'),
-            'PASSWORD': config('DB_PASSWORD'),
-            'HOST': config('DB_HOST', default='localhost'),
-            'PORT': config('DB_PORT', default='5432'),
-        }
+        'default': dj_database_url.config(
+            env='DATABASE_URL',
+            conn_max_age=600,
+            ssl_require=True,
+        )
     }
 
 # Password validation
