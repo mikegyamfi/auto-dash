@@ -647,14 +647,31 @@ def log_service(request):
     worker = None if is_gm_or_super else Worker.objects.get(user=user)
     initial_branch = worker.branch if worker else None
 
+    # Context for the embedded "Other Service" tab (mirrors other_service_create):
+    # elevated users pick the branch on the form, plain workers are locked to theirs.
+    other_is_elevated = (
+        user.is_superuser
+        or user.is_staff
+        or user.groups.filter(name='GM').exists()
+        or (worker is not None and worker.is_branch_admin)
+    )
+    other_branch = worker.branch if worker else None
+
+    def _log_service_ctx(form):
+        return {
+            'form': form,
+            'vehicle_groups': VehicleGroup.objects.all(),
+            'other_form': OtherServiceForm(branch=other_branch, show_branch=other_is_elevated),
+            'other_show_branch': other_is_elevated,
+        }
+
     if request.method == 'POST':
         form = LogServiceForm(data=request.POST, user=user, branch=initial_branch)
         selected_branch = form.cleaned_data.get('branch') if form.is_valid() and is_gm_or_super else initial_branch
 
         if not form.is_valid():
             messages.error(request, "Form is invalid. Please correct the errors.")
-            return render(request, 'layouts/workers/log_service.html',
-                          {'form': form, 'vehicle_groups': VehicleGroup.objects.all()})
+            return render(request, 'layouts/workers/log_service.html', _log_service_ctx(form))
 
         # Base Fields
         selected_services = form.cleaned_data['service']
@@ -708,8 +725,7 @@ def log_service(request):
 
     # GET
     form = LogServiceForm(user=user, branch=initial_branch)
-    return render(request, 'layouts/workers/log_service.html',
-                  {'form': form, 'vehicle_groups': VehicleGroup.objects.all()})
+    return render(request, 'layouts/workers/log_service.html', _log_service_ctx(form))
 
 
 from django.urls import reverse

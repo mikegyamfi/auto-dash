@@ -30,12 +30,12 @@ Custom management commands (`autodash_App/management/commands/`):
 
 Settings use `python-decouple` and read from a `.env` file at repo root. Keys actually consumed:
 - `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS` (comma-separated CSV)
-- When `DEBUG=False`: `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` (Postgres via psycopg2)
+- When `DEBUG=False`: `DATABASE_URL` (Postgres, parsed by `dj-database-url` with `ssl_require=True` and `conn_max_age=600`; `psycopg2` is the driver). Heroku Postgres provides `DATABASE_URL` automatically. The individual `DB_*` keys are no longer used.
 - `SMS_API_KEY` — used by `autodash_App/helper.py` for the usmsgh SMS gateway
 
-`DEBUG=True` uses the bundled `db.sqlite3`. Heroku `Procfile` runs `python manage.py migrate` on release and `gunicorn autodash_management.wsgi` for `web`.
+`DEBUG=True` uses the bundled `db.sqlite3`. Heroku `Procfile` runs `python manage.py migrate` on release and `gunicorn autodash_management.wsgi` for `web`. Python is pinned to 3.12 for the Heroku build via `.python-version`.
 
-**SMS is currently disabled in `views.py`** via local no-op shims around `send_sms` / `send_sms_club` (the imports from `.helper` are commented out). If re-enabling, restore the import and remove the stubs at the top of `autodash_App/views.py`.
+**SMS is enabled**: `autodash_App/views.py` imports `send_sms` / `send_sms_club` from `.helper` and calls them across the service, subscription, and booking flows. To disable temporarily, stub these out rather than deleting call sites.
 
 ## Architecture
 
