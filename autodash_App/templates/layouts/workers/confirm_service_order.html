@@ -58,15 +58,6 @@
   .card-body {
     padding: 1.5rem;
   }
-  .type-cell .cash-method {
-    display: none;
-    width: auto;
-    min-width: 110px;
-    margin-left: 6px;
-  }
-  .type-cell .type-label {
-    vertical-align: middle;
-  }
 </style>
 {% endblock style %}
 
@@ -87,7 +78,7 @@
           {% endif %}
         </h4>
 
-        <form method="POST">
+        <form method="POST" id="confirm-form">
           {% csrf_token %}
 
           <div class="card mb-4">
@@ -180,7 +171,6 @@
                       <th>Sub Cover</th>
                       <th>Use Loyalty?</th>
                       <th>Cash Due</th>
-                      <th>Payment Type</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -223,9 +213,6 @@
                         {% endif %}
                       </td>
                       <td class="cash-cell fw-bold">GHS {{ c.cash_due|floatformat:2 }}</td>
-                      <td class="type-cell">
-                        <span class="type-label badge bg-label-secondary fs-6">Cash</span>
-                      </td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -268,57 +255,85 @@
             </div>
           {% endif %}
 
-          <!-- Payment split: only relevant when order is being completed and cash is due -->
-          <div class="card border-primary border-opacity-25 mb-4" id="payment-split-card">
-            <div class="card-header bg-label-primary">
-              <h6 class="mb-0"><i class="bx bx-wallet me-1"></i> How was this paid?</h6>
-            </div>
-            <div class="card-body">
-              <p class="text-muted small mb-3">
-                Split the <strong>cash-due portion</strong> between Cash and MoMo. The totals must match.
-              </p>
-
-              <div class="row g-3">
-                <div class="col-md-4">
-                  <label class="form-label">Cash (GHS)</label>
-                  <div class="input-group">
-                    <span class="input-group-text"><i class="bx bx-money"></i></span>
-                    <input type="number" step="0.01" min="0" name="cash_amount" id="cash_amount"
-                           class="form-control split-input"
-                           value="{% if has_saved_payment %}{{ saved_cash|floatformat:2 }}{% else %}{{ total_cash_est|floatformat:2 }}{% endif %}"
-                           data-prefill="{% if has_saved_payment %}1{% else %}0{% endif %}">
-                  </div>
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label">MoMo (GHS)</label>
-                  <div class="input-group">
-                    <span class="input-group-text"><i class="bx bx-mobile"></i></span>
-                    <input type="number" step="0.01" min="0" name="momo_amount" id="momo_amount"
-                           class="form-control split-input"
-                           value="{% if has_saved_payment %}{{ saved_momo|floatformat:2 }}{% else %}0.00{% endif %}">
-                  </div>
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label">Entered Total</label>
-                  <div class="input-group">
-                    <span class="input-group-text">GHS</span>
-                    <input type="text" class="form-control fw-bold" id="split_total" value="0.00" readonly>
-                  </div>
-                  <div id="split_status" class="small mt-1"></div>
-                </div>
-              </div>
-
-              <div class="mt-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="split_all_cash">All Cash</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="split_all_momo">All MoMo</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="split_5050">50 / 50</button>
-              </div>
-            </div>
-          </div>
+          <!-- Payment split lives in a blocking modal (see #paymentModal below).
+               These hidden inputs are the actual POSTed values; the modal writes to them. -->
 
           <div class="d-flex justify-content-end gap-3 mb-4">
             <a href="{% url 'discard_order' order.id %}" class="btn btn-outline-danger btn-lg px-4">Discard Order</a>
-            <button type="submit" class="btn btn-primary btn-lg px-5"><i class="bx bx-check-circle me-1"></i> Confirm & Save</button>
+            <button type="button" id="confirm-save-btn" class="btn btn-primary btn-lg px-5"><i class="bx bx-check-circle me-1"></i> Confirm & Save</button>
+          </div>
+
+          <!-- ============ Payment modal: cannot be bypassed for completed orders ============ -->
+          <div class="modal fade" id="paymentModal" tabindex="-1" data-bs-backdrop="static"
+               data-bs-keyboard="false" aria-labelledby="paymentModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="paymentModalLabel"><i class="bx bx-wallet me-1"></i> How was this paid?</h5>
+                </div>
+                <div class="modal-body">
+                  <div class="d-flex justify-content-between align-items-center mb-3 p-3 rounded bg-label-primary">
+                    <span class="fw-semibold">Amount due <span class="fw-normal opacity-75">(after loyalty &amp; subscription)</span></span>
+                    <h3 class="mb-0 fw-bold">GHS <span id="modal_due">0.00</span></h3>
+                  </div>
+                  <p class="text-muted small mb-3">
+                    Record how it was actually tendered across <strong>Cash</strong>, <strong>MoMo</strong>
+                    and <strong>Card</strong>. The entered total must match the amount due to continue.
+                  </p>
+
+                  <div class="row g-3">
+                    <div class="col-md-3 col-6">
+                      <label class="form-label">Cash (GHS)</label>
+                      <div class="input-group">
+                        <span class="input-group-text"><i class="bx bx-money"></i></span>
+                        <input type="number" step="0.01" min="0" name="cash_amount" id="cash_amount"
+                               class="form-control split-input"
+                               value="{% if has_saved_payment %}{{ saved_cash|floatformat:2 }}{% else %}{{ total_cash_est|floatformat:2 }}{% endif %}"
+                               data-prefill="{% if has_saved_payment %}1{% else %}0{% endif %}">
+                      </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                      <label class="form-label">MoMo (GHS)</label>
+                      <div class="input-group">
+                        <span class="input-group-text"><i class="bx bx-mobile"></i></span>
+                        <input type="number" step="0.01" min="0" name="momo_amount" id="momo_amount"
+                               class="form-control split-input"
+                               value="{% if has_saved_payment %}{{ saved_momo|floatformat:2 }}{% else %}0.00{% endif %}">
+                      </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                      <label class="form-label">Card (GHS)</label>
+                      <div class="input-group">
+                        <span class="input-group-text"><i class="bx bx-credit-card"></i></span>
+                        <input type="number" step="0.01" min="0" name="card_amount" id="card_amount"
+                               class="form-control split-input"
+                               value="{% if has_saved_payment %}{{ saved_card|floatformat:2 }}{% else %}0.00{% endif %}">
+                      </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                      <label class="form-label">Entered Total</label>
+                      <div class="input-group">
+                        <span class="input-group-text">GHS</span>
+                        <input type="text" class="form-control fw-bold" id="split_total" value="0.00" readonly>
+                      </div>
+                      <div id="split_status" class="small mt-1"></div>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="split_all_cash">All Cash</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="split_all_momo">All MoMo</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="split_all_card">All Card</button>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Back</button>
+                  <button type="button" class="btn btn-primary" id="modal-confirm-pay" disabled>
+                    <i class="bx bx-check-circle me-1"></i> Confirm payment &amp; save
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </form>
 
@@ -346,29 +361,39 @@ document.addEventListener('DOMContentLoaded', () => {
   status.addEventListener('change', toggleNote);
   toggleNote();
 
-  // Split-payment UI references
-  const splitCard   = document.getElementById('payment-split-card'),
+  // Split-payment UI references (payment fields live inside the modal)
+  const form        = document.getElementById('confirm-form'),
+        confirmBtn  = document.getElementById('confirm-save-btn'),
+        payConfirm  = document.getElementById('modal-confirm-pay'),
+        modalDueEl  = document.getElementById('modal_due'),
         cashInput   = document.getElementById('cash_amount'),
         momoInput   = document.getElementById('momo_amount'),
+        cardInput   = document.getElementById('card_amount'),
         splitTotal  = document.getElementById('split_total'),
         splitStatus = document.getElementById('split_status'),
         allCashBtn  = document.getElementById('split_all_cash'),
         allMomoBtn  = document.getElementById('split_all_momo'),
-        fiftyBtn    = document.getElementById('split_5050');
+        allCardBtn  = document.getElementById('split_all_card');
+
+  const paymentModal = new bootstrap.Modal(document.getElementById('paymentModal'));
 
   function currentFinal() {
     return parseFloat(approxEl.textContent) || 0;
   }
 
   function updateSplitStatus() {
-    const total = (parseFloat(cashInput.value) || 0) + (parseFloat(momoInput.value) || 0);
+    const total = (parseFloat(cashInput.value) || 0)
+                + (parseFloat(momoInput.value) || 0)
+                + (parseFloat(cardInput.value) || 0);
     splitTotal.value = total.toFixed(2);
     const due = currentFinal();
     const diff = +(total - due).toFixed(2);
+    const matches = due <= 0 || Math.abs(diff) < 0.01;
+
     if (due <= 0) {
       splitStatus.textContent = 'Nothing to split — covered by loyalty/subscription.';
       splitStatus.className = 'small mt-1 text-muted';
-    } else if (Math.abs(diff) < 0.01) {
+    } else if (matches) {
       splitStatus.textContent = '✓ Matches the amount due.';
       splitStatus.className = 'small mt-1 text-success fw-semibold';
     } else if (diff > 0) {
@@ -378,16 +403,9 @@ document.addEventListener('DOMContentLoaded', () => {
       splitStatus.textContent = 'Short by GHS ' + (-diff).toFixed(2);
       splitStatus.className = 'small mt-1 text-danger fw-semibold';
     }
-  }
 
-  function toggleSplitCard() {
-    const due = currentFinal();
-    const isCompleted = status.value === 'completed';
-    if (isCompleted && due > 0) {
-      splitCard.style.display = '';
-    } else {
-      splitCard.style.display = 'none';
-    }
+    // The order can only be confirmed once the split matches the amount due.
+    if (payConfirm) payConfirm.disabled = !matches;
   }
 
   function refillSplitFromDue() {
@@ -395,6 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const due = currentFinal();
     cashInput.value = due.toFixed(2);
     momoInput.value = '0.00';
+    cardInput.value = '0.00';
     updateSplitStatus();
   }
 
@@ -410,33 +429,17 @@ document.addEventListener('DOMContentLoaded', () => {
             loyB  = row.querySelector('.loyalty-box'),
             negoP = negoI ? parseFloat(negoI.value) || 0 : defP;
 
-      let cash = negoP - subC,
-          type = 'Cash';
+      let cash = negoP - subC;
 
-      if (subC > 0) type = 'Subscription';
+      // Loyalty (when ticked) covers the leftover after subscription. The tender
+      // itself (cash/MoMo/card) is captured for the whole balance in the modal.
       if (loyB && loyB.checked) {
         cash = 0;
-        type = subC > 0 ? 'Subscription + Loyalty' : 'Loyalty';
-      }
-      if (cash > 0 && type !== 'Cash') {
-        type += ' + Cash';
       }
 
       // Update cash cell total
       row.querySelector('.cash-cell').textContent = 'GHS ' + cash.toFixed(2);
       totalCash += cash;
-
-      // Handle payment type display
-      const typeCell = row.querySelector('.type-cell');
-      const labelEl = typeCell.querySelector('.type-label');
-
-      if (type === 'Cash' && cash > 0) {
-        labelEl.textContent = 'Cash / MoMo';
-        labelEl.className = 'type-label badge bg-label-primary fs-6';
-      } else {
-        labelEl.textContent = type;
-        labelEl.className = 'type-label badge bg-label-secondary fs-6';
-      }
     });
 
     // Apply discount
@@ -455,7 +458,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       refillSplitFromDue();
     }
-    toggleSplitCard();
   }
 
   // React to inputs that change the math — these always reset to all-cash.
@@ -464,26 +466,54 @@ document.addEventListener('DOMContentLoaded', () => {
   );
   discType.addEventListener('change', () => recalc(false));
   discVal.addEventListener('input', () => recalc(false));
-  status.addEventListener('change', toggleSplitCard);
 
   // Split quick-buttons + live-update
   cashInput.addEventListener('input', updateSplitStatus);
   momoInput.addEventListener('input', updateSplitStatus);
-  allCashBtn.addEventListener('click', () => {
-    cashInput.value = currentFinal().toFixed(2);
-    momoInput.value = '0.00';
+  cardInput.addEventListener('input', updateSplitStatus);
+  function assignAll(target) {
+    const due = currentFinal().toFixed(2);
+    cashInput.value = (target === 'cash') ? due : '0.00';
+    momoInput.value = (target === 'momo') ? due : '0.00';
+    cardInput.value = (target === 'card') ? due : '0.00';
     updateSplitStatus();
+  }
+  allCashBtn.addEventListener('click', () => assignAll('cash'));
+  allMomoBtn.addEventListener('click', () => assignAll('momo'));
+  allCardBtn.addEventListener('click', () => assignAll('card'));
+
+  // ── Confirm & Save flow ───────────────────────────────────────────────
+  // Completed orders with a balance due MUST record the tender split first —
+  // the modal is the only way to submit them. Everything else submits directly.
+  let submitting = false;
+  confirmBtn.addEventListener('click', () => {
+    const due = currentFinal();
+    if (status.value === 'completed' && due > 0.005) {
+      modalDueEl.textContent = due.toFixed(2);
+      // Keep a pre-filled/matching split; otherwise default the whole due to cash.
+      const entered = (parseFloat(cashInput.value) || 0)
+                    + (parseFloat(momoInput.value) || 0)
+                    + (parseFloat(cardInput.value) || 0);
+      if (Math.abs(entered - due) > 0.01) {
+        cashInput.value = due.toFixed(2);
+        momoInput.value = '0.00';
+        cardInput.value = '0.00';
+      }
+      updateSplitStatus();
+      paymentModal.show();
+    } else {
+      // No payment split needed (pending / on-credit / cancelled, or fully
+      // covered by loyalty & subscription).
+      submitting = true;
+      form.submit();
+    }
   });
-  allMomoBtn.addEventListener('click', () => {
-    cashInput.value = '0.00';
-    momoInput.value = currentFinal().toFixed(2);
-    updateSplitStatus();
-  });
-  fiftyBtn.addEventListener('click', () => {
-    const half = currentFinal() / 2;
-    cashInput.value = half.toFixed(2);
-    momoInput.value = half.toFixed(2);
-    updateSplitStatus();
+
+  payConfirm.addEventListener('click', () => {
+    if (payConfirm.disabled || submitting) return;
+    submitting = true;
+    payConfirm.disabled = true;
+    form.submit();
   });
 
   // Initial render: if the server pre-filled a saved split, keep those values

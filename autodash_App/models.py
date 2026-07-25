@@ -474,7 +474,8 @@ class ServiceRenderedOrder(models.Model):
             ('subscription', 'Subscription'),
             ('cash', 'Cash'),
             ('momo', 'MoMo'),
-            ('split', 'Cash + MoMo'),
+            ('card', 'Card'),
+            ('split', 'Split'),
         ],
         null=True,
         blank=True
@@ -506,6 +507,7 @@ class ServiceRenderedOrder(models.Model):
                                                         blank=True)  # This shoes the amount that using the loyalty points saved the user which is useful for display on the receipt
     cash_paid = models.FloatField(null=True, blank=True, default=0.0)
     momo_amount = models.FloatField(null=True, blank=True, default=0.0)
+    card_amount = models.FloatField(null=True, blank=True, default=0.0)
     is_walkin = models.BooleanField(default=False)
     walkin_name = models.CharField(max_length=150, null=True, blank=True)
     walkin_phone = models.CharField(max_length=20, null=True, blank=True)

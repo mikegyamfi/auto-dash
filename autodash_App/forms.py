@@ -81,6 +81,7 @@ class LogServiceForm(forms.Form):
         widget=forms.SelectMultiple(attrs={
             'class': 'form-control',
             'placeholder': 'Select Workers',
+            'id': 'worker-select',
         }),
     )
     comments = forms.CharField(widget=forms.Textarea(
@@ -114,18 +115,16 @@ class LogServiceForm(forms.Form):
             except (ValueError, TypeError, Branch.DoesNotExist):
                 active_branch = None
 
-        # 3. Filter Workers & Products
+        # 3. Filter Workers & Products — always scoped to the active branch.
         if active_branch:
             self.fields['workers'].queryset = Worker.objects.filter(branch=active_branch)
             self.fields['products'].queryset = Product.objects.filter(branch=active_branch, stock__gt=0)
         else:
-            if is_gm_or_super:
-                # If GM hasn't selected a branch yet, show all to avoid empty dropdowns on first load
-                self.fields['workers'].queryset = Worker.objects.all()
-                self.fields['products'].queryset = Product.objects.all()
-            else:
-                self.fields['workers'].queryset = Worker.objects.none()
-                self.fields['products'].queryset = Product.objects.none()
+            # GM/super with no branch chosen yet: keep the pickers empty — they
+            # populate via AJAX once a branch is selected, so workers stay
+            # branch-based instead of listing everyone across all branches.
+            self.fields['workers'].queryset = Worker.objects.none()
+            self.fields['products'].queryset = Product.objects.none()
 
         # Set vehicle queryset based on customer
         if 'customer' in self.data:
@@ -845,14 +844,14 @@ class OtherServiceForm(forms.ModelForm):
         model = OtherService
         fields = ["branch", "service_name", "amount", "contact_name", "contact_phone", "notes", "status", "workers"]
         widgets = {
-            "branch": forms.Select(attrs={"class": "form-select"}),
+            "branch": forms.Select(attrs={"class": "form-select", "id": "other-branch-select"}),
             "service_name": forms.TextInput(attrs={"class": "form-control"}),
             "amount": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
             "contact_name": forms.TextInput(attrs={"class": "form-control"}),
             "contact_phone": forms.TextInput(attrs={"class": "form-control"}),
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "status": forms.Select(attrs={"class": "form-select"}),
-            "workers": forms.SelectMultiple(attrs={"class": "form-select"}),
+            "workers": forms.SelectMultiple(attrs={"class": "form-select", "id": "other-worker-select"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -863,13 +862,24 @@ class OtherServiceForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         if show_branch:
-            # Admin / GM / branch-admin / superuser: force a branch choice and
-            # expose all workers so they can log on any branch's behalf.
+            # Admin / GM / branch-admin / superuser: force a branch choice. Workers
+            # stay scoped to the chosen branch — the field starts empty and
+            # populates via AJAX; on submit we validate against the posted branch.
             self.fields["branch"].required = True
             self.fields["branch"].queryset = Branch.objects.all()
-            self.fields["workers"].queryset = Worker.objects.select_related(
-                "user", "branch"
-            ).order_by("branch__name", "user__first_name")
+
+            selected_branch = None
+            posted_branch = self.data.get("branch") if hasattr(self, "data") else None
+            if posted_branch:
+                try:
+                    selected_branch = Branch.objects.get(id=int(posted_branch))
+                except (ValueError, TypeError, Branch.DoesNotExist):
+                    selected_branch = None
+
+            if selected_branch is not None:
+                self.fields["workers"].queryset = Worker.objects.filter(branch=selected_branch)
+            else:
+                self.fields["workers"].queryset = Worker.objects.none()
         else:
             # Regular worker — branch is fixed by their profile, hide the field.
             self.fields.pop("branch", None)

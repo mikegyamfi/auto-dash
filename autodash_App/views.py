@@ -281,17 +281,12 @@ def home(request):
         date__date__range=[start_dt, end_dt],
         **branch_kw,
     )
-    cash_flow_cash = (
-        completed
-        .filter(payment_method='cash')
-        .aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
-    )
-    print(cash_flow_cash)
-    cash_flow_momo = (
-        completed
-        .filter(payment_method='momo')
-        .aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
-    )
+    # Sum the per-tender component fields directly rather than filtering by
+    # payment_method. This correctly attributes split orders (which carry a
+    # cash_paid AND a momo_amount AND/OR a card_amount) to each bucket.
+    cash_flow_cash = completed.aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
+    cash_flow_momo = completed.aggregate(total=Coalesce(Sum('momo_amount'), 0.0))['total']
+    cash_flow_card = completed.aggregate(total=Coalesce(Sum('card_amount'), 0.0))['total']
     cash_flow_subscription = completed.aggregate(Sum('subscription_amount_used'))[
                                  'subscription_amount_used__sum'] or 0
     cash_flow_loyalty = completed.aggregate(Sum('loyalty_points_amount_deduction'))[
@@ -509,6 +504,7 @@ def home(request):
         # cash flow
         'cash_flow_cash': cash_flow_cash,
         'cash_flow_momo': cash_flow_momo,
+        'cash_flow_card': cash_flow_card,
         'cash_flow_credit': cash_flow_credit,
         'cash_flow_subscription': cash_flow_subscription,
         'cash_flow_loyalty': cash_flow_loyalty,
@@ -636,6 +632,24 @@ def home(request):
 def get_services_by_group(request, group_id):
     services = Service.objects.filter(vehicle_group_id=group_id, active=True).values('id', 'service_type', 'price')
     return JsonResponse(list(services), safe=False)
+
+
+@login_required
+def get_workers_by_branch(request, branch_id):
+    """AJAX: workers belonging to a branch, so the worker picker stays branch-scoped."""
+    workers = (
+        Worker.objects.filter(branch_id=branch_id)
+        .select_related("user")
+        .order_by("user__first_name", "user__last_name")
+    )
+    data = [
+        {
+            "id": w.id,
+            "name": (w.user.get_full_name() or w.user.username or f"Worker #{w.id}").strip(),
+        }
+        for w in workers
+    ]
+    return JsonResponse(data, safe=False)
 
 
 @login_required(login_url='login')
@@ -827,7 +841,8 @@ def confirm_service(request, pk):
         # Previously-saved payment split (so re-opening shows what was stored).
         saved_cash = float(order.cash_paid or 0)
         saved_momo = float(order.momo_amount or 0)
-        has_saved_payment = (saved_cash + saved_momo) > 0
+        saved_card = float(order.card_amount or 0)
+        has_saved_payment = (saved_cash + saved_momo + saved_card) > 0
 
         return render(
             request,
@@ -847,6 +862,7 @@ def confirm_service(request, pk):
                 # Pre-populated from previous save (falls back to defaults in template).
                 "saved_cash": saved_cash,
                 "saved_momo": saved_momo,
+                "saved_card": saved_card,
                 "has_saved_payment": has_saved_payment,
                 "was_previously_saved": order.status in ("completed", "onCredit") or has_saved_payment,
             },
@@ -1051,46 +1067,51 @@ def confirm_service(request, pk):
     const_final_cash = max(0.0, cash_total - disc_amt)
     final_cash = const_final_cash
 
-    # 5b. cash / momo split from the form. Accept only if order is completed
-    # (on-credit orders don't have a payment yet — that happens at arrears time).
+    # 5b. cash / momo / card split from the form. Accept only if order is
+    # completed (on-credit orders don't have a payment yet — that happens at
+    # arrears time). The split is decided per-ORDER for the amount left after
+    # loyalty & subscription, so the dashboard can show a clean tender breakdown.
     cash_part = 0.0
     momo_part = 0.0
+    card_part = 0.0
     if new_status == "completed" and final_cash > 0:
-        try:
-            cash_part = max(0.0, float(request.POST.get("cash_amount", "0") or 0))
-        except ValueError:
-            cash_part = 0.0
-        try:
-            momo_part = max(0.0, float(request.POST.get("momo_amount", "0") or 0))
-        except ValueError:
-            momo_part = 0.0
+        def _read_amount(field):
+            try:
+                return max(0.0, float(request.POST.get(field, "0") or 0))
+            except ValueError:
+                return 0.0
 
-        total_entered = cash_part + momo_part
+        cash_part = _read_amount("cash_amount")
+        momo_part = _read_amount("momo_amount")
+        card_part = _read_amount("card_amount")
+
+        total_entered = cash_part + momo_part + card_part
         # If they entered nothing, default to all cash. If they overpaid or
         # underpaid, normalise proportionally so the stored amounts always
         # sum to final_cash (prevents drift between fields and receipt total).
         if total_entered <= 0:
-            cash_part, momo_part = final_cash, 0.0
+            cash_part, momo_part, card_part = final_cash, 0.0, 0.0
         elif abs(total_entered - final_cash) > 0.01:
             scale = final_cash / total_entered
             cash_part = round(cash_part * scale, 2)
-            momo_part = round(final_cash - cash_part, 2)
+            momo_part = round(momo_part * scale, 2)
+            # Card absorbs any rounding remainder so the parts always total final_cash.
+            card_part = round(final_cash - cash_part - momo_part, 2)
 
-        # Decide payment_method label for the order.
-        if cash_part > 0 and momo_part > 0:
+        # Decide payment_method label for the order (single tender vs split).
+        label_map = [("cash", "Cash", cash_part),
+                     ("momo", "MoMo", momo_part),
+                     ("card", "Card", card_part)]
+        used = [(code, label) for code, label, amt in label_map if amt > 0]
+        if len(used) > 1:
             order.payment_method = "split"
-        elif momo_part > 0:
-            order.payment_method = "momo"
+        elif used:
+            order.payment_method = used[0][0]
         else:
             order.payment_method = "cash"
 
         # Update per-service payment_type label to reflect what really happened.
-        if cash_part > 0 and momo_part > 0:
-            split_label = "Cash + MoMo"
-        elif momo_part > 0:
-            split_label = "MoMo"
-        else:
-            split_label = "Cash"
+        split_label = " + ".join(lbl for _, lbl in used) if used else "Cash"
         for sr in sr_list:
             if sr.payment_type and "Payment" in sr.payment_type:
                 sr.payment_type = sr.payment_type.replace("Payment", split_label)
@@ -1102,6 +1123,7 @@ def confirm_service(request, pk):
     order.loyalty_points_amount_deduction = loyalty_cover
     order.cash_paid = cash_part if new_status == "completed" else 0.0
     order.momo_amount = momo_part if new_status == "completed" else 0.0
+    order.card_amount = card_part if new_status == "completed" else 0.0
     order.discount_type = d_type
     order.discount_value = d_val
     order.final_amount = final_cash
@@ -1129,6 +1151,7 @@ def confirm_service(request, pk):
                          + (order.loyalty_points_amount_deduction or 0)
                          + (order.cash_paid or 0)
                          + (order.momo_amount or 0)
+                         + (order.card_amount or 0)
                  ) / max(order.total_amount, 1.0)
     for sr in sr_list:
         sr.allocate_commission(discount_factor=factor)

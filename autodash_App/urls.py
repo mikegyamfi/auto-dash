@@ -12,6 +12,8 @@ urlpatterns = [
                   path('log_service', views.log_service, name='log_service'),
                   path('ajax/services/group/<int:group_id>/', views.get_services_by_group,
                        name='ajax_services_by_group'),
+                  path('ajax/workers/branch/<int:branch_id>/', views.get_workers_by_branch,
+                       name='ajax_workers_by_branch'),
                   path('log_scanned_service/<int:customer_id>', views.log_service_scanned, name='log_service_scanned'),
                   path('check-customer-status/<int:customer_id>/', views.check_customer_status,
                        name='check_customer_status'),

@@ -498,6 +498,39 @@
                 }
             });
         }
+
+        // --- BRANCH-SCOPED WORKERS (admin/GM branch pickers) ---
+        // When a branch is selected, load only that branch's workers into the
+        // worker picker so nobody can be assigned from another branch.
+        function loadWorkersForBranch(branchId, targetSelect) {
+            if (!targetSelect) return;
+            if (!branchId) {
+                targetSelect.innerHTML = '';
+                if ($.fn.select2) $(targetSelect).trigger('change');
+                return;
+            }
+            fetch(`/ajax/workers/branch/${branchId}/`)
+                .then(res => res.json())
+                .then(data => {
+                    targetSelect.innerHTML = '';
+                    data.forEach(w => targetSelect.add(new Option(w.name, w.id)));
+                    if ($.fn.select2) $(targetSelect).trigger('change');
+                })
+                .catch(err => console.error('Error fetching workers:', err));
+        }
+
+        const branchSelect      = document.getElementById('branch-select');
+        const otherBranchSelect = document.getElementById('other-branch-select');
+        if (branchSelect) {
+            branchSelect.addEventListener('change', function () {
+                loadWorkersForBranch(this.value, document.getElementById('worker-select'));
+            });
+        }
+        if (otherBranchSelect) {
+            otherBranchSelect.addEventListener('change', function () {
+                loadWorkersForBranch(this.value, document.getElementById('other-worker-select'));
+            });
+        }
     });
   </script>
 {% endblock scripts %}
