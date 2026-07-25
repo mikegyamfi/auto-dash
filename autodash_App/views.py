@@ -272,8 +272,12 @@ def home(request):
     ).aggregate(total=Sum('amount_paid'))['total'] or 0
 
     gross_sales = revenue_total - commission_total
-    net_sales = gross_sales - expenses_total
-    gross_profit = net_sales - payments_made
+    # Net sales = Gross sales − Operating payments. "Operating payments" are the
+    # recurring dashboard payments (DailyPaymentTarget amount_paid) — distinct
+    # from expenses, which live in the Performance block, not here.
+    net_sales = gross_sales - payments_made
+    # Kept for anywhere that still references it: profit after expenses too.
+    gross_profit = net_sales - expenses_total
 
     # 2) Cash-Flow breakdown
     completed = ServiceRenderedOrder.objects.filter(
@@ -300,6 +304,54 @@ def home(request):
     # 3) Build list of days in the range
     num_days = (end_dt - start_dt).days + 1
     all_dates = [start_dt + timedelta(days=i) for i in range(num_days)]
+
+    # 3b) Revenue category — vehicle-type split. Uses the canonical Revenue rows
+    # (which point at either a ServiceRenderedOrder or an OtherService), so the
+    # three buckets partition and reconcile to revenue_total.
+    revenue_qs = Revenue.objects.filter(date__range=[start_dt, end_dt], **branch_kw)
+    registered_revenue = revenue_qs.filter(
+        service_rendered__isnull=False, service_rendered__is_walkin=False
+    ).aggregate(t=Coalesce(Sum('final_amount'), 0.0))['t']
+    walkin_revenue = revenue_qs.filter(
+        service_rendered__is_walkin=True
+    ).aggregate(t=Coalesce(Sum('final_amount'), 0.0))['t']
+    nonvehicle_revenue = revenue_qs.filter(
+        other_service__isnull=False
+    ).aggregate(t=Coalesce(Sum('final_amount'), 0.0))['t']
+
+    # By service type. To reconcile to revenue_total, split each order's *net*
+    # Revenue proportionally between its detailing and non-detailing line items;
+    # Other services = revenue_total − detailing (so it also sweeps up OtherService
+    # revenue, which has no catalogue lines). Detailing + Other == revenue_total.
+    detailing_revenue = 0.0
+    order_rev_rows = (
+        revenue_qs.filter(service_rendered__isnull=False)
+        .select_related('service_rendered')
+        .prefetch_related('service_rendered__rendered__service')
+    )
+    for rev in order_rev_rows:
+        gross_total = 0.0
+        gross_detailing = 0.0
+        for sr in rev.service_rendered.rendered.all():
+            price = float(sr.negotiated_price if sr.negotiated_price else sr.service.price)
+            gross_total += price
+            if sr.service.service_class == 'Detailing':
+                gross_detailing += price
+        if gross_total > 0:
+            detailing_revenue += float(rev.final_amount or 0) * (gross_detailing / gross_total)
+    other_services_revenue = revenue_total - detailing_revenue
+
+    # 3c) Total-orders count + branch orders target (sum of workers' per-day
+    # order targets across the range) for the Performance block.
+    total_orders_count = ServiceRenderedOrder.objects.filter(
+        date__date__range=[start_dt, end_dt], **branch_kw,
+    ).count()
+    worker_orders_target = (
+        Worker.objects.filter(**branch_kw)
+        .aggregate(t=Coalesce(Sum('daily_orders_target'), 0.0))['t']
+    )
+    orders_target = worker_orders_target * num_days
+    orders_status_pct = (total_orders_count / orders_target * 100) if orders_target else 0
 
     # 4) Sales Target (sum DailySalesTarget for each weekday).
     # When no branch is selected, sum across all branches for that weekday.
@@ -509,18 +561,25 @@ def home(request):
         'cash_flow_subscription': cash_flow_subscription,
         'cash_flow_loyalty': cash_flow_loyalty,
 
+        # revenue category — by service type (reconciles to revenue_total)
+        'detailing_revenue': detailing_revenue,
+        'other_services_revenue': other_services_revenue,
+        # revenue category — vehicle-type split (reconciles to revenue_total)
+        'registered_revenue': registered_revenue,
+        'walkin_revenue': walkin_revenue,
+        'nonvehicle_revenue': nonvehicle_revenue,
+
         # targets & budgets
         'sales_target': sales_target,
         'expense_budget': expense_budget,
         'sales_status_pct': sales_status_pct,
         'expense_status_pct': expense_status_pct,
+        'orders_target': orders_target,
+        'orders_status_pct': orders_status_pct,
         'incentive_amount': incentive_amount,
 
         # order counts
-        'total_orders': ServiceRenderedOrder.objects.filter(
-            date__date__range=[start_dt, end_dt],
-            **branch_kw,
-        ).count(),
+        'total_orders': total_orders_count,
         'completed_orders_count': count_status('completed'),
         'pending_orders_count': count_status('pending'),
         'canceled_orders_count': count_status('canceled'),
@@ -551,37 +610,8 @@ def home(request):
         "stock_out": stock_out,
     })
 
-    rendered_items = ServiceRendered.objects.filter(order__in=completed_qs)
-
-    # 2. Use the new service_class field for explicit filtering
-    service_split = rendered_items.aggregate(
-        detailing=Sum(
-            Case(
-                When(service__service_class='Detailing',
-                     then=Coalesce(F('negotiated_price'), F('service__price'))),
-                default=Value(0.0),
-                output_field=FloatField(),
-            )
-        ),
-        others=Sum(
-            Case(
-                # Sum everything that is NOT marked as 'Detailing'
-                When(service__service_class='Detailing', then=Value(0.0)),
-                default=Coalesce(F('negotiated_price'), F('service__price')),
-                output_field=FloatField(),
-            )
-        )
-    )
-
-    # 3. Extract and safe-guard values
-    detailing_revenue = service_split['detailing'] or 0.0
-    other_services_revenue = service_split['others'] or 0.0
-
-    # 4. Update the context
-    context.update({
-        'detailing_revenue': detailing_revenue,
-        'other_services_revenue': other_services_revenue,
-    })
+    # detailing_revenue / other_services_revenue are computed earlier (net,
+    # reconciling to revenue_total) and already in context.
 
     return render(request, 'layouts/admin/dashboard.html', context)
 

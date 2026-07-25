@@ -159,7 +159,8 @@
             </div>
           </div>
 
-          <!-- Second row: money metrics (.col auto-distributes, 7 always fit) -->
+          <!-- =========================== REVENUE =========================== -->
+          <h5 class="mb-3">Revenue</h5>
           <div class="row g-2 mb-4 flex-nowrap">
             <div class="col">
               <div class="card h-100">
@@ -194,27 +195,7 @@
             <div class="col">
               <div class="card h-100">
                 <div class="card-body p-2 text-center">
-                  <div class="text-muted small text-nowrap">Expenses</div>
-                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ expenses_today|floatformat:2|intcomma }}">
-                    GHS {{ expenses_today|floatformat:0|intcomma }}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="col">
-              <div class="card h-100">
-                <div class="card-body p-2 text-center">
-                  <div class="text-muted small text-nowrap">Net Sales</div>
-                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ net_sales|default:0|floatformat:2|intcomma }}">
-                    GHS {{ net_sales|default:0|floatformat:0|intcomma }}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="col">
-              <div class="card h-100">
-                <div class="card-body p-2 text-center">
-                  <div class="text-muted small text-nowrap">Payments</div>
+                  <div class="text-muted small text-nowrap">Operating Payments</div>
                   <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ payments_made|default:0|floatformat:2|intcomma }}">
                     GHS {{ payments_made|default:0|floatformat:0|intcomma }}
                   </div>
@@ -222,40 +203,73 @@
               </div>
             </div>
             <div class="col">
-              <div class="card h-100">
+              <div class="card h-100 border-primary">
                 <div class="card-body p-2 text-center">
-                  <div class="text-muted small text-nowrap">Gross Profit</div>
-                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ gross_profit|default:0|floatformat:2|intcomma }}">
-                    GHS {{ gross_profit|default:0|floatformat:0|intcomma }}
+                  <div class="text-muted small text-nowrap">Net Sales</div>
+                  <div class="fw-bold text-nowrap text-primary" style="font-size: 0.95rem;" title="GHS {{ net_sales|default:0|floatformat:2|intcomma }}">
+                    GHS {{ net_sales|default:0|floatformat:0|intcomma }}
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <!-- End of SERVICES SECTION -->
 
-          <h5 class="mb-3">Service Revenue Split</h5>
-<div class="row mb-4">
-  <div class="col-md-4 col-sm-6 mb-4">
-    <div class="card bg-label-primary">
-      <div class="card-body">
-        <h6 class="card-title text-primary">Detailing Services</h6>
-        <p class="display-6">GHS {{ detailing_revenue|floatformat:2|intcomma }}</p>
-        <small class="text-muted">Total from all "Detailing" services</small>
-      </div>
-    </div>
-  </div>
+          <!-- =========================== REVENUE CATEGORY =========================== -->
+          <h5 class="mb-3">Revenue Category</h5>
 
-  <div class="col-md-4 col-sm-6 mb-4">
-    <div class="card">
-      <div class="card-body">
-        <h6 class="card-title">Other Services</h6>
-        <p class="display-6">GHS {{ other_services_revenue|floatformat:2|intcomma }}</p>
-        <small class="text-muted">General washing & other tasks</small>
-      </div>
-    </div>
-  </div>
-</div>
+          <!-- By type (Detailing + Other = Revenue) · By vehicle (Mainstream + Unregistered + Non-vehicle = Revenue) -->
+          <div class="row g-2 mb-4 flex-nowrap">
+            <div class="col">
+              <div class="card h-100 bg-label-primary">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Detailing</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ detailing_revenue|floatformat:2|intcomma }}">
+                    GHS {{ detailing_revenue|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100 bg-label-primary">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Other Services</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ other_services_revenue|floatformat:2|intcomma }}">
+                    GHS {{ other_services_revenue|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Mainstream</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ registered_revenue|floatformat:2|intcomma }}">
+                    GHS {{ registered_revenue|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Unregistered</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ walkin_revenue|floatformat:2|intcomma }}">
+                    GHS {{ walkin_revenue|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Non-Vehicle</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ nonvehicle_revenue|floatformat:2|intcomma }}">
+                    GHS {{ nonvehicle_revenue|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
         <h5 class="mb-3">Cash Flow</h5>
 <div class="row mb-4">
@@ -308,50 +322,56 @@
   </div>
 </div>
 
+        <!-- =========================== PERFORMANCE =========================== -->
+        <h5 class="mb-3">Performance</h5>
         <div class="row mb-4">
-  <!-- Sales Performance -->
-  <div class="col-md-4 mb-4">
-    <div class="card">
-      <div class="card-body">
-        <h6 class="card-title">Sales Performance Summary</h6>
-        <p>Target: GHS {{ sales_target|floatformat:2|intcomma }}</p>
-        <p>Actual: GHS {{ revenue_today|floatformat:2|intcomma }}</p>
-        <p>
-          Status:
-          <span
-            class="{% if sales_status_pct >= 100 %}text-success{% else %}text-danger{% endif %}">
-            {{ sales_status_pct|floatformat:1 }}%
-          </span>
-        </p>
-      </div>
-    </div>
-  </div>
+          <div class="col-lg-9 mb-3">
+            <div class="card h-100">
+              <div class="table-responsive">
+                <table class="table mb-0 align-middle">
+                  <thead class="table-light">
+                    <tr>
+                      <th></th>
+                      <th class="text-end">Target</th>
+                      <th class="text-end">Actual</th>
+                      <th class="text-end">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="fw-semibold">Sales (GHS)</td>
+                      <td class="text-end">{{ sales_target|floatformat:2|intcomma }}</td>
+                      <td class="text-end">{{ revenue_today|floatformat:2|intcomma }}</td>
+                      <td class="text-end fw-semibold {% if sales_status_pct >= 100 %}text-success{% else %}text-danger{% endif %}">{{ sales_status_pct|floatformat:1 }}%</td>
+                    </tr>
+                    <tr>
+                      <td class="fw-semibold">Orders</td>
+                      <td class="text-end">{{ orders_target|floatformat:0|intcomma }}</td>
+                      <td class="text-end">{{ total_orders }}</td>
+                      <td class="text-end fw-semibold {% if orders_status_pct >= 100 %}text-success{% else %}text-danger{% endif %}">{{ orders_status_pct|floatformat:1 }}%</td>
+                    </tr>
+                    <tr>
+                      <td class="fw-semibold">Expenses (GHS)</td>
+                      <td class="text-end">{{ expense_budget|floatformat:2|intcomma }}</td>
+                      <td class="text-end">{{ expenses_today|floatformat:2|intcomma }}</td>
+                      <td class="text-end fw-semibold {% if expense_status_pct > 100 %}text-danger{% else %}text-success{% endif %}">{{ expense_status_pct|floatformat:1 }}%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
 
-  <!-- Expense Summary -->
-  <div class="col-md-4 mb-4">
-    <div class="card">
-      <div class="card-body">
-        <h6 class="card-title">Expense Summary</h6>
-       <p>Expense Budget: GHS {{ expense_budget|floatformat:2|intcomma }}</p>
-<p>Actual Expenses: GHS {{ expenses_today|floatformat:2|intcomma }}</p>
-<p>
-  Status:
-        <strong>{{ expense_status_pct|floatformat:1 }}%</strong>
-</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Incentive Summary -->
-  <div class="col-md-4 mb-4">
-    <div class="card">
-      <div class="card-body">
-        <h6 class="card-title">Incentive Summary</h6>
-        <p>Inc Amount: GHS {{ incentive_amount|floatformat:2 }}</p>
-      </div>
-    </div>
-  </div>
-</div>
+          <!-- Incentive -->
+          <div class="col-lg-3 mb-3">
+            <div class="card h-100 bg-label-success">
+              <div class="card-body d-flex flex-column justify-content-center">
+                <h6 class="card-title">Incentive</h6>
+                <p class="display-6 mb-0">GHS {{ incentive_amount|floatformat:2 }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
 
 
