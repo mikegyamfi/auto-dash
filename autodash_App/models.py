@@ -111,6 +111,10 @@ class Worker(models.Model):
     # Per-worker daily productivity targets (fed into the scorecard).
     daily_orders_target = models.FloatField(default=0, help_text="Target number of service orders per day.")
     daily_services_target = models.FloatField(default=0, help_text="Target number of services rendered per day.")
+    daily_value_target = models.FloatField(
+        default=0,
+        help_text="Target value (GHS) of services this worker is expected to generate per day.",
+    )
 
     def __str__(self):
         return f"{self.user.get_full_name()}  @ {self.branch.name}"
@@ -1214,10 +1218,12 @@ class ScorecardCriterion(models.Model):
     AUTO_SOURCE_NONE = ""
     AUTO_SOURCE_ORDERS = "orders"
     AUTO_SOURCE_SERVICES = "services"
+    AUTO_SOURCE_VALUE = "value"
     AUTO_SOURCE_CHOICES = [
         (AUTO_SOURCE_NONE, "Manual (GM adjusts)"),
         (AUTO_SOURCE_ORDERS, "Auto — Orders actual / target"),
         (AUTO_SOURCE_SERVICES, "Auto — Services actual / target"),
+        (AUTO_SOURCE_VALUE, "Auto — Value (GHS) actual / target"),
     ]
 
     category = models.ForeignKey(

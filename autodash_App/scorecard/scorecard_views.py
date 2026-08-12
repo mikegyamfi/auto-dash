@@ -106,6 +106,70 @@ def _count_services_for(worker: Worker, on_date: date_cls) -> int:
     return core + other
 
 
+def value_generated_map(
+    start_date: date_cls,
+    end_date: date_cls,
+    worker: Worker | None = None,
+    branch: Branch | None = None,
+) -> dict[int, float]:
+    """Money value of the work each worker rendered between two dates (inclusive).
+
+    Value comes from the actual prices charged — a `ServiceRendered` line's
+    negotiated price (falling back to the catalogue price) and an
+    `OtherService`'s amount. When several workers are on the same job the
+    value is split equally between them, so summing across a branch's workers
+    gives back the branch's rendered value instead of multiplying it.
+
+    Canceled work is excluded; pending / on-credit work still counts as value
+    rendered. Returns {worker_id: value}.
+    """
+    from autodash_App.models import ServiceRendered
+
+    totals: dict[int, float] = {}
+
+    def _spread(records, amount_of, worker_ids_of):
+        for rec in records:
+            worker_ids = worker_ids_of(rec)
+            if not worker_ids:
+                continue
+            share = float(amount_of(rec) or 0.0) / len(worker_ids)
+            for wid in worker_ids:
+                totals[wid] = totals.get(wid, 0.0) + share
+
+    lines = (
+        ServiceRendered.objects
+        .filter(date__date__gte=start_date, date__date__lte=end_date)
+        .exclude(order__status="canceled")
+        .select_related("service")
+        .prefetch_related("workers")
+    )
+    others = (
+        OtherService.objects
+        .filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+        .exclude(status="canceled")
+        .prefetch_related("workers")
+    )
+    # Filtering by worker keeps the scan small; `prefetch_related` still loads
+    # every worker on the matched rows, so the split denominator stays correct.
+    if worker is not None:
+        lines = lines.filter(workers=worker)
+        others = others.filter(workers=worker)
+    if branch is not None:
+        lines = lines.filter(order__branch=branch)
+        others = others.filter(branch=branch)
+
+    _spread(lines, lambda sr: sr.get_effective_price(),
+            lambda sr: [w.id for w in sr.workers.all()])
+    _spread(others, lambda os_: os_.amount,
+            lambda os_: [w.id for w in os_.workers.all()])
+    return totals
+
+
+def _value_for(worker: Worker, on_date: date_cls) -> float:
+    """Value (GHS) of the services this worker rendered on the given date."""
+    return round(value_generated_map(on_date, on_date, worker=worker).get(worker.id, 0.0), 2)
+
+
 def _auto_points(criterion: ScorecardCriterion, worker: Worker, on_date: date_cls) -> float:
     """Compute points for an auto-scored criterion based on actual vs target.
 
@@ -118,6 +182,9 @@ def _auto_points(criterion: ScorecardCriterion, worker: Worker, on_date: date_cl
     elif criterion.auto_source == ScorecardCriterion.AUTO_SOURCE_SERVICES:
         actual = _count_services_for(worker, on_date)
         target = worker.daily_services_target or 0
+    elif criterion.auto_source == ScorecardCriterion.AUTO_SOURCE_VALUE:
+        actual = _value_for(worker, on_date)
+        target = worker.daily_value_target or 0
     else:
         return criterion.max_points
 
@@ -174,6 +241,7 @@ def _ensure_scorecard(worker: Worker, on_date: date_cls) -> DailyScorecard:
         criterion__auto_source__in=[
             ScorecardCriterion.AUTO_SOURCE_ORDERS,
             ScorecardCriterion.AUTO_SOURCE_SERVICES,
+            ScorecardCriterion.AUTO_SOURCE_VALUE,
         ]
     )
     for entry in auto_entries:
@@ -192,7 +260,7 @@ def _ensure_scorecard(worker: Worker, on_date: date_cls) -> DailyScorecard:
 # ---------------------------------------------------------------------
 @gm_required
 def scorecard_targets(request):
-    """List workers with editable daily order/service targets. Branch-scoped
+    """List workers with editable daily order/service/value targets. Branch-scoped
     for branch-admins; staff/superuser see all with an optional branch filter."""
     forced_branch = _visible_branch(request)
     if forced_branch:
@@ -214,18 +282,24 @@ def scorecard_targets(request):
         for worker in workers_qs:
             raw_orders = request.POST.get(f"orders_{worker.id}")
             raw_services = request.POST.get(f"services_{worker.id}")
-            if raw_orders is None and raw_services is None:
+            raw_value = request.POST.get(f"value_{worker.id}")
+            if raw_orders is None and raw_services is None and raw_value is None:
                 continue
             try:
                 new_orders = float(raw_orders) if raw_orders not in (None, "") else worker.daily_orders_target
                 new_services = float(raw_services) if raw_services not in (None, "") else worker.daily_services_target
+                new_value = float(raw_value) if raw_value not in (None, "") else worker.daily_value_target
             except (TypeError, ValueError):
                 continue
             if (new_orders != worker.daily_orders_target
-                    or new_services != worker.daily_services_target):
+                    or new_services != worker.daily_services_target
+                    or new_value != worker.daily_value_target):
                 worker.daily_orders_target = max(0.0, new_orders)
                 worker.daily_services_target = max(0.0, new_services)
-                worker.save(update_fields=["daily_orders_target", "daily_services_target"])
+                worker.daily_value_target = max(0.0, new_value)
+                worker.save(update_fields=[
+                    "daily_orders_target", "daily_services_target", "daily_value_target",
+                ])
                 updated += 1
         messages.success(request, f"Updated targets for {updated} worker(s).")
         qs = f"?branch={selected_branch.id}" if selected_branch else ""
@@ -522,6 +596,11 @@ def score_worker(request, worker_id):
             row["actual"] = _count_services_for(worker, on_date)
             row["target"] = worker.daily_services_target
             row["auto_label"] = "Services done"
+        elif e.criterion.auto_source == ScorecardCriterion.AUTO_SOURCE_VALUE:
+            row["actual"] = _value_for(worker, on_date)
+            row["target"] = worker.daily_value_target
+            row["auto_label"] = "Value generated (GHS)"
+            row["is_money"] = True
         else:
             row["actual"] = None
             row["target"] = None
@@ -596,6 +675,7 @@ def scorecard_report(request):
             "worker__user__username",
             "worker__branch__name",
             "worker__position",
+            "worker__daily_value_target",
         )
         .annotate(
             days_scored=Count("id"),
@@ -606,12 +686,30 @@ def scorecard_report(request):
         .order_by("-avg_score")
     )
 
+    # Value actually generated in the period, derived from the prices of the
+    # services each worker rendered. The period target is the worker's daily
+    # target multiplied by the days they were actually scored, so days off
+    # don't count against them.
+    value_by_worker = value_generated_map(
+        start_date, end_date, worker=selected_worker, branch=selected_branch,
+    )
+
     for row in per_worker:
         full = f"{row['worker__user__first_name'] or ''} {row['worker__user__last_name'] or ''}".strip()
         row["name"] = full or row["worker__user__username"] or "Worker"
         row["avg_pct"] = round((row["avg_score"] or 0) * 100, 1)
         row["best_pct"] = round((row["best_score"] or 0) * 100, 1)
         row["worst_pct"] = round((row["worst_score"] or 0) * 100, 1)
+
+        row["value_actual"] = round(value_by_worker.get(row["worker_id"], 0.0), 2)
+        row["value_target"] = round(
+            (row["worker__daily_value_target"] or 0.0) * row["days_scored"], 2
+        )
+        row["value_pct"] = round(
+            (row["value_actual"] / row["value_target"] * 100), 1
+        ) if row["value_target"] > 0 else None
+        # Capped at 100 for the progress bar; value_pct keeps the true figure.
+        row["value_bar_pct"] = min(100, row["value_pct"]) if row["value_pct"] is not None else 0
 
     # --- Summary cards ---
     total_workers = len(per_worker)
@@ -643,6 +741,16 @@ def scorecard_report(request):
     top_ranked = per_worker[:10]
     rank_labels = [r["name"] for r in top_ranked]
     rank_values = [r["avg_pct"] for r in top_ranked]
+
+    # --- Value target vs actual (top 10 by value generated) ---
+    total_value_actual = round(sum(r["value_actual"] for r in per_worker), 2)
+    total_value_target = round(sum(r["value_target"] for r in per_worker), 2)
+    total_value_pct = round(total_value_actual / total_value_target * 100, 1) if total_value_target > 0 else None
+
+    by_value = sorted(per_worker, key=lambda r: r["value_actual"], reverse=True)[:10]
+    value_labels = [r["name"] for r in by_value]
+    value_actuals = [r["value_actual"] for r in by_value]
+    value_targets = [r["value_target"] for r in by_value]
 
     # Workers list for filter dropdown.
     workers_for_filter_qs = Worker.objects.select_related("user", "branch").order_by("user__first_name")
@@ -739,6 +847,11 @@ def scorecard_report(request):
         "best_performer": best,
         "worst_performer": worst,
 
+        # value target vs actual
+        "total_value_actual": total_value_actual,
+        "total_value_target": total_value_target,
+        "total_value_pct": total_value_pct,
+
         # per-worker table
         "per_worker": per_worker,
 
@@ -749,6 +862,9 @@ def scorecard_report(request):
         "dist_values_json": json.dumps(list(buckets.values())),
         "rank_labels_json": json.dumps(rank_labels),
         "rank_values_json": json.dumps(rank_values),
+        "value_labels_json": json.dumps(value_labels),
+        "value_actuals_json": json.dumps(value_actuals),
+        "value_targets_json": json.dumps(value_targets),
 
         # worker drill-down matrix
         "matrix_categories": matrix_categories,

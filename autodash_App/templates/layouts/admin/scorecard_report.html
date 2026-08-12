@@ -69,8 +69,8 @@
         </div>
 
         <!-- Summary cards -->
-        <div class="row g-3 mb-4">
-          <div class="col-md-3 col-sm-6">
+        <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-5 g-3 mb-4">
+          <div class="col">
             <div class="card h-100 shadow-sm">
               <div class="card-body">
                 <div class="d-flex align-items-center gap-3">
@@ -87,7 +87,7 @@
             </div>
           </div>
 
-          <div class="col-md-3 col-sm-6">
+          <div class="col">
             <div class="card h-100 shadow-sm">
               <div class="card-body">
                 <div class="d-flex align-items-center gap-3">
@@ -109,7 +109,34 @@
             </div>
           </div>
 
-          <div class="col-md-3 col-sm-6">
+          <div class="col">
+            <div class="card h-100 shadow-sm">
+              <div class="card-body">
+                <div class="d-flex align-items-center gap-3">
+                  <span class="avatar">
+                    <span class="avatar-initial rounded bg-label-warning"><i class="bx bx-money fs-4"></i></span>
+                  </span>
+                  <div>
+                    <div class="text-muted small">Value Generated</div>
+                    <div class="fs-4 fw-bold">GHS {{ total_value_actual|floatformat:2 }}</div>
+                    <small class="text-muted">
+                      {% if total_value_target %}
+                        of GHS {{ total_value_target|floatformat:2 }} target ·
+                        <span class="fw-semibold
+                            {% if total_value_pct >= 100 %}text-success
+                            {% elif total_value_pct >= 70 %}text-warning
+                            {% else %}text-danger{% endif %}">{{ total_value_pct }}%</span>
+                      {% else %}
+                        no value targets set
+                      {% endif %}
+                    </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col">
             <div class="card h-100 shadow-sm">
               <div class="card-body">
                 <div class="d-flex align-items-center gap-3">
@@ -130,7 +157,7 @@
             </div>
           </div>
 
-          <div class="col-md-3 col-sm-6">
+          <div class="col">
             <div class="card h-100 shadow-sm">
               <div class="card-body">
                 <div class="d-flex align-items-center gap-3">
@@ -191,6 +218,24 @@
               </div>
               <div class="card-body">
                 <canvas id="rankChart" style="max-height: 340px;"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+          <!-- Value target vs actual -->
+          <div class="col-12">
+            <div class="card shadow-sm">
+              <div class="card-header border-bottom bg-body">
+                <h6 class="mb-0"><i class="bx bx-money me-1 text-primary"></i> Value Target vs Actual</h6>
+                <small class="text-muted">
+                  Value generated from the prices of the services rendered, against
+                  (daily target × days scored). Top 10 by value.
+                </small>
+              </div>
+              <div class="card-body">
+                <canvas id="valueChart" style="max-height: 340px;"></canvas>
               </div>
             </div>
           </div>
@@ -319,6 +364,9 @@
                   <th style="min-width: 220px;">Avg Score</th>
                   <th class="text-end">Best</th>
                   <th class="text-end">Worst</th>
+                  <th class="text-end text-nowrap">Target Value</th>
+                  <th class="text-end text-nowrap">Value Generated</th>
+                  <th style="min-width: 180px;">% of Target</th>
                 </tr>
               </thead>
               <tbody>
@@ -347,10 +395,35 @@
                     </td>
                     <td class="text-end text-success fw-semibold">{{ row.best_pct }}%</td>
                     <td class="text-end text-danger fw-semibold">{{ row.worst_pct }}%</td>
+                    <td class="text-end text-nowrap">
+                      {% if row.value_target %}GHS {{ row.value_target|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td class="text-end text-nowrap fw-semibold">GHS {{ row.value_actual|floatformat:2 }}</td>
+                    <td>
+                      {% if row.value_pct is None %}
+                        <span class="text-muted small">No target set</span>
+                      {% else %}
+                        <div class="d-flex align-items-center gap-2">
+                          <div class="progress flex-grow-1" style="height: 8px;">
+                            <div class="progress-bar
+                                {% if row.value_pct >= 100 %}bg-success
+                                {% elif row.value_pct >= 70 %}bg-warning
+                                {% else %}bg-danger{% endif %}"
+                              style="width: {{ row.value_bar_pct }}%;"></div>
+                          </div>
+                          <span class="fw-semibold small
+                              {% if row.value_pct >= 100 %}text-success
+                              {% elif row.value_pct >= 70 %}text-warning
+                              {% else %}text-danger{% endif %}" style="min-width: 50px;">
+                            {{ row.value_pct }}%
+                          </span>
+                        </div>
+                      {% endif %}
+                    </td>
                   </tr>
                 {% empty %}
                   <tr>
-                    <td colspan="7" class="text-center py-5">
+                    <td colspan="10" class="text-center py-5">
                       <i class="bx bx-info-circle text-muted" style="font-size: 2.5rem;"></i>
                       <div class="text-muted mt-2">No scorecards in this range yet.</div>
                     </td>
@@ -382,6 +455,9 @@ document.addEventListener('DOMContentLoaded', function () {
   const distValues  = {{ dist_values_json|safe }};
   const rankLabels  = {{ rank_labels_json|safe }};
   const rankValues  = {{ rank_values_json|safe }};
+  const valueLabels  = {{ value_labels_json|safe }};
+  const valueActuals = {{ value_actuals_json|safe }};
+  const valueTargets = {{ value_targets_json|safe }};
 
   // Daily trend: line chart
   const trendEl = document.getElementById('trendChart');
@@ -459,6 +535,48 @@ document.addEventListener('DOMContentLoaded', function () {
           x: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }
         },
         plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  // Value target vs actual: grouped bar
+  const valueEl = document.getElementById('valueChart');
+  if (valueEl) {
+    new Chart(valueEl, {
+      type: 'bar',
+      data: {
+        labels: valueLabels,
+        datasets: [
+          {
+            label: 'Target (GHS)',
+            data: valueTargets,
+            backgroundColor: 'rgba(105, 108, 255, 0.35)',
+            borderRadius: 6,
+          },
+          {
+            label: 'Generated (GHS)',
+            data: valueActuals,
+            backgroundColor: valueActuals.map((v, i) =>
+              (valueTargets[i] > 0 && v < valueTargets[i]) ? '#ea5455' : '#28c76f'
+            ),
+            borderRadius: 6,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => 'GHS ' + v } }
+        },
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.dataset.label + ': GHS ' + Number(ctx.parsed.y).toFixed(2)
+            }
+          }
+        }
       }
     });
   }

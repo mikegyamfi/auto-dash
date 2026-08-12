@@ -120,8 +120,10 @@
                       </div>
                       <small class="text-muted">
                         {% if entry.criterion.is_auto %}
-                          {{ row.auto_label }}: <span class="fw-semibold text-body">{{ row.actual }}</span>
-                          / target <span class="fw-semibold text-body">{{ row.target|floatformat:'-1' }}</span>
+                          {{ row.auto_label }}:
+                          <span class="fw-semibold text-body">{% if row.is_money %}GHS {{ row.actual|floatformat:2 }}{% else %}{{ row.actual }}{% endif %}</span>
+                          / target
+                          <span class="fw-semibold text-body">{% if row.is_money %}GHS {{ row.target|floatformat:2 }}{% else %}{{ row.target|floatformat:'-1' }}{% endif %}</span>
                           {% if not row.target or row.target == 0 %}
                             <span class="text-warning">(no target set — awarding full marks)</span>
                           {% endif %}

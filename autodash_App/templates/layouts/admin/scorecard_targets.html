@@ -14,6 +14,9 @@
             <h4 class="fw-bold mb-1"><i class="bx bx-target-lock me-2 text-primary"></i>Productivity Targets</h4>
             <small class="text-muted">
               Daily targets per worker. Actuals pulled from real work feed the Productivity (40%) category automatically.
+              <br>
+              <span class="text-body">Target Value</span> is the amount (GHS) of service the worker is expected to
+              generate per day — scored against the prices of the services they actually render.
             </small>
           </div>
         </div>
@@ -57,8 +60,9 @@
                     <th>Worker</th>
                     <th>Position</th>
                     <th>Branch</th>
-                    <th class="text-end" style="width: 180px;">Orders Target / Day</th>
-                    <th class="text-end" style="width: 180px;">Services Target / Day</th>
+                    <th class="text-end" style="width: 170px;">Orders Target / Day</th>
+                    <th class="text-end" style="width: 170px;">Services Target / Day</th>
+                    <th class="text-end" style="width: 190px;">Target Value / Day (GHS)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -80,9 +84,18 @@
                                value="{{ w.daily_services_target|floatformat:'-2' }}"
                                class="form-control form-control-sm text-end">
                       </td>
+                      <td class="text-end">
+                        <div class="input-group input-group-sm">
+                          <span class="input-group-text">GHS</span>
+                          <input type="number" step="0.01" min="0"
+                                 name="value_{{ w.id }}"
+                                 value="{{ w.daily_value_target|floatformat:'-2' }}"
+                                 class="form-control form-control-sm text-end">
+                        </div>
+                      </td>
                     </tr>
                   {% empty %}
-                    <tr><td colspan="6" class="text-center text-muted py-4">No workers found.</td></tr>
+                    <tr><td colspan="7" class="text-center text-muted py-4">No workers found.</td></tr>
                   {% endfor %}
                 </tbody>
               </table>

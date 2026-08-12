@@ -25,11 +25,13 @@ SCORECARD_STRUCTURE = [
         "weight": 0.40,
         "display_order": 1,
         "criteria": [
-            # Two auto-computed criteria. Points are filled from the worker's
-            # actual orders / services vs their daily_orders_target /
-            # daily_services_target. GMs can't edit these manually.
+            # Three auto-computed criteria. Points are filled from the worker's
+            # actual orders / services / value rendered vs their
+            # daily_orders_target / daily_services_target / daily_value_target.
+            # GMs can't edit these manually.
             {"name": "Total Orders",   "max_points": 100.0, "display_order": 1, "auto_source": "orders"},
             {"name": "Total Services", "max_points": 100.0, "display_order": 2, "auto_source": "services"},
+            {"name": "Total Value",    "max_points": 100.0, "display_order": 3, "auto_source": "value"},
         ],
     },
     {
