@@ -4383,7 +4383,11 @@ def send_arrears_reminder(request, arrears_id):
               f"for Service Order #{service_order.service_order_number}. " \
               f"Kindly settle this as soon as possible.\n\n" \
               f"Thank you!"
-    send_sms(phone_number, message)
+    try:
+        send_sms(phone_number, message)
+    except Exception as e:
+        messages.error(request, f"Reminder could not be sent: {e}")
+        return redirect('arrears_list')
 
     messages.success(request, "Reminder has been sent to the customer.")
     return redirect('arrears_list')
@@ -4784,7 +4788,7 @@ def create_customer_page(request):
                     f"Hello {first_name}, you have been registered as a Customer at Autodash. "
                     f"Your phone: {phone_number}. Welcome aboard!"
                 )
-                # send_sms(phone_number, sms_text)
+                send_sms(phone_number, sms_text)
                 messages.success(request, f"Customer + Vehicle created, SMS sent to {phone_number}.")
             except Exception as e:
                 messages.warning(request, f"Customer + Vehicle created, but SMS not sent: {str(e)}")
