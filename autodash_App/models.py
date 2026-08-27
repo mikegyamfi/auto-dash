@@ -4,6 +4,7 @@ from datetime import date
 from django.db import models, transaction
 from django.contrib.auth.models import AbstractUser
 from django.db.models import Sum
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -1766,3 +1767,63 @@ class RemittancePayment(models.Model):
 
     def __str__(self):
         return f"{self.get_source_display()} {self.amount} — {self.remittance}"
+
+
+def worked_days_map(start, end, branch=None):
+    """
+    {worker_id: set of dates they worked} between two dates (inclusive).
+
+    Callers that need to combine this with another notion of "on duty" (e.g.
+    days a worker was scored) union the sets, so a day counted twice still
+    counts once.
+    """
+    counts = _worked_pairs(start, end, branch)
+    days = {}
+    for worker_id, day in counts:
+        days.setdefault(worker_id, set()).add(day)
+    return days
+
+
+def worked_days_by_worker(start, end, branch=None):
+    """
+    {worker_id: number of distinct days that worker actually worked} between
+    two dates (inclusive). "Worked" means they appear on a service order or on
+    an "other service" that day.
+
+    Targets are aggregated off this rather than off the length of the period,
+    so someone who worked 3 days of a 30-day month is measured against 3 days
+    of target — not 30.
+    """
+    counts = {}
+    for worker_id, _day in _worked_pairs(start, end, branch):
+        counts[worker_id] = counts.get(worker_id, 0) + 1
+    return counts
+
+
+def _worked_pairs(start, end, branch=None):
+    """Deduped (worker_id, date) pairs for work done in the period."""
+    order_qs = ServiceRenderedOrder.objects.filter(date__date__range=[start, end])
+    other_qs = OtherService.objects.filter(created_at__date__range=[start, end])
+    if branch is not None:
+        order_qs = order_qs.filter(branch=branch)
+        other_qs = other_qs.filter(branch=branch)
+
+    # Deduped in a set, so several orders on the same day still count as one
+    # day worked.
+    pairs = set()
+    for worker_id, day in (order_qs
+                           .annotate(_day=TruncDate('date'))
+                           .values_list('workers__id', '_day')):
+        if worker_id is not None and day is not None:
+            pairs.add((worker_id, day))
+    for worker_id, day in (other_qs
+                           .annotate(_day=TruncDate('created_at'))
+                           .values_list('workers__id', '_day')):
+        if worker_id is not None and day is not None:
+            pairs.add((worker_id, day))
+    return pairs
+
+
+def worked_worker_ids(start, end, branch=None):
+    """IDs of workers who did any work in the period."""
+    return set(worked_days_by_worker(start, end, branch).keys())

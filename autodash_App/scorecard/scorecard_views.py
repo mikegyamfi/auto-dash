@@ -31,6 +31,7 @@ from autodash_App.models import (
     ScorecardCriterion,
     ServiceRenderedOrder,
     Worker,
+    worked_days_map,
 )
 
 
@@ -686,6 +687,44 @@ def scorecard_report(request):
         .order_by("-avg_score")
     )
 
+    # Anyone who was on the floor in this period belongs in the report, scored
+    # or not — otherwise unscored work is invisible here. Their rows carry no
+    # score and are kept out of the averages and charts below so they can't
+    # distort them.
+    worked_days = worked_days_map(start_date, end_date, selected_branch)
+    if selected_worker:
+        worked_days = {
+            k: v for k, v in worked_days.items() if k == selected_worker.pk
+        }
+
+    # A day someone was scored on is a day they were on duty, even if no order
+    # carries their name (supervisors, cleaners). Union the two so scored
+    # workers keep a sensible target instead of dropping to zero.
+    for wid, day in sc_qs.values_list("worker_id", "date"):
+        worked_days.setdefault(wid, set()).add(day)
+
+    days_worked_map = {wid: len(days) for wid, days in worked_days.items()}
+
+    scored_ids = {r["worker_id"] for r in per_worker}
+    unscored_ids = set(days_worked_map.keys()) - scored_ids
+    if unscored_ids:
+        for w in (Worker.objects
+                  .filter(id__in=unscored_ids)
+                  .select_related("user", "branch")):
+            per_worker.append({
+                "worker_id": w.id,
+                "worker__user__first_name": w.user.first_name if w.user else "",
+                "worker__user__last_name": w.user.last_name if w.user else "",
+                "worker__user__username": w.user.username if w.user else "",
+                "worker__branch__name": w.branch.name if w.branch else "",
+                "worker__position": w.position,
+                "worker__daily_value_target": w.daily_value_target,
+                "days_scored": 0,
+                "avg_score": None,
+                "best_score": None,
+                "worst_score": None,
+            })
+
     # Value actually generated in the period, derived from the prices of the
     # services each worker rendered. The period target is the worker's daily
     # target multiplied by the days they were actually scored, so days off
@@ -697,13 +736,17 @@ def scorecard_report(request):
     for row in per_worker:
         full = f"{row['worker__user__first_name'] or ''} {row['worker__user__last_name'] or ''}".strip()
         row["name"] = full or row["worker__user__username"] or "Worker"
-        row["avg_pct"] = round((row["avg_score"] or 0) * 100, 1)
-        row["best_pct"] = round((row["best_score"] or 0) * 100, 1)
-        row["worst_pct"] = round((row["worst_score"] or 0) * 100, 1)
+        row["is_scored"] = row["avg_score"] is not None
+        row["days_worked"] = days_worked_map.get(row["worker_id"], 0)
+        row["avg_pct"] = round(row["avg_score"] * 100, 1) if row["is_scored"] else None
+        row["best_pct"] = round(row["best_score"] * 100, 1) if row["is_scored"] else None
+        row["worst_pct"] = round(row["worst_score"] * 100, 1) if row["is_scored"] else None
 
         row["value_actual"] = round(value_by_worker.get(row["worker_id"], 0.0), 2)
+        # Target follows the days actually worked, so a daily target of 1 over
+        # 30 days worked expects 30 — and days off never count against anyone.
         row["value_target"] = round(
-            (row["worker__daily_value_target"] or 0.0) * row["days_scored"], 2
+            (row["worker__daily_value_target"] or 0.0) * row["days_worked"], 2
         )
         row["value_pct"] = round(
             (row["value_actual"] / row["value_target"] * 100), 1
@@ -711,11 +754,22 @@ def scorecard_report(request):
         # Capped at 100 for the progress bar; value_pct keeps the true figure.
         row["value_bar_pct"] = min(100, row["value_pct"]) if row["value_pct"] is not None else 0
 
+    # Scored rows lead the table (best first); unscored workers trail it.
+    per_worker.sort(key=lambda r: (not r["is_scored"], -(r["avg_score"] or 0)))
+    scored_rows = [r for r in per_worker if r["is_scored"]]
+
     # --- Summary cards ---
+    # Averages and best/worst are drawn only from workers who were actually
+    # scored — an unscored worker has no score to average in.
     total_workers = len(per_worker)
-    team_avg = sum(r["avg_score"] or 0 for r in per_worker) / total_workers if total_workers else 0
-    best = per_worker[0] if per_worker else None
-    worst = per_worker[-1] if per_worker else None
+    total_scored_workers = len(scored_rows)
+    unscored_workers = total_workers - total_scored_workers
+    team_avg = (
+        sum(r["avg_score"] for r in scored_rows) / total_scored_workers
+        if total_scored_workers else 0
+    )
+    best = scored_rows[0] if scored_rows else None
+    worst = scored_rows[-1] if scored_rows else None
 
     # --- Daily trend (team average per date) ---
     all_dates = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
@@ -728,7 +782,7 @@ def scorecard_report(request):
 
     # --- Distribution buckets by per-worker avg ---
     buckets = {"Excellent (80%+)": 0, "Good (50–80%)": 0, "Needs Work (<50%)": 0}
-    for row in per_worker:
+    for row in scored_rows:
         avg = row["avg_score"] or 0
         if avg >= 0.8:
             buckets["Excellent (80%+)"] += 1
@@ -738,7 +792,7 @@ def scorecard_report(request):
             buckets["Needs Work (<50%)"] += 1
 
     # --- Top N ranking (limit to 10 for chart readability) ---
-    top_ranked = per_worker[:10]
+    top_ranked = scored_rows[:10]
     rank_labels = [r["name"] for r in top_ranked]
     rank_values = [r["avg_pct"] for r in top_ranked]
 
@@ -842,6 +896,8 @@ def scorecard_report(request):
         # headline stats
         "total_scorecards": total_scorecards,
         "total_workers": total_workers,
+        "total_scored_workers": total_scored_workers,
+        "unscored_workers": unscored_workers,
         "team_avg": team_avg,
         "team_avg_pct": round(team_avg * 100, 1),
         "best_performer": best,

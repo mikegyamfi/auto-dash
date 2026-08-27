@@ -338,11 +338,17 @@ def home(request):
     total_orders_count = ServiceRenderedOrder.objects.filter(
         date__date__range=[start_dt, end_dt], **branch_kw,
     ).count()
-    worker_orders_target = (
-        Worker.objects.filter(**branch_kw)
-        .aggregate(t=Coalesce(Sum('daily_orders_target'), 0.0))['t']
-    )
-    orders_target = worker_orders_target * num_days
+    # Only workers who actually worked in the period count towards the target,
+    # and each is measured against the days they worked — not the length of the
+    # period. A worker on the floor 3 days of a 30-day month contributes 3 days
+    # of target, not 30.
+    days_worked_map = models.worked_days_by_worker(start_dt, end_dt, branch)
+    orders_target = 0.0
+    if days_worked_map:
+        for w in Worker.objects.filter(id__in=days_worked_map.keys()).only(
+            'id', 'daily_orders_target'
+        ):
+            orders_target += (w.daily_orders_target or 0.0) * days_worked_map.get(w.id, 0)
     orders_status_pct = (total_orders_count / orders_target * 100) if orders_target else 0
 
     # 4) Sales Target (sum DailySalesTarget for each weekday).
@@ -9260,6 +9266,17 @@ def _ensure_remittance(branch, day):
             target_amount=(setup.target_amount if setup else 0.0),
             brought_forward=brought_forward,
         )
+
+    # The target is copied onto the row when the day opens. If the branch's
+    # setup is created or changed after that — which is the normal order of
+    # events on day one — the row would otherwise keep showing the old value
+    # (typically 0) while the setup page shows the real one. Re-sync any day
+    # that hasn't been finalised; closed days keep the target they ran under.
+    setup = getattr(branch, "remittance_setup", None)
+    if setup and not row.is_finalized and row.target_amount != setup.target_amount:
+        row.target_amount = setup.target_amount
+        row.save()
+
     row.refresh_net_sales(commit=True)
     row.recalc()
     return row
