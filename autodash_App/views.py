@@ -255,29 +255,21 @@ def home(request):
         if end_dt < start_dt:
             start_dt, end_dt = end_dt, start_dt
 
-    # 1) Core aggregates
-    expenses_total = Expense.objects.filter(
-        date__range=[start_dt, end_dt], **branch_kw
-    ).aggregate(total=Sum('amount'))['total'] or 0
-    revenue_total = Revenue.objects.filter(
-        date__range=[start_dt, end_dt], **branch_kw
-    ).aggregate(total=Sum('final_amount'))['total'] or 0
-    commission_total = Commission.objects.filter(
-        date__range=[start_dt, end_dt], **worker_branch_kw
-    ).aggregate(total=Sum('amount'))['total'] or 0
-
-    # Recurring-payment outflow (actual amount paid, not amount due).
-    payments_made = models.DailyPaymentTarget.objects.filter(
-        date__range=[start_dt, end_dt], **branch_kw
-    ).aggregate(total=Sum('amount_paid'))['total'] or 0
-
-    gross_sales = revenue_total - commission_total
-    # Net sales = Gross sales − Operating payments. "Operating payments" are the
-    # recurring dashboard payments (DailyPaymentTarget amount_paid) — distinct
-    # from expenses, which live in the Performance block, not here.
-    net_sales = gross_sales - payments_made
-    # Kept for anywhere that still references it: profit after expenses too.
-    gross_profit = net_sales - expenses_total
+    # 1) Core aggregates — via the shared definition in models.compute_sales_figures
+    # so the dashboard and the remittance pages can never disagree on Net Sales.
+    # (Operating outflow used to read DailyPaymentTarget.amount_paid; that
+    # feature is no longer wired into the dashboard.)
+    figures = models.compute_sales_figures(branch, start_dt, end_dt)
+    expenses_total = figures['expenses_all']
+    revenue_total = figures['revenue']
+    commission_total = figures['commission']
+    operating_expenses = figures['operating_expenses']
+    other_expenses = figures['other_expenses']
+    gross_sales = figures['gross_sales']
+    net_sales = figures['net_sales']
+    # Operating expenses are already out of net_sales, so only the remainder
+    # comes off here — otherwise they'd be subtracted twice.
+    gross_profit = net_sales - other_expenses
 
     # 2) Cash-Flow breakdown
     completed = ServiceRenderedOrder.objects.filter(
@@ -547,7 +539,8 @@ def home(request):
         'total_commission': commission_total,
         'gross_sales': gross_sales,
         'net_sales': net_sales,
-        'payments_made': payments_made,
+        'operating_expenses': operating_expenses,
+        'other_expenses': other_expenses,
         'gross_profit': gross_profit,
 
         'products_sold_today': products_sold_qty,
@@ -3393,6 +3386,16 @@ def edit_expense(request, pk):
         messages.error(request, 'You are not authorized to edit this expense.')
         return redirect('expense_list')
 
+    # Auto-generated rows are derived, not entered — editing one here would be
+    # silently overwritten the next time its source is saved.
+    if expense.is_auto_generated:
+        messages.error(
+            request,
+            'This expense was generated automatically from a utility reading. '
+            'Edit the reading on the Utilities page instead.'
+        )
+        return redirect('expense_list')
+
     if request.method == 'POST':
         form = ExpenseForm(request.POST, instance=expense, user=user)
         if form.is_valid():
@@ -3419,6 +3422,16 @@ def delete_expense(request, pk):
 
     if not user.is_staff and not user.is_superuser and expense.user != user:
         messages.error(request, 'You are not authorized to delete this expense.')
+        return redirect('expense_list')
+
+    # Deleting a derived row here would just leave the utility reading to
+    # recreate it on its next save — remove the reading instead.
+    if expense.is_auto_generated:
+        messages.error(
+            request,
+            'This expense was generated automatically from a utility reading. '
+            'Delete the reading on the Utilities page instead.'
+        )
         return redirect('expense_list')
 
     if request.method == 'POST':
@@ -8966,3 +8979,518 @@ def product_dashboard(request):
         'all_categories': category_list,
     }
     return render(request, 'layouts/product_manager/dashboard.html', context)
+
+
+# ============================================================================
+#  Utilities — daily opening / purchase / closing trail
+# ============================================================================
+
+def _utility_scope(request):
+    """
+    (branch, branches, can_pick) for the utilities pages.
+    Branch admins are pinned to their own branch; staff/superusers may pick
+    one with ?branch_id=, falling back to the first branch.
+    """
+    user = request.user
+    is_elevated = user.is_superuser or user.is_staff
+    if is_elevated:
+        branches = Branch.objects.all().order_by("name")
+        branch = _get_admin_branch(request) or branches.first()
+        return branch, branches, True
+    branch = _get_user_branch(request)
+    return branch, Branch.objects.none(), False
+
+
+@staff_or_branch_admin_required
+def utilities_list(request):
+    """Readings trail for a branch, newest first, filterable by utility/date."""
+    branch, branches, can_pick = _utility_scope(request)
+    if branch is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+
+    today = timezone.localdate()
+    start_str = request.GET.get("start_date", "")
+    end_str = request.GET.get("end_date", "")
+    default_start = today - timedelta(days=30)
+    try:
+        start_date = datetime.strptime(start_str, "%Y-%m-%d").date() if start_str else default_start
+    except ValueError:
+        start_date = default_start
+    try:
+        end_date = datetime.strptime(end_str, "%Y-%m-%d").date() if end_str else today
+    except ValueError:
+        end_date = today
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+
+    readings = (
+        models.UtilityReading.objects
+        .select_related("utility", "entered_by")
+        .filter(branch=branch, date__range=[start_date, end_date])
+    )
+
+    utility_id = request.GET.get("utility", "").strip()
+    if utility_id.isdigit():
+        readings = readings.filter(utility_id=int(utility_id))
+
+    readings = readings.order_by("-date", "utility__name")
+
+    # Per-utility totals across the window, plus where each one stands now.
+    utilities = models.Utility.objects.filter(branch=branch).order_by("name")
+    summary = []
+    for util in utilities:
+        window = readings.filter(utility=util)
+        latest = util.latest_reading()
+        summary.append({
+            "utility": util,
+            "total_usage": sum(r.usage for r in window),
+            "total_purchase": sum((r.purchase or 0.0) for r in window),
+            "current_balance": float(latest.closing_balance) if latest else None,
+            "last_entry": latest.date if latest else None,
+        })
+
+    context = {
+        "branch": branch,
+        "branches": branches,
+        "can_pick_branch": can_pick,
+        "readings": readings,
+        "utilities": utilities,
+        "summary": summary,
+        "selected": {
+            "utility": utility_id,
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+        },
+    }
+    return render(request, "layouts/admin/utilities_list.html", context)
+
+
+@staff_or_branch_admin_required
+def utility_reading_create(request):
+    branch, branches, can_pick = _utility_scope(request)
+    if branch is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+
+    form_branch = None if (request.user.is_superuser or request.user.is_staff) else branch
+
+    if request.method == "POST":
+        form = forms.UtilityReadingForm(request.POST, branch=form_branch)
+        if form.is_valid():
+            reading = form.save(commit=False)
+            reading.branch = reading.utility.branch
+            reading.opening_balance = form.cleaned_data["opening_balance"]
+            reading.entered_by = request.user
+            reading.save()
+            messages.success(
+                request,
+                f"Reading saved for {reading.utility.name} on {reading.date}. "
+                f"Usage: {reading.usage:g} {reading.utility.unit}."
+            )
+            return redirect("utilities_list")
+        messages.error(request, "Please correct the errors below.")
+    else:
+        form = forms.UtilityReadingForm(branch=form_branch)
+
+    return render(request, "layouts/admin/utility_reading_form.html", {
+        "form": form,
+        "branch": branch,
+        "is_edit": False,
+    })
+
+
+@staff_or_branch_admin_required
+def utility_reading_edit(request, pk):
+    reading = get_object_or_404(
+        models.UtilityReading.objects.select_related("utility", "branch"), pk=pk
+    )
+    own_branch = _get_user_branch(request)
+    if own_branch is not None and reading.branch_id != own_branch.id:
+        messages.error(request, "That reading belongs to another branch.")
+        return redirect("utilities_list")
+
+    form_branch = own_branch
+
+    if request.method == "POST":
+        form = forms.UtilityReadingForm(request.POST, instance=reading, branch=form_branch)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.branch = obj.utility.branch
+            obj.opening_balance = form.cleaned_data["opening_balance"]
+            obj.save()  # re-runs the carry-forward down the trail
+            messages.success(request, f"Reading updated. Usage is now {obj.usage:g} {obj.utility.unit}.")
+            return redirect("utilities_list")
+        messages.error(request, "Please correct the errors below.")
+    else:
+        form = forms.UtilityReadingForm(instance=reading, branch=form_branch)
+
+    return render(request, "layouts/admin/utility_reading_form.html", {
+        "form": form,
+        "branch": reading.branch,
+        "reading": reading,
+        "is_edit": True,
+    })
+
+
+@staff_or_branch_admin_required
+@require_POST
+def utility_reading_delete(request, pk):
+    reading = get_object_or_404(models.UtilityReading, pk=pk)
+    own_branch = _get_user_branch(request)
+    if own_branch is not None and reading.branch_id != own_branch.id:
+        messages.error(request, "That reading belongs to another branch.")
+        return redirect("utilities_list")
+
+    utility, when = reading.utility, reading.date
+    reading.delete()
+
+    # Close the gap: the reading after the deleted one re-opens from the one before it.
+    nxt = utility.readings.filter(date__gt=when).order_by("date").first()
+    if nxt:
+        nxt.opening_balance = utility.opening_for(nxt.date)
+        nxt.save()
+
+    messages.success(request, f"Reading for {utility.name} on {when} deleted.")
+    return redirect("utilities_list")
+
+
+@staff_or_branch_admin_required
+def utilities_manage(request):
+    """Create/toggle the utilities themselves (Electricity, Water, Fuel, ...)."""
+    branch, branches, can_pick = _utility_scope(request)
+    if branch is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+
+    form_branch = None if (request.user.is_superuser or request.user.is_staff) else branch
+
+    if request.method == "POST":
+        toggle_id = request.POST.get("toggle_id", "").strip()
+        if toggle_id.isdigit():
+            util = get_object_or_404(models.Utility, pk=int(toggle_id))
+            own_branch = _get_user_branch(request)
+            if own_branch is not None and util.branch_id != own_branch.id:
+                messages.error(request, "That utility belongs to another branch.")
+                return redirect("utilities_manage")
+            util.is_active = not util.is_active
+            util.save(update_fields=["is_active"])
+            messages.success(
+                request, f"{util.name} {'activated' if util.is_active else 'deactivated'}."
+            )
+            return redirect("utilities_manage")
+
+        form = forms.UtilityForm(request.POST, branch=form_branch)
+        if form.is_valid():
+            util = form.save(commit=False)
+            if form_branch is not None:
+                util.branch = form_branch
+            util.save()
+            messages.success(request, f"Utility '{util.name}' added.")
+            return redirect("utilities_manage")
+        messages.error(request, "Please correct the errors below.")
+    else:
+        form = forms.UtilityForm(branch=form_branch)
+
+    return render(request, "layouts/admin/utilities_manage.html", {
+        "form": form,
+        "branch": branch,
+        "branches": branches,
+        "can_pick_branch": can_pick,
+        "utilities": models.Utility.objects.filter(branch=branch).order_by("name"),
+    })
+
+
+@staff_or_branch_admin_required
+@require_GET
+def utility_opening_lookup(request):
+    """AJAX: opening balance a new reading should carry forward."""
+    utility_id = request.GET.get("utility", "").strip()
+    date_str = request.GET.get("date", "").strip()
+    if not utility_id.isdigit():
+        return JsonResponse({"ok": False, "error": "No utility selected."})
+
+    util = get_object_or_404(models.Utility, pk=int(utility_id))
+    own_branch = _get_user_branch(request)
+    if own_branch is not None and util.branch_id != own_branch.id:
+        return JsonResponse({"ok": False, "error": "Not your branch."}, status=403)
+
+    try:
+        for_date = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else timezone.localdate()
+    except ValueError:
+        for_date = timezone.localdate()
+
+    prev = util.latest_reading(before_date=for_date)
+    exists = util.readings.filter(date=for_date).exists()
+    return JsonResponse({
+        "ok": True,
+        "opening": util.opening_for(for_date),
+        "unit": util.unit,
+        "previous_date": prev.date.strftime("%Y-%m-%d") if prev else None,
+        "already_exists": exists,
+    })
+
+
+# ============================================================================
+#  Remittance — what the branch owes back out of the day's net sales
+# ============================================================================
+
+def _ensure_remittance(branch, day):
+    """
+    Fetch (or open) a branch's remittance row for `day`, carrying in any
+    unremitted balance. Mirrors the middleware so a page viewed before the
+    day's first request still behaves.
+    """
+    row = models.DailyRemittance.objects.filter(branch=branch, date=day).first()
+    if row is None:
+        setup = getattr(branch, "remittance_setup", None)
+        previous = (
+            models.DailyRemittance.objects
+            .filter(branch=branch, date__lt=day)
+            .order_by("-date")
+            .first()
+        )
+        brought_forward = 0.0
+        if previous:
+            previous.recalc()
+            brought_forward = previous.carry_to_next_day()
+        row = models.DailyRemittance.objects.create(
+            branch=branch,
+            date=day,
+            target_amount=(setup.target_amount if setup else 0.0),
+            brought_forward=brought_forward,
+        )
+    row.refresh_net_sales(commit=True)
+    row.recalc()
+    return row
+
+
+@staff_or_branch_admin_required
+def remittance_list(request):
+    """
+    Remittance for a branch on a date: net sales so far, what's due, and the
+    split of what has actually been handed over.
+    """
+    branch, branches, can_pick = _utility_scope(request)
+    if branch is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+
+    date_str = request.GET.get("date", "")
+    try:
+        day = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else timezone.localdate()
+    except ValueError:
+        day = timezone.localdate()
+
+    remittance = _ensure_remittance(branch, day)
+    figures = models.compute_sales_figures(branch, day, day)
+
+    # Recent history for context
+    history = (
+        models.DailyRemittance.objects
+        .filter(branch=branch, date__lt=day)
+        .order_by("-date")[:7]
+    )
+
+    context = {
+        "branch": branch,
+        "branches": branches,
+        "can_pick_branch": can_pick,
+        "day": day,
+        "day_str": day.strftime("%Y-%m-%d"),
+        "is_today": day == timezone.localdate(),
+        "remittance": remittance,
+        "figures": figures,
+        "payments": remittance.payments.select_related("recorded_by"),
+        "payment_form": forms.RemittancePaymentForm(),
+        "suggested": remittance.suggested_split(),
+        "history": history,
+        "setup": getattr(branch, "remittance_setup", None),
+        "source_choices": models.REMITTANCE_SOURCE_CHOICES,
+    }
+    return render(request, "layouts/admin/remittance.html", context)
+
+
+@staff_or_branch_admin_required
+@require_POST
+def remittance_add_payment(request, pk):
+    remittance = get_object_or_404(models.DailyRemittance, pk=pk)
+    own_branch = _get_user_branch(request)
+    if own_branch is not None and remittance.branch_id != own_branch.id:
+        messages.error(request, "That remittance belongs to another branch.")
+        return redirect("remittance_list")
+
+    form = forms.RemittancePaymentForm(request.POST)
+    if form.is_valid():
+        payment = form.save(commit=False)
+        payment.remittance = remittance
+        payment.recorded_by = request.user
+        payment.save()  # triggers recalc
+        messages.success(
+            request,
+            f"Recorded GHS {payment.amount:.2f} via {payment.get_source_display()}."
+        )
+    else:
+        messages.error(request, "; ".join(
+            f"{f}: {', '.join(e)}" for f, e in form.errors.items()
+        ))
+    return redirect(f"{reverse('remittance_list')}?date={remittance.date:%Y-%m-%d}"
+                    f"&branch_id={remittance.branch_id}")
+
+
+@staff_or_branch_admin_required
+@require_POST
+def remittance_edit_payment(request, pk):
+    payment = get_object_or_404(
+        models.RemittancePayment.objects.select_related("remittance"), pk=pk
+    )
+    remittance = payment.remittance
+    own_branch = _get_user_branch(request)
+    if own_branch is not None and remittance.branch_id != own_branch.id:
+        messages.error(request, "That remittance belongs to another branch.")
+        return redirect("remittance_list")
+
+    if request.POST.get("delete") == "1":
+        payment.delete()  # triggers recalc
+        messages.success(request, "Remittance line removed.")
+    else:
+        form = forms.RemittancePaymentForm(request.POST, instance=payment)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Remittance line updated.")
+        else:
+            messages.error(request, "; ".join(
+                f"{f}: {', '.join(e)}" for f, e in form.errors.items()
+            ))
+    return redirect(f"{reverse('remittance_list')}?date={remittance.date:%Y-%m-%d}"
+                    f"&branch_id={remittance.branch_id}")
+
+
+@staff_or_branch_admin_required
+@require_POST
+def remittance_apply_suggestion(request, pk):
+    """Drop the prefilled target/surplus split in as editable lines."""
+    remittance = get_object_or_404(models.DailyRemittance, pk=pk)
+    own_branch = _get_user_branch(request)
+    if own_branch is not None and remittance.branch_id != own_branch.id:
+        messages.error(request, "That remittance belongs to another branch.")
+        return redirect("remittance_list")
+
+    if remittance.payments.exists():
+        messages.info(request, "Lines already recorded — edit them instead.")
+    else:
+        rows = remittance.suggested_split()
+        for row in rows:
+            models.RemittancePayment.objects.create(
+                remittance=remittance,
+                source=row["source"],
+                amount=row["amount"],
+                reference=row["label"],
+                recorded_by=request.user,
+            )
+        if rows:
+            messages.success(request, f"Prefilled {len(rows)} line(s) — adjust as needed.")
+        else:
+            messages.info(request, "Nothing to prefill: no net sales recorded yet.")
+    return redirect(f"{reverse('remittance_list')}?date={remittance.date:%Y-%m-%d}"
+                    f"&branch_id={remittance.branch_id}")
+
+
+@staff_or_branch_admin_required
+def remittance_setup(request):
+    """Per-branch remittance target, operating days and primary source."""
+    branch, branches, can_pick = _utility_scope(request)
+    if branch is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+
+    form_branch = None if (request.user.is_superuser or request.user.is_staff) else branch
+    instance = models.RemittanceSetup.objects.filter(branch=branch).first()
+
+    if request.method == "POST":
+        form = forms.RemittanceSetupForm(request.POST, instance=instance, branch=form_branch)
+        if form.is_valid():
+            setup = form.save(commit=False)
+            if form_branch is not None:
+                setup.branch = form_branch
+            elif instance is not None:
+                setup.branch = instance.branch
+            setup.save()
+            messages.success(request, f"Remittance setup saved for {setup.branch.name}.")
+            return redirect(f"{reverse('remittance_setup')}?branch_id={setup.branch_id}")
+        messages.error(request, "Please correct the errors below.")
+    else:
+        form = forms.RemittanceSetupForm(instance=instance, branch=form_branch)
+
+    return render(request, "layouts/admin/remittance_setup.html", {
+        "form": form,
+        "branch": branch,
+        "branches": branches,
+        "can_pick_branch": can_pick,
+        "setup": instance,
+        "all_setups": models.RemittanceSetup.objects.select_related("branch")
+                      if (request.user.is_superuser or request.user.is_staff) else None,
+    })
+
+
+@staff_or_branch_admin_required
+def remittance_report(request):
+    """Remittance across a date range, with the running shortfall."""
+    branch, branches, can_pick = _utility_scope(request)
+    if branch is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+
+    today = timezone.localdate()
+    start_str = request.GET.get("start_date", "")
+    end_str = request.GET.get("end_date", "")
+    default_start = today - timedelta(days=30)
+    try:
+        start_date = datetime.strptime(start_str, "%Y-%m-%d").date() if start_str else default_start
+    except ValueError:
+        start_date = default_start
+    try:
+        end_date = datetime.strptime(end_str, "%Y-%m-%d").date() if end_str else today
+    except ValueError:
+        end_date = today
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+
+    rows = list(
+        models.DailyRemittance.objects
+        .filter(branch=branch, date__range=[start_date, end_date])
+        .order_by("-date")
+    )
+    for row in rows:
+        row.refresh_net_sales(commit=True)
+        row.recalc()
+
+    totals = {
+        "net_sales": sum(r.net_sales or 0.0 for r in rows),
+        "target": sum(r.target_amount or 0.0 for r in rows),
+        "due": sum(r.total_due or 0.0 for r in rows),
+        "remitted": sum(r.amount_remitted or 0.0 for r in rows),
+        "outstanding": sum(r.outstanding for r in rows),
+        "surplus": sum(r.surplus or 0.0 for r in rows),
+    }
+
+    by_source = (
+        models.RemittancePayment.objects
+        .filter(remittance__branch=branch, remittance__date__range=[start_date, end_date])
+        .values("source")
+        .annotate(total=Sum("amount"))
+        .order_by("-total")
+    )
+
+    return render(request, "layouts/admin/remittance_report.html", {
+        "branch": branch,
+        "branches": branches,
+        "can_pick_branch": can_pick,
+        "rows": rows,
+        "totals": totals,
+        "by_source": by_source,
+        "selected": {
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+        },
+    })

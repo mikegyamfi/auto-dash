@@ -291,9 +291,15 @@
           </a>
         </li>
         <li class="menu-item">
-          <a href="{% url 'daily_payment_targets' %}" class="menu-link">
-            <i class="menu-icon tf-icons bx bx-credit-card"></i>
-            <div data-i18n="Expenses">Operational Targets</div>
+          <a href="{% url 'remittance_list' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-transfer-alt"></i>
+            <div data-i18n="Remittance">Remittance</div>
+          </a>
+        </li>
+        <li class="menu-item">
+          <a href="{% url 'remittance_report' %}" class="menu-link">
+            <i class="menu-icon tf-icons bx bx-receipt"></i>
+            <div data-i18n="Remittance Report">Remittance Report</div>
           </a>
         </li>
 
@@ -485,6 +491,12 @@
             <a href="{% url 'maintenance_list' %}" class="menu-link">
               <i class="menu-icon tf-icons bx bx-wrench"></i>
               <div data-i18n="Analytics">Maintenance Log</div>
+            </a>
+          </li>
+          <li class="menu-item">
+            <a href="{% url 'utilities_list' %}" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-tachometer"></i>
+              <div data-i18n="Utilities">Utilities</div>
             </a>
           </li>
           <li class="menu-item">

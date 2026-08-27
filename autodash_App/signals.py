@@ -162,3 +162,21 @@ def other_service_sync_revenue(sender, instance: OtherService, created, **kwargs
             rev.delete()
 
 
+
+
+# ---------------------------------------------------------------------------
+#  Utilities: a reading's expense should not outlive the reading
+# ---------------------------------------------------------------------------
+
+from django.db.models.signals import post_delete
+from .models import UtilityReading
+
+
+@receiver(post_delete, sender=UtilityReading)
+def _drop_utility_reading_expense(sender, instance, **kwargs):
+    """
+    UtilityReading.expense is SET_NULL, so deleting the reading would otherwise
+    strand the Expense row and overstate the branch's costs.
+    """
+    if instance.expense_id:
+        Expense.objects.filter(pk=instance.expense_id).delete()

@@ -1,6 +1,9 @@
 from django.utils import timezone
 from django.core.cache import cache
-from .models import RecurringPaymentSetup, DailyPaymentTarget
+from .models import (
+    RecurringPaymentSetup, DailyPaymentTarget,
+    RemittanceSetup, DailyRemittance,
+)
 
 
 class DailyTargetGenerationMiddleware:
@@ -20,10 +23,47 @@ class DailyTargetGenerationMiddleware:
         # If today's targets haven't been generated yet, do it now.
         if not cache.get(key):
             self._generate_targets_for(today)
+            self._generate_remittances_for(today)
             # Cache it for 24 hours so it doesn't run again today
             cache.set(key, True, 24 * 3600)
 
         return self.get_response(request)
+
+    def _generate_remittances_for(self, today):
+        """
+        Open today's remittance row per branch, carrying in whatever was left
+        unremitted previously. Finalises the prior row first so its net-sales
+        figure stops moving once the day is closed.
+        """
+        for setup in RemittanceSetup.objects.filter(is_active=True).select_related('branch'):
+            if not setup.applies_on(today):
+                continue
+            if DailyRemittance.objects.filter(branch=setup.branch, date=today).exists():
+                continue
+
+            previous = (
+                DailyRemittance.objects
+                .filter(branch=setup.branch, date__lt=today)
+                .order_by('-date')
+                .first()
+            )
+
+            brought_forward = 0.0
+            if previous:
+                # Freeze yesterday's net sales, then carry the unpaid balance.
+                if not previous.is_finalized:
+                    previous.refresh_net_sales()
+                    previous.is_finalized = True
+                    previous.save()
+                previous.recalc()
+                brought_forward = previous.carry_to_next_day()
+
+            DailyRemittance.objects.create(
+                branch=setup.branch,
+                date=today,
+                target_amount=setup.target_amount,
+                brought_forward=brought_forward,
+            )
 
     def _generate_targets_for(self, today):
         setups = RecurringPaymentSetup.objects.all()

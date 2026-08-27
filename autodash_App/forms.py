@@ -269,16 +269,28 @@ class BranchForm(forms.ModelForm):
 class ExpenseForm(forms.ModelForm):
     class Meta:
         model = Expense
-        fields = ['description', 'amount', 'branch']
+        fields = ['description', 'amount', 'expense_type', 'branch']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
             'amount': forms.NumberInput(attrs={'step': 0.01, 'class': 'form-control'}),
+            'expense_type': forms.Select(attrs={'class': 'form-control'}),
             'branch': forms.Select(attrs={'class': 'form-control'}),
+        }
+        labels = {
+            'expense_type': 'Expense type',
+        }
+        help_texts = {
+            'expense_type': 'Operating costs come off Net Sales. Other expenses are '
+                            'recorded but kept out of that calculation.',
         }
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop('user', None)
         super(ExpenseForm, self).__init__(*args, **kwargs)
+        # Day-to-day running costs are the common manual entry, so lead with it.
+        # (The model default stays "other" so historical rows aren't reclassified.)
+        if not self.instance.pk and not self.data:
+            self.fields['expense_type'].initial = models.Expense.TYPE_OPERATING
         if user:
             if not user.is_staff and not user.is_superuser:
                 try:
@@ -925,3 +937,141 @@ class MaintenanceExpenseForm(forms.ModelForm):
             "note": forms.TextInput(attrs={"class": "form-control", "placeholder": "What was this for?"}),
         }
 
+
+
+class UtilityForm(forms.ModelForm):
+    class Meta:
+        model = models.Utility
+        fields = ["branch", "name", "unit", "cost_per_unit", "is_active"]
+        widgets = {
+            "branch": forms.Select(attrs={"class": "form-select"}),
+            "name": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. Electricity"}),
+            "unit": forms.TextInput(attrs={"class": "form-control", "placeholder": "units / litres / GHS"}),
+            "cost_per_unit": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        branch = kwargs.pop("branch", None)
+        super().__init__(*args, **kwargs)
+        # Branch admins are pinned to their own branch.
+        if branch is not None:
+            self.fields["branch"].initial = branch
+            self.fields["branch"].disabled = True
+            self.fields["branch"].queryset = Branch.objects.filter(pk=branch.pk)
+
+
+class UtilityReadingForm(forms.ModelForm):
+    """
+    Opening balance is derived from the previous reading, never typed, so it
+    is rendered read-only and re-resolved server-side on save.
+    """
+
+    class Meta:
+        model = models.UtilityReading
+        fields = ["utility", "date", "opening_balance", "purchase", "closing_balance", "note"]
+        widgets = {
+            "utility": forms.Select(attrs={"class": "form-select"}),
+            "date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "opening_balance": forms.NumberInput(
+                attrs={"class": "form-control", "step": "0.01", "readonly": "readonly"}
+            ),
+            "purchase": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "closing_balance": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "note": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        branch = kwargs.pop("branch", None)
+        super().__init__(*args, **kwargs)
+        qs = models.Utility.objects.filter(is_active=True).select_related("branch")
+        if branch is not None:
+            qs = qs.filter(branch=branch)
+        self.fields["utility"].queryset = qs.order_by("branch__name", "name")
+        self.fields["date"].initial = timezone.localdate()
+        self.fields["opening_balance"].required = False
+        self.fields["note"].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        utility = cleaned.get("utility")
+        for_date = cleaned.get("date")
+        if not utility or not for_date:
+            return cleaned
+
+        # Opening is authoritative from the trail - ignore whatever was posted.
+        opening = utility.opening_for(for_date)
+        cleaned["opening_balance"] = opening
+
+        # Editing an existing row must not collide with another day's entry.
+        clash = models.UtilityReading.objects.filter(utility=utility, date=for_date)
+        if self.instance.pk:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise forms.ValidationError(
+                f"A reading for {utility.name} on {for_date} already exists. Edit that one instead."
+            )
+
+        purchase = cleaned.get("purchase") or 0.0
+        closing = cleaned.get("closing_balance")
+        if closing is None:
+            return cleaned
+
+        available = opening + float(purchase)
+        if float(closing) > available + 1e-9:
+            raise forms.ValidationError(
+                f"Closing balance ({closing:g}) cannot exceed opening + purchase ({available:g}). "
+                f"Record the extra as a purchase if more was bought."
+            )
+        return cleaned
+
+
+class RemittanceSetupForm(forms.ModelForm):
+    WEEKDAYS = [(0, 'Mon'), (1, 'Tue'), (2, 'Wed'), (3, 'Thu'),
+                (4, 'Fri'), (5, 'Sat'), (6, 'Sun')]
+
+    apply_on = forms.MultipleChoiceField(
+        choices=WEEKDAYS, required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Leave all unticked to remit every day.",
+    )
+
+    class Meta:
+        model = models.RemittanceSetup
+        fields = ["branch", "target_amount", "apply_on", "primary_source", "is_active"]
+        widgets = {
+            "branch": forms.Select(attrs={"class": "form-select"}),
+            "target_amount": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "primary_source": forms.Select(attrs={"class": "form-select"}),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        branch = kwargs.pop("branch", None)
+        super().__init__(*args, **kwargs)
+        if branch is not None:
+            self.fields["branch"].queryset = Branch.objects.filter(pk=branch.pk)
+            self.fields["branch"].initial = branch
+            self.fields["branch"].disabled = True
+        if self.instance and self.instance.pk:
+            self.fields["apply_on"].initial = [str(d) for d in (self.instance.apply_on or [])]
+
+    def clean_apply_on(self):
+        return [int(d) for d in self.cleaned_data.get("apply_on", [])]
+
+
+class RemittancePaymentForm(forms.ModelForm):
+    class Meta:
+        model = models.RemittancePayment
+        fields = ["source", "amount", "reference"]
+        widgets = {
+            "source": forms.Select(attrs={"class": "form-select"}),
+            "amount": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "reference": forms.TextInput(attrs={"class": "form-control", "placeholder": "Optional reference"}),
+        }
+
+    def clean_amount(self):
+        amount = self.cleaned_data.get("amount") or 0.0
+        if amount <= 0:
+            raise forms.ValidationError("Enter an amount greater than zero.")
+        return amount

@@ -1,0 +1,180 @@
+{# templates/layouts/admin/remittance_report.html #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h4 class="mb-0">Remittance Report</h4>
+              <div class="text-muted small">{{ branch.name }}</div>
+            </div>
+            <a href="{% url 'remittance_list' %}" class="btn btn-outline-secondary">Back to Today</a>
+          </div>
+
+          <div class="card mb-3">
+            <div class="card-body">
+              <form method="get" class="row g-3 align-items-end">
+                {% if can_pick_branch %}
+                  <div class="col-md-3">
+                    <label class="form-label">Branch</label>
+                    <select name="branch_id" class="form-select">
+                      {% for b in branches %}
+                        <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                {% endif %}
+                <div class="col-md-3">
+                  <label class="form-label">From</label>
+                  <input type="date" name="start_date" class="form-control" value="{{ selected.start_date }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">To</label>
+                  <input type="date" name="end_date" class="form-control" value="{{ selected.end_date }}">
+                </div>
+                <div class="col-md-2">
+                  <button class="btn btn-primary w-100" type="submit">Apply</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-4">
+            <div class="col-6 col-lg-2">
+              <div class="card h-100"><div class="card-body p-3 text-center">
+                <div class="text-muted small">Net Sales</div>
+                <div class="fw-bold">GHS {{ totals.net_sales|floatformat:2 }}</div>
+              </div></div>
+            </div>
+            <div class="col-6 col-lg-2">
+              <div class="card h-100"><div class="card-body p-3 text-center">
+                <div class="text-muted small">Target</div>
+                <div class="fw-bold">GHS {{ totals.target|floatformat:2 }}</div>
+              </div></div>
+            </div>
+            <div class="col-6 col-lg-2">
+              <div class="card h-100"><div class="card-body p-3 text-center">
+                <div class="text-muted small">Total Due</div>
+                <div class="fw-bold">GHS {{ totals.due|floatformat:2 }}</div>
+              </div></div>
+            </div>
+            <div class="col-6 col-lg-2">
+              <div class="card h-100"><div class="card-body p-3 text-center">
+                <div class="text-muted small">Remitted</div>
+                <div class="fw-bold text-success">GHS {{ totals.remitted|floatformat:2 }}</div>
+              </div></div>
+            </div>
+            <div class="col-6 col-lg-2">
+              <div class="card h-100"><div class="card-body p-3 text-center">
+                <div class="text-muted small">Outstanding</div>
+                <div class="fw-bold text-danger">GHS {{ totals.outstanding|floatformat:2 }}</div>
+              </div></div>
+            </div>
+            <div class="col-6 col-lg-2">
+              <div class="card h-100"><div class="card-body p-3 text-center">
+                <div class="text-muted small">Surplus</div>
+                <div class="fw-bold text-primary">GHS {{ totals.surplus|floatformat:2 }}</div>
+              </div></div>
+            </div>
+          </div>
+
+          <div class="row g-4">
+            <div class="col-12 col-lg-4 order-1 order-lg-2">
+              <div class="card">
+                <div class="card-header"><h6 class="mb-0">By Source</h6></div>
+                <div class="card-body">
+                  {% if by_source %}
+                    <ul class="list-group list-group-flush">
+                      {% for row in by_source %}
+                        <li class="list-group-item px-0 d-flex justify-content-between">
+                          <span>{{ row.source|title }}</span>
+                          <strong>GHS {{ row.total|floatformat:2 }}</strong>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <div class="text-muted small">Nothing remitted in this range.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12 col-lg-8 order-2 order-lg-1">
+              <div class="card">
+                <div class="card-header"><h6 class="mb-0">Daily Breakdown</h6></div>
+                <div class="table-responsive">
+                  <table class="table table-bordered align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th class="text-end">Net Sales</th>
+                        <th class="text-end">Target</th>
+                        <th class="text-end">B/F</th>
+                        <th class="text-end">Due</th>
+                        <th class="text-end">Remitted</th>
+                        <th class="text-end">Outstanding</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for r in rows %}
+                        <tr>
+                          <td>
+                            <a href="{% url 'remittance_list' %}?date={{ r.date|date:'Y-m-d' }}{% if can_pick_branch %}&branch_id={{ branch.id }}{% endif %}">
+                              {{ r.date|date:"d M Y" }}
+                            </a>
+                          </td>
+                          <td class="text-end">{{ r.net_sales|floatformat:2 }}</td>
+                          <td class="text-end">{{ r.target_amount|floatformat:2 }}</td>
+                          <td class="text-end">
+                            {% if r.brought_forward %}
+                              <span class="text-warning">{{ r.brought_forward|floatformat:2 }}</span>
+                            {% else %}<span class="text-muted">&mdash;</span>{% endif %}
+                          </td>
+                          <td class="text-end">{{ r.total_due|floatformat:2 }}</td>
+                          <td class="text-end text-success">{{ r.amount_remitted|floatformat:2 }}</td>
+                          <td class="text-end">
+                            {% if r.outstanding %}
+                              <span class="text-danger">{{ r.outstanding|floatformat:2 }}</span>
+                            {% else %}<span class="text-muted">0.00</span>{% endif %}
+                          </td>
+                          <td class="text-nowrap">
+                            {% if r.is_settled %}
+                              <span class="badge bg-label-success">Settled</span>
+                            {% else %}
+                              <span class="badge bg-label-danger">Short</span>
+                            {% endif %}
+                            {% if r.surplus %}
+                              <span class="badge bg-label-primary">+{{ r.surplus|floatformat:2 }}</span>
+                            {% endif %}
+                          </td>
+                        </tr>
+                      {% empty %}
+                        <tr>
+                          <td colspan="8" class="text-center text-muted py-4">
+                            No remittance days in this range.
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

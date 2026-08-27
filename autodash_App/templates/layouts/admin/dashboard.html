@@ -195,9 +195,9 @@
             <div class="col">
               <div class="card h-100">
                 <div class="card-body p-2 text-center">
-                  <div class="text-muted small text-nowrap">Operating Payments</div>
-                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="GHS {{ payments_made|default:0|floatformat:2|intcomma }}">
-                    GHS {{ payments_made|default:0|floatformat:0|intcomma }}
+                  <div class="text-muted small text-nowrap">Operating Expenses</div>
+                  <div class="fw-bold text-nowrap" style="font-size: 0.95rem;" title="Manual operating expenses + utility usage — GHS {{ operating_expenses|default:0|floatformat:2|intcomma }}">
+                    GHS {{ operating_expenses|default:0|floatformat:0|intcomma }}
                   </div>
                 </div>
               </div>
@@ -206,8 +206,19 @@
               <div class="card h-100 border-primary">
                 <div class="card-body p-2 text-center">
                   <div class="text-muted small text-nowrap">Net Sales</div>
-                  <div class="fw-bold text-nowrap text-primary" style="font-size: 0.95rem;" title="GHS {{ net_sales|default:0|floatformat:2|intcomma }}">
+                  <div class="fw-bold text-nowrap text-primary" style="font-size: 0.95rem;" title="Gross Sales − Operating Expenses — GHS {{ net_sales|default:0|floatformat:2|intcomma }}">
                     GHS {{ net_sales|default:0|floatformat:0|intcomma }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col">
+              {# Reference only — deliberately not part of the Net Sales chain. #}
+              <div class="card h-100">
+                <div class="card-body p-2 text-center">
+                  <div class="text-muted small text-nowrap">Other Expenses</div>
+                  <div class="fw-bold text-nowrap text-muted" style="font-size: 0.95rem;" title="Non-operational expenses. Not included in any calculation above — GHS {{ other_expenses|default:0|floatformat:2|intcomma }}">
+                    GHS {{ other_expenses|default:0|floatformat:0|intcomma }}
                   </div>
                 </div>
               </div>

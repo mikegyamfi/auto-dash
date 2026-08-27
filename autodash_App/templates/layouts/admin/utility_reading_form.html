@@ -1,0 +1,194 @@
+{# templates/layouts/admin/utility_reading_form.html #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h4 class="mb-0">{% if is_edit %}Edit Reading{% else %}New Utility Reading{% endif %}</h4>
+              <div class="text-muted small">{{ branch.name }}</div>
+            </div>
+            <a href="{% url 'utilities_list' %}" class="btn btn-outline-secondary">Back</a>
+          </div>
+
+          {% if messages %}
+            {% for message in messages %}
+              <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}" role="alert">
+                {{ message }}
+              </div>
+            {% endfor %}
+          {% endif %}
+
+          <div class="row">
+            <div class="col-12 col-lg-8">
+              <div class="card">
+                <div class="card-body">
+                  <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    {% if form.non_field_errors %}
+                      <div class="alert alert-danger">
+                        {% for err in form.non_field_errors %}<div>{{ err }}</div>{% endfor %}
+                      </div>
+                    {% endif %}
+
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                        <label class="form-label" for="{{ form.utility.id_for_label }}">Utility</label>
+                        {{ form.utility }}
+                        {% for err in form.utility.errors %}
+                          <div class="text-danger small mt-1">{{ err }}</div>
+                        {% endfor %}
+                      </div>
+
+                      <div class="col-md-6">
+                        <label class="form-label" for="{{ form.date.id_for_label }}">Date</label>
+                        {{ form.date }}
+                        {% for err in form.date.errors %}
+                          <div class="text-danger small mt-1">{{ err }}</div>
+                        {% endfor %}
+                      </div>
+
+                      <div class="col-md-4">
+                        <label class="form-label" for="{{ form.opening_balance.id_for_label }}">
+                          Opening Balance
+                        </label>
+                        {{ form.opening_balance }}
+                        <div class="form-text" id="opening-hint">
+                          Carried forward from the previous reading.
+                        </div>
+                      </div>
+
+                      <div class="col-md-4">
+                        <label class="form-label" for="{{ form.purchase.id_for_label }}">Purchase</label>
+                        {{ form.purchase }}
+                        {% for err in form.purchase.errors %}
+                          <div class="text-danger small mt-1">{{ err }}</div>
+                        {% endfor %}
+                        <div class="form-text">Bought today. Leave 0 if none.</div>
+                      </div>
+
+                      <div class="col-md-4">
+                        <label class="form-label" for="{{ form.closing_balance.id_for_label }}">
+                          Closing Balance
+                        </label>
+                        {{ form.closing_balance }}
+                        {% for err in form.closing_balance.errors %}
+                          <div class="text-danger small mt-1">{{ err }}</div>
+                        {% endfor %}
+                        <div class="form-text">What is left at close of day.</div>
+                      </div>
+
+                      <div class="col-12">
+                        <label class="form-label" for="{{ form.note.id_for_label }}">Note (optional)</label>
+                        {{ form.note }}
+                      </div>
+                    </div>
+
+                    <div class="d-flex gap-2 mt-4">
+                      <button type="submit" class="btn btn-primary">
+                        {% if is_edit %}Save Changes{% else %}Save Reading{% endif %}
+                      </button>
+                      <a href="{% url 'utilities_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12 col-lg-4">
+              <div class="card">
+                <div class="card-header">
+                  <h6 class="mb-0">Calculated Usage</h6>
+                </div>
+                <div class="card-body">
+                  <div class="display-6 mb-1" id="usage-preview">&mdash;</div>
+                  <div class="text-muted small" id="usage-unit"></div>
+                  <hr>
+                  <div class="small text-muted">
+                    Usage = Opening + Purchase &minus; Closing.
+                    Tomorrow's opening balance will be this row's closing balance.
+                  </div>
+                  <div id="dup-warning" class="alert alert-warning mt-3 d-none py-2 small mb-0"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const utility = document.getElementById("{{ form.utility.id_for_label }}");
+  const dateEl  = document.getElementById("{{ form.date.id_for_label }}");
+  const opening = document.getElementById("{{ form.opening_balance.id_for_label }}");
+  const purchase = document.getElementById("{{ form.purchase.id_for_label }}");
+  const closing = document.getElementById("{{ form.closing_balance.id_for_label }}");
+  const preview = document.getElementById("usage-preview");
+  const unitEl  = document.getElementById("usage-unit");
+  const hint    = document.getElementById("opening-hint");
+  const dupWarn = document.getElementById("dup-warning");
+  const isEdit  = {% if is_edit %}true{% else %}false{% endif %};
+
+  function num(el) {
+    const v = parseFloat(el && el.value);
+    return isNaN(v) ? 0 : v;
+  }
+
+  function renderUsage() {
+    if (!closing.value) { preview.textContent = "—"; return; }
+    const usage = num(opening) + num(purchase) - num(closing);
+    preview.textContent = usage.toFixed(2);
+    preview.classList.toggle("text-danger", usage < 0);
+  }
+
+  function refreshOpening() {
+    if (!utility.value) return;
+    const params = new URLSearchParams({ utility: utility.value, date: dateEl.value || "" });
+    fetch("{% url 'utility_opening_lookup' %}?" + params.toString(), {
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) return;
+        // On edit the stored opening is authoritative; don't stomp it.
+        if (!isEdit) opening.value = data.opening.toFixed(2);
+        unitEl.textContent = data.unit || "";
+        hint.textContent = data.previous_date
+          ? "Carried forward from the reading on " + data.previous_date + "."
+          : "First reading for this utility — starts at 0.";
+        if (!isEdit && data.already_exists) {
+          dupWarn.textContent = "A reading for this utility on this date already exists. Saving will be rejected — edit the existing row instead.";
+          dupWarn.classList.remove("d-none");
+        } else {
+          dupWarn.classList.add("d-none");
+        }
+        renderUsage();
+      })
+      .catch(() => {});
+  }
+
+  ["change"].forEach(evt => {
+    utility.addEventListener(evt, refreshOpening);
+    dateEl.addEventListener(evt, refreshOpening);
+  });
+  [opening, purchase, closing].forEach(el => el.addEventListener("input", renderUsage));
+
+  refreshOpening();
+  renderUsage();
+})();
+</script>
+{% endblock %}

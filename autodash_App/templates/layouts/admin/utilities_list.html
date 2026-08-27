@@ -1,0 +1,213 @@
+{# templates/layouts/admin/utilities_list.html #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h4 class="mb-0">Utilities</h4>
+              <div class="text-muted small">{{ branch.name }}</div>
+            </div>
+            <div class="d-flex gap-2">
+              <a href="{% url 'utilities_manage' %}" class="btn btn-outline-secondary">Manage Utilities</a>
+              <a href="{% url 'utility_reading_create' %}" class="btn btn-primary">New Reading</a>
+            </div>
+          </div>
+
+          {% if messages %}
+            {% for message in messages %}
+              <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+
+          {# ───────────────────────── Filters ───────────────────────── #}
+          <div class="card mb-3">
+            <div class="card-body">
+              <form method="get" class="row g-3 align-items-end">
+                {% if can_pick_branch %}
+                  <div class="col-md-3">
+                    <label class="form-label">Branch</label>
+                    <select name="branch_id" class="form-select">
+                      {% for b in branches %}
+                        <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                {% endif %}
+
+                <div class="col-md-3">
+                  <label class="form-label">Utility</label>
+                  <select name="utility" class="form-select">
+                    <option value="">All</option>
+                    {% for u in utilities %}
+                      <option value="{{ u.id }}" {% if selected.utility == u.id|stringformat:'s' %}selected{% endif %}>
+                        {{ u.name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="col-md-2">
+                  <label class="form-label">From</label>
+                  <input type="date" class="form-control" name="start_date" value="{{ selected.start_date }}">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">To</label>
+                  <input type="date" class="form-control" name="end_date" value="{{ selected.end_date }}">
+                </div>
+                <div class="col-md-2">
+                  <button class="btn btn-primary w-100" type="submit">Apply</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="row g-4">
+            {# ───────────────────────── Summary ───────────────────────── #}
+            <div class="col-12 col-lg-4 order-1 order-lg-2">
+              <div class="card">
+                <div class="card-header">
+                  <h6 class="mb-0">Current Position</h6>
+                </div>
+                <div class="card-body">
+                  {% if summary %}
+                    <ul class="list-group list-group-flush">
+                      {% for row in summary %}
+                        <li class="list-group-item px-0">
+                          <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                              <strong>{{ row.utility.name }}</strong>
+                              {% if not row.utility.is_active %}
+                                <span class="badge bg-label-secondary ms-1">Inactive</span>
+                              {% endif %}
+                              <div class="text-muted small">
+                                {% if row.last_entry %}
+                                  Last entry {{ row.last_entry|date:"d M Y" }}
+                                {% else %}
+                                  No readings yet
+                                {% endif %}
+                              </div>
+                            </div>
+                            <div class="text-end">
+                              {% if row.current_balance is not None %}
+                                <div class="fw-semibold">{{ row.current_balance|floatformat:2 }}</div>
+                                <div class="text-muted small">{{ row.utility.unit }} on hand</div>
+                              {% else %}
+                                <span class="text-muted small">&mdash;</span>
+                              {% endif %}
+                            </div>
+                          </div>
+                          <div class="d-flex justify-content-between mt-2 small">
+                            <span class="text-muted">Used in range</span>
+                            <span class="fw-semibold">{{ row.total_usage|floatformat:2 }} {{ row.utility.unit }}</span>
+                          </div>
+                          <div class="d-flex justify-content-between small">
+                            <span class="text-muted">Purchased in range</span>
+                            <span>{{ row.total_purchase|floatformat:2 }} {{ row.utility.unit }}</span>
+                          </div>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <div class="text-muted small">
+                      No utilities set up for this branch yet.
+                      <a href="{% url 'utilities_manage' %}">Add one</a>.
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            {# ───────────────────────── Trail ───────────────────────── #}
+            <div class="col-12 col-lg-8 order-2 order-lg-1">
+              <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h6 class="mb-0">Daily Trail</h6>
+                  <small class="text-muted">Usage = Opening + Purchase &minus; Closing</small>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-bordered align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Utility</th>
+                        <th class="text-end">Opening</th>
+                        <th class="text-end">Purchase</th>
+                        <th class="text-end">Closing</th>
+                        <th class="text-end">Usage</th>
+                        <th>Entered by</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for r in readings %}
+                        <tr>
+                          <td>{{ r.date|date:"d M Y" }}</td>
+                          <td>
+                            {{ r.utility.name }}
+                            <div class="text-muted small">{{ r.utility.unit }}</div>
+                          </td>
+                          <td class="text-end">{{ r.opening_balance|floatformat:2 }}</td>
+                          <td class="text-end">
+                            {% if r.purchase %}
+                              <span class="text-success">+{{ r.purchase|floatformat:2 }}</span>
+                            {% else %}
+                              <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                          </td>
+                          <td class="text-end">{{ r.closing_balance|floatformat:2 }}</td>
+                          <td class="text-end fw-semibold">{{ r.usage|floatformat:2 }}</td>
+                          <td class="small">
+                            {% if r.entered_by %}
+                              {{ r.entered_by.get_full_name|default:r.entered_by.username }}
+                            {% else %}
+                              <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                          </td>
+                          <td class="text-end text-nowrap">
+                            <a href="{% url 'utility_reading_edit' r.id %}" class="btn btn-sm btn-outline-primary">Edit</a>
+                            <form method="post" action="{% url 'utility_reading_delete' r.id %}"
+                                  class="d-inline"
+                                  onsubmit="return confirm('Delete this reading? The next day&#39;s opening balance will be re-linked.');">
+                              {% csrf_token %}
+                              <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                          </td>
+                        </tr>
+                        {% if r.note %}
+                          <tr class="table-light">
+                            <td colspan="8" class="small text-muted">{{ r.note }}</td>
+                          </tr>
+                        {% endif %}
+                      {% empty %}
+                        <tr>
+                          <td colspan="8" class="text-center text-muted py-4">
+                            No readings in this range.
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

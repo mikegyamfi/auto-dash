@@ -628,6 +628,24 @@ class Expense(models.Model):
         ("Statutory", "Statutory"),
         ("Variable", "Variable"),
     )
+
+    # Classification: everything here is an expense, but operating costs are
+    # reported separately (they come off Net Sales) from everything else.
+    TYPE_OPERATING = "operating"
+    TYPE_OTHER = "other"
+    TYPE_CHOICES = (
+        (TYPE_OPERATING, "Operating"),
+        (TYPE_OTHER, "Other"),
+    )
+    expense_type = models.CharField(
+        max_length=20, choices=TYPE_CHOICES, default=TYPE_OTHER,
+        help_text="Operating = day-to-day running cost (incl. utilities). "
+                  "Other = everything non-operational.",
+    )
+    # Set on rows created automatically (e.g. utility usage) so they can be
+    # told apart from what a manager typed in.
+    is_auto_generated = models.BooleanField(default=False)
+
     expense_category = models.CharField(max_length=250, null=True, blank=True, choices=expense_choices)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='expenses')
     description = models.TextField()
@@ -1322,3 +1340,429 @@ class DailyScoreEntry(models.Model):
             f"{self.points_awarded}/{self.criterion.max_points}"
         )
 
+
+
+# ============================================================================
+#  Utilities
+# ============================================================================
+
+class Utility(models.Model):
+    """
+    A metered/consumable resource tracked per branch (electricity credit,
+    water, generator fuel, ...). Readings are logged daily against this.
+    """
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="utilities")
+    name = models.CharField(max_length=100)
+    unit = models.CharField(
+        max_length=30, default="units",
+        help_text="Unit the balances are measured in, e.g. units, litres, GHS."
+    )
+    cost_per_unit = models.FloatField(
+        default=1.0,
+        help_text="GHS per unit, used to book daily usage as an expense. "
+                  "Leave at 1.0 when the balance is already in GHS.",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("branch", "name")
+        ordering = ["branch__name", "name"]
+        verbose_name_plural = "Utilities"
+
+    def __str__(self):
+        return f"{self.name} ({self.branch.name})"
+
+    def latest_reading(self, before_date=None):
+        """Most recent reading, optionally strictly before `before_date`."""
+        qs = self.readings.all()
+        if before_date is not None:
+            qs = qs.filter(date__lt=before_date)
+        return qs.order_by("-date").first()
+
+    def opening_for(self, for_date):
+        """
+        The opening balance a reading on `for_date` should start with: the
+        closing balance of the most recent reading before it. Falls back to
+        0.0 when this is the very first reading for the utility.
+        """
+        prev = self.latest_reading(before_date=for_date)
+        return float(prev.closing_balance) if prev else 0.0
+
+
+class UtilityReading(models.Model):
+    """
+    One day's movement on a Utility. `opening_balance` is carried forward from
+    the previous reading's `closing_balance`, so the rows form a trail.
+
+        usage = opening_balance + purchase - closing_balance
+    """
+    utility = models.ForeignKey(Utility, on_delete=models.CASCADE, related_name="readings")
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="utility_readings")
+    date = models.DateField(default=timezone.localdate)
+
+    opening_balance = models.FloatField(default=0.0)
+    purchase = models.FloatField(default=0.0)
+    closing_balance = models.FloatField(default=0.0)
+    usage = models.FloatField(default=0.0, editable=False)
+
+    note = models.TextField(blank=True, default="")
+    entered_by = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="utility_readings",
+    )
+    # The expense this day's usage was booked as. Kept in sync by sync_expense()
+    # and cleaned up by the post_delete signal in signals.py.
+    expense = models.OneToOneField(
+        "Expense", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="utility_reading",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("utility", "date")
+        ordering = ["-date", "utility__name"]
+
+    def compute_usage(self):
+        return (
+            float(self.opening_balance or 0.0)
+            + float(self.purchase or 0.0)
+            - float(self.closing_balance or 0.0)
+        )
+
+    @property
+    def expense_amount(self):
+        """Usage costed out in GHS."""
+        return round(self.usage * float(self.utility.cost_per_unit or 0.0), 2)
+
+    def save(self, *args, **kwargs):
+        # A date handed in as a string ("2026-03-02") stays a string on the
+        # instance, which breaks date formatting/comparison downstream.
+        if self.date is not None:
+            self.date = self._meta.get_field("date").to_python(self.date)
+        # branch always follows the utility, so a reading can't drift from it
+        if self.utility_id and not self.branch_id:
+            self.branch = self.utility.branch
+        self.usage = self.compute_usage()
+        super().save(*args, **kwargs)
+        self.sync_expense()
+        # A correction to this row changes what the next day opens with.
+        self.propagate_forward()
+
+    def sync_expense(self):
+        """
+        Once the day is closed out, book the usage as a branch Expense.
+
+        Idempotent: re-saving updates the same Expense rather than stacking a
+        new one, and an edit that drops usage to zero removes it again.
+        """
+        Expense = self.__class__._meta.apps.get_model("autodash_App", "Expense")
+
+        amount = self.expense_amount
+        should_exist = self.closing_balance is not None and amount > 0
+
+        if not should_exist:
+            if self.expense_id:
+                stale_id = self.expense_id
+                # Break the link first so SET_NULL doesn't fight the delete.
+                type(self).objects.filter(pk=self.pk).update(expense=None)
+                self.expense = None
+                Expense.objects.filter(pk=stale_id).delete()
+            return
+
+        description = (
+            f"{self.utility.name} usage for {self.date:%d %b %Y} "
+            f"({self.usage:g} {self.utility.unit})"
+        )
+
+        if self.expense_id:
+            exp = self.expense
+            exp.branch = self.branch
+            exp.description = description
+            exp.amount = amount
+            exp.expense_type = Expense.TYPE_OPERATING
+            exp.is_auto_generated = True
+            exp.save(update_fields=[
+                "branch", "description", "amount", "expense_type", "is_auto_generated",
+            ])
+        else:
+            exp = Expense.objects.create(
+                branch=self.branch,
+                description=description,
+                amount=amount,
+                expense_category="Variable",
+                expense_type=Expense.TYPE_OPERATING,
+                is_auto_generated=True,
+                user=self.entered_by,
+            )
+            type(self).objects.filter(pk=self.pk).update(expense=exp)
+            self.expense = exp
+
+        # Expense.date is auto_now_add, so it always lands on today. Force it
+        # onto the reading's date with an UPDATE, which skips auto_now_add.
+        Expense.objects.filter(pk=exp.pk).exclude(date=self.date).update(date=self.date)
+        exp.date = self.date  # keep the in-memory copy in step with the row
+
+    def propagate_forward(self):
+        """
+        Re-point the following reading's opening balance at this row's closing
+        balance, and keep going while values actually change. Editing an old
+        row therefore repairs the whole trail after it rather than silently
+        leaving a gap.
+        """
+        nxt = (
+            UtilityReading.objects
+            .filter(utility_id=self.utility_id, date__gt=self.date)
+            .order_by("date")
+            .first()
+        )
+        current = self
+        while nxt is not None:
+            new_opening = float(current.closing_balance or 0.0)
+            if float(nxt.opening_balance or 0.0) == new_opening:
+                break
+            nxt.opening_balance = new_opening
+            nxt.usage = nxt.compute_usage()
+            super(UtilityReading, nxt).save(update_fields=["opening_balance", "usage", "updated_at"])
+            # its usage moved, so its expense has to move with it
+            nxt.sync_expense()
+            current = nxt
+            nxt = (
+                UtilityReading.objects
+                .filter(utility_id=self.utility_id, date__gt=current.date)
+                .order_by("date")
+                .first()
+            )
+
+    def __str__(self):
+        return f"{self.utility.name} {self.date}: used {self.usage:g} {self.utility.unit}"
+
+
+# ============================================================================
+#  Remittance
+# ============================================================================
+
+def compute_sales_figures(branch=None, start=None, end=None):
+    """
+    The single definition of the sales chain, shared by the admin dashboard and
+    the remittance pages so the two can never drift apart.
+
+        gross sales = revenue - commission
+        net sales   = gross sales - operating expenses
+
+    `branch=None` aggregates across all branches. Returns plain floats.
+    """
+    branch_kw = {'branch': branch} if branch else {}
+    worker_branch_kw = {'worker__branch': branch} if branch else {}
+    window = {'date__range': [start, end]}
+
+    revenue = Revenue.objects.filter(**window, **branch_kw).aggregate(
+        t=Sum('final_amount'))['t'] or 0.0
+    commission = Commission.objects.filter(**window, **worker_branch_kw).aggregate(
+        t=Sum('amount'))['t'] or 0.0
+    expenses_all = Expense.objects.filter(**window, **branch_kw).aggregate(
+        t=Sum('amount'))['t'] or 0.0
+    operating = Expense.objects.filter(
+        expense_type=Expense.TYPE_OPERATING, **window, **branch_kw
+    ).aggregate(t=Sum('amount'))['t'] or 0.0
+
+    gross_sales = revenue - commission
+    return {
+        'revenue': revenue,
+        'commission': commission,
+        'expenses_all': expenses_all,
+        'operating_expenses': operating,
+        'other_expenses': expenses_all - operating,
+        'gross_sales': gross_sales,
+        'net_sales': gross_sales - operating,
+    }
+
+
+REMITTANCE_SOURCE_CASH = "cash"
+REMITTANCE_SOURCE_MOMO = "momo"
+REMITTANCE_SOURCE_BANK = "bank"
+REMITTANCE_SOURCE_CHOICES = (
+    (REMITTANCE_SOURCE_CASH, "Cash"),
+    (REMITTANCE_SOURCE_MOMO, "MoMo"),
+    (REMITTANCE_SOURCE_BANK, "Bank"),
+)
+
+
+class RemittanceSetup(models.Model):
+    """
+    Per-branch remittance configuration: how much they are expected to remit on
+    a given weekday, and which source a surplus defaults into.
+    """
+    branch = models.OneToOneField(
+        Branch, on_delete=models.CASCADE, related_name="remittance_setup"
+    )
+    target_amount = models.FloatField(
+        default=0.0, help_text="Baseline amount expected to be remitted each operating day."
+    )
+    apply_on = models.JSONField(
+        default=list, blank=True,
+        help_text="Weekdays this target applies (0=Mon … 6=Sun). Empty means every day.",
+    )
+    primary_source = models.CharField(
+        max_length=10, choices=REMITTANCE_SOURCE_CHOICES, default=REMITTANCE_SOURCE_CASH,
+        help_text="Where the target portion is remitted by default. Always editable on the day.",
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["branch__name"]
+
+    def applies_on(self, d=None):
+        d = d or timezone.localdate()
+        if not self.apply_on:
+            return True
+        return d.weekday() in self.apply_on
+
+    def __str__(self):
+        return f"{self.branch.name} — remit GHS {self.target_amount}/day"
+
+
+class DailyRemittance(models.Model):
+    """
+    One row per branch per day. Net sales is what *should* be handed over;
+    total due is the target plus anything unremitted from previous days.
+
+        total_due   = target_amount + brought_forward
+        outstanding = max(0, total_due - amount_remitted)
+        surplus     = max(0, net_sales - target_amount)   # flagged, never carried
+    """
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="remittances")
+    date = models.DateField(default=timezone.localdate)
+
+    target_amount = models.FloatField(default=0.0)
+    brought_forward = models.FloatField(
+        default=0.0, help_text="Unremitted balance carried in from previous days."
+    )
+    total_due = models.FloatField(default=0.0, editable=False)
+
+    net_sales = models.FloatField(
+        default=0.0, help_text="Recomputed through the day; frozen once the day is finalised."
+    )
+    is_finalized = models.BooleanField(
+        default=False, help_text="Set at day rollover; stops net sales from moving."
+    )
+
+    amount_remitted = models.FloatField(default=0.0, editable=False)
+    surplus = models.FloatField(default=0.0, editable=False)
+    is_settled = models.BooleanField(default=False, editable=False)
+
+    note = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("branch", "date")
+        ordering = ["-date", "branch__name"]
+
+    # ---- derived helpers -------------------------------------------------
+    @property
+    def outstanding(self):
+        return max(0.0, (self.total_due or 0.0) - (self.amount_remitted or 0.0))
+
+    @property
+    def shortfall_vs_target(self):
+        """How far net sales fell short of the target (0 when met or beaten)."""
+        return max(0.0, (self.target_amount or 0.0) - (self.net_sales or 0.0))
+
+    @property
+    def progress_pct(self):
+        if not self.total_due:
+            return 100.0 if self.amount_remitted else 0.0
+        return min(100.0, round((self.amount_remitted / self.total_due) * 100, 1))
+
+    def refresh_net_sales(self, commit=False):
+        """Pull the live net-sales figure unless the day has been finalised."""
+        if self.is_finalized:
+            return self.net_sales
+        figures = compute_sales_figures(self.branch, self.date, self.date)
+        self.net_sales = figures['net_sales']
+        if commit:
+            self.save()
+        return self.net_sales
+
+    def recalc(self, commit=True):
+        self.total_due = (self.target_amount or 0.0) + (self.brought_forward or 0.0)
+        self.amount_remitted = self.payments.aggregate(t=Sum('amount'))['t'] or 0.0
+        # Surplus is measured against the target, per the day's own performance,
+        # and is deliberately never carried into tomorrow.
+        self.surplus = max(0.0, (self.net_sales or 0.0) - (self.target_amount or 0.0))
+        self.is_settled = self.amount_remitted >= self.total_due - 1e-9
+        if commit:
+            super().save()
+        return self
+
+    def carry_to_next_day(self):
+        """
+        What rolls into tomorrow: due minus what was actually handed over.
+        Floored at zero so a surplus never becomes tomorrow's credit.
+        """
+        return max(0.0, (self.total_due or 0.0) - (self.amount_remitted or 0.0))
+
+    def suggested_split(self):
+        """
+        Prefill for the payment form: the target goes to the branch's primary
+        source, the remainder (surplus) on a second line. Both editable.
+        """
+        setup = getattr(self.branch, "remittance_setup", None)
+        primary = setup.primary_source if setup else REMITTANCE_SOURCE_CASH
+        expected = self.net_sales or 0.0
+        target = min(self.target_amount or 0.0, expected)
+        remainder = round(expected - target, 2)
+        rows = []
+        if target > 0:
+            rows.append({"source": primary, "amount": round(target, 2), "label": "Target"})
+        if remainder > 0:
+            rows.append({"source": primary, "amount": remainder, "label": "Surplus"})
+        if not rows and expected > 0:
+            rows.append({"source": primary, "amount": round(expected, 2), "label": "Net sales"})
+        return rows
+
+    def save(self, *args, **kwargs):
+        if self.date is not None:
+            self.date = self._meta.get_field("date").to_python(self.date)
+        self.total_due = (self.target_amount or 0.0) + (self.brought_forward or 0.0)
+        self.surplus = max(0.0, (self.net_sales or 0.0) - (self.target_amount or 0.0))
+        self.is_settled = (self.amount_remitted or 0.0) >= self.total_due - 1e-9
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.branch.name} remittance {self.date}: {self.amount_remitted}/{self.total_due}"
+
+
+class RemittancePayment(models.Model):
+    """A single line of a (possibly split) remittance. Freely editable."""
+    remittance = models.ForeignKey(
+        DailyRemittance, on_delete=models.CASCADE, related_name="payments"
+    )
+    source = models.CharField(max_length=10, choices=REMITTANCE_SOURCE_CHOICES)
+    amount = models.FloatField(default=0.0)
+    reference = models.CharField(
+        max_length=120, blank=True, default="",
+        help_text="Optional: teller/transaction reference.",
+    )
+    recorded_by = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="remittance_payments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.remittance.recalc()
+
+    def delete(self, *args, **kwargs):
+        remittance = self.remittance
+        super().delete(*args, **kwargs)
+        remittance.recalc()
+
+    def __str__(self):
+        return f"{self.get_source_display()} {self.amount} — {self.remittance}"

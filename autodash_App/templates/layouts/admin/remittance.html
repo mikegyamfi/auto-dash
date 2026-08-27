@@ -1,0 +1,370 @@
+{# templates/layouts/admin/remittance.html #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h4 class="mb-0">Remittance</h4>
+              <div class="text-muted small">
+                {{ branch.name }} — {{ day|date:"l, d M Y" }}
+                {% if is_today %}<span class="badge bg-label-primary ms-1">Today</span>{% endif %}
+              </div>
+            </div>
+            <div class="d-flex gap-2">
+              <a href="{% url 'remittance_report' %}" class="btn btn-outline-secondary">Report</a>
+              <a href="{% url 'remittance_setup' %}" class="btn btn-outline-secondary">Setup</a>
+            </div>
+          </div>
+
+          {% if messages %}
+            {% for message in messages %}
+              <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+
+          {% if not setup %}
+            <div class="alert alert-warning">
+              No remittance target is configured for {{ branch.name }} yet.
+              <a href="{% url 'remittance_setup' %}" class="alert-link">Set one up</a> —
+              until then the target is GHS 0 and everything counts as surplus.
+            </div>
+          {% endif %}
+
+          {# ───────────────── Date / branch picker ───────────────── #}
+          <div class="card mb-3">
+            <div class="card-body">
+              <form method="get" class="row g-3 align-items-end">
+                {% if can_pick_branch %}
+                  <div class="col-md-4">
+                    <label class="form-label">Branch</label>
+                    <select name="branch_id" class="form-select">
+                      {% for b in branches %}
+                        <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                {% endif %}
+                <div class="col-md-3">
+                  <label class="form-label">Date</label>
+                  <input type="date" name="date" class="form-control" value="{{ day_str }}">
+                </div>
+                <div class="col-md-2">
+                  <button class="btn btn-primary w-100" type="submit">Go</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {# ───────────────── The money story, in order ───────────────── #}
+          <div class="row g-3 mb-2">
+            <div class="col-6 col-lg">
+              <div class="card h-100">
+                <div class="card-body p-3 text-center">
+                  <div class="text-muted small text-nowrap">Net Sales {% if not remittance.is_finalized %}so far{% endif %}</div>
+                  <div class="fw-bold" style="font-size:1.05rem;">
+                    GHS {{ remittance.net_sales|floatformat:2 }}
+                  </div>
+                  <div class="text-muted" style="font-size:0.7rem;">must be remitted</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg">
+              <div class="card h-100">
+                <div class="card-body p-3 text-center">
+                  <div class="text-muted small text-nowrap">Target</div>
+                  <div class="fw-bold" style="font-size:1.05rem;">
+                    GHS {{ remittance.target_amount|floatformat:2 }}
+                  </div>
+                  <div class="text-muted" style="font-size:0.7rem;">today's baseline</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg">
+              <div class="card h-100 {% if remittance.brought_forward %}border-warning{% endif %}">
+                <div class="card-body p-3 text-center">
+                  <div class="text-muted small text-nowrap">Brought Forward</div>
+                  <div class="fw-bold {% if remittance.brought_forward %}text-warning{% endif %}" style="font-size:1.05rem;">
+                    GHS {{ remittance.brought_forward|floatformat:2 }}
+                  </div>
+                  <div class="text-muted" style="font-size:0.7rem;">arrears carried in</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg">
+              <div class="card h-100 border-primary">
+                <div class="card-body p-3 text-center">
+                  <div class="text-muted small text-nowrap">Total Due</div>
+                  <div class="fw-bold text-primary" style="font-size:1.05rem;">
+                    GHS {{ remittance.total_due|floatformat:2 }}
+                  </div>
+                  <div class="text-muted" style="font-size:0.7rem;">target + brought forward</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg">
+              <div class="card h-100">
+                <div class="card-body p-3 text-center">
+                  <div class="text-muted small text-nowrap">Remitted</div>
+                  <div class="fw-bold text-success" style="font-size:1.05rem;">
+                    GHS {{ remittance.amount_remitted|floatformat:2 }}
+                  </div>
+                  <div class="text-muted" style="font-size:0.7rem;">handed over</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg">
+              <div class="card h-100 {% if remittance.outstanding %}border-danger{% endif %}">
+                <div class="card-body p-3 text-center">
+                  <div class="text-muted small text-nowrap">Outstanding</div>
+                  <div class="fw-bold {% if remittance.outstanding %}text-danger{% else %}text-muted{% endif %}" style="font-size:1.05rem;">
+                    GHS {{ remittance.outstanding|floatformat:2 }}
+                  </div>
+                  <div class="text-muted" style="font-size:0.7rem;">carries to tomorrow</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# ───────────────── Status banner ───────────────── #}
+          {% if remittance.is_settled %}
+            <div class="alert alert-success d-flex justify-content-between align-items-center">
+              <div>
+                <strong>Settled.</strong> Everything due for this day has been remitted.
+                {% if remittance.surplus %}
+                  Net sales beat the target by
+                  <strong>GHS {{ remittance.surplus|floatformat:2 }}</strong> — recorded as a surplus
+                  for today and <em>not</em> carried forward.
+                {% endif %}
+              </div>
+              {% if remittance.surplus %}
+                <span class="badge bg-success">Surplus GHS {{ remittance.surplus|floatformat:2 }}</span>
+              {% endif %}
+            </div>
+          {% elif remittance.outstanding %}
+            <div class="alert alert-warning">
+              <strong>GHS {{ remittance.outstanding|floatformat:2 }} still outstanding.</strong>
+              If the day closes like this, that amount becomes arrears and shows up as
+              <em>brought forward</em> on the next remittance day.
+              {% if remittance.shortfall_vs_target %}
+                Net sales are GHS {{ remittance.shortfall_vs_target|floatformat:2 }} short of the target.
+              {% endif %}
+            </div>
+          {% endif %}
+
+          <div class="row g-4">
+            {# ───────────────── Remittance lines ───────────────── #}
+            <div class="col-12 col-lg-8">
+              <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h6 class="mb-0">Remitted To</h6>
+                  <small class="text-muted">Split across cash, MoMo and bank as needed</small>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="table table-bordered align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th>Source</th>
+                        <th class="text-end">Amount (GHS)</th>
+                        <th>Reference</th>
+                        <th>Recorded by</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for p in payments %}
+                        <tr>
+                          <form method="post" action="{% url 'remittance_edit_payment' p.id %}">
+                            {% csrf_token %}
+                            <td>
+                              <select name="source" class="form-select form-select-sm">
+                                {% for val, label in source_choices %}
+                                  <option value="{{ val }}" {% if p.source == val %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                              </select>
+                            </td>
+                            <td>
+                              <input type="number" step="0.01" min="0" name="amount"
+                                     value="{{ p.amount|floatformat:2 }}"
+                                     class="form-control form-control-sm text-end">
+                            </td>
+                            <td>
+                              <input type="text" name="reference" value="{{ p.reference }}"
+                                     class="form-control form-control-sm" placeholder="Optional">
+                            </td>
+                            <td class="small text-muted">
+                              {% if p.recorded_by %}
+                                {{ p.recorded_by.get_full_name|default:p.recorded_by.username }}
+                              {% else %}&mdash;{% endif %}
+                              <div style="font-size:0.7rem;">{{ p.created_at|date:"d M, H:i" }}</div>
+                            </td>
+                            <td class="text-end text-nowrap">
+                              <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                              <button type="submit" name="delete" value="1"
+                                      class="btn btn-sm btn-outline-danger"
+                                      onclick="return confirm('Remove this remittance line?');">
+                                Remove
+                              </button>
+                            </td>
+                          </form>
+                        </tr>
+                      {% empty %}
+                        <tr>
+                          <td colspan="5" class="text-center text-muted py-4">
+                            Nothing remitted yet for this day.
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                    {% if payments %}
+                      <tfoot>
+                        <tr class="table-light">
+                          <th>Total</th>
+                          <th class="text-end">{{ remittance.amount_remitted|floatformat:2 }}</th>
+                          <th colspan="3" class="fw-normal text-muted small">
+                            of GHS {{ remittance.total_due|floatformat:2 }} due
+                            ({{ remittance.progress_pct }}%)
+                          </th>
+                        </tr>
+                      </tfoot>
+                    {% endif %}
+                  </table>
+                </div>
+
+                {# ---- add a line ---- #}
+                <div class="card-body border-top">
+                  <form method="post" action="{% url 'remittance_add_payment' remittance.id %}"
+                        class="row g-2 align-items-end">
+                    {% csrf_token %}
+                    <div class="col-md-3">
+                      <label class="form-label small">Source</label>
+                      {{ payment_form.source }}
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small">Amount</label>
+                      {{ payment_form.amount }}
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label small">Reference</label>
+                      {{ payment_form.reference }}
+                    </div>
+                    <div class="col-md-2">
+                      <button type="submit" class="btn btn-primary w-100">Add</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            {# ───────────────── Side panel ───────────────── #}
+            <div class="col-12 col-lg-4">
+              {% if suggested and not payments %}
+                <div class="card mb-3 border-primary">
+                  <div class="card-header">
+                    <h6 class="mb-0">Suggested Split</h6>
+                  </div>
+                  <div class="card-body">
+                    <div class="text-muted small mb-2">
+                      Based on net sales of GHS {{ remittance.net_sales|floatformat:2 }}
+                      and a primary source of
+                      <strong>{% if setup %}{{ setup.get_primary_source_display }}{% else %}Cash{% endif %}</strong>.
+                    </div>
+                    <ul class="list-group list-group-flush mb-3">
+                      {% for row in suggested %}
+                        <li class="list-group-item px-0 d-flex justify-content-between">
+                          <span>
+                            {{ row.label }}
+                            <span class="text-muted small">— {{ row.source|title }}</span>
+                          </span>
+                          <strong>GHS {{ row.amount|floatformat:2 }}</strong>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                    <form method="post" action="{% url 'remittance_apply_suggestion' remittance.id %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-primary w-100">Use This Split</button>
+                    </form>
+                    <div class="form-text mt-2">
+                      Every line stays editable after it's added.
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+
+              <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">How today was made up</h6></div>
+                <div class="card-body">
+                  <div class="d-flex justify-content-between small mb-1">
+                    <span class="text-muted">Revenue</span>
+                    <span>GHS {{ figures.revenue|floatformat:2 }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between small mb-1">
+                    <span class="text-muted">less Commission</span>
+                    <span class="text-danger">−{{ figures.commission|floatformat:2 }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between small mb-1 border-top pt-1">
+                    <span class="text-muted">Gross Sales</span>
+                    <span>GHS {{ figures.gross_sales|floatformat:2 }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between small mb-1">
+                    <span class="text-muted">less Operating Expenses</span>
+                    <span class="text-danger">−{{ figures.operating_expenses|floatformat:2 }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-top pt-1 fw-bold">
+                    <span>Net Sales</span>
+                    <span>GHS {{ figures.net_sales|floatformat:2 }}</span>
+                  </div>
+                  <div class="form-text mt-2">
+                    Utilities usage is included in operating expenses.
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-header"><h6 class="mb-0">Previous Days</h6></div>
+                <div class="card-body p-0">
+                  <ul class="list-group list-group-flush">
+                    {% for h in history %}
+                      <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                          <a href="?date={{ h.date|date:'Y-m-d' }}{% if can_pick_branch %}&branch_id={{ branch.id }}{% endif %}">
+                            {{ h.date|date:"d M Y" }}
+                          </a>
+                          <div class="text-muted" style="font-size:0.72rem;">
+                            due {{ h.total_due|floatformat:2 }} · remitted {{ h.amount_remitted|floatformat:2 }}
+                          </div>
+                        </div>
+                        {% if h.is_settled %}
+                          <span class="badge bg-label-success">Settled</span>
+                        {% else %}
+                          <span class="badge bg-label-danger">−{{ h.outstanding|floatformat:2 }}</span>
+                        {% endif %}
+                      </li>
+                    {% empty %}
+                      <li class="list-group-item text-muted small">No earlier remittance days.</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

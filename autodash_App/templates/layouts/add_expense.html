@@ -41,6 +41,17 @@
                 </div>
 
                 <div class="mb-3">
+                  {{ form.expense_type.label_tag }}
+                  {{ form.expense_type }}
+                  <div class="form-text">{{ form.expense_type.help_text }}</div>
+                  {% if form.expense_type.errors %}
+                  <div class="text-danger">
+                    {{ form.expense_type.errors }}
+                  </div>
+                  {% endif %}
+                </div>
+
+                <div class="mb-3">
                   {{ form.branch.label_tag }}
                   {{ form.branch }}
                   {% if form.branch.errors %}

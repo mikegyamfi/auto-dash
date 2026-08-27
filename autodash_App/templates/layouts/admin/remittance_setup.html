@@ -1,0 +1,180 @@
+{# templates/layouts/admin/remittance_setup.html #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h4 class="mb-0">Remittance Setup</h4>
+              <div class="text-muted small">{{ branch.name }}</div>
+            </div>
+            <a href="{% url 'remittance_list' %}" class="btn btn-outline-secondary">Back</a>
+          </div>
+
+          {% if messages %}
+            {% for message in messages %}
+              <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}">
+                {{ message }}
+              </div>
+            {% endfor %}
+          {% endif %}
+
+          {% if can_pick_branch %}
+            <div class="card mb-3">
+              <div class="card-body">
+                <form method="get" class="row g-3 align-items-end">
+                  <div class="col-md-4">
+                    <label class="form-label">Branch</label>
+                    <select name="branch_id" class="form-select">
+                      {% for b in branches %}
+                        <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-md-2">
+                    <button class="btn btn-outline-primary w-100" type="submit">Switch</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          {% endif %}
+
+          <div class="row g-4">
+            <div class="col-12 col-lg-6">
+              <div class="card">
+                <div class="card-header">
+                  <h6 class="mb-0">{% if setup %}Edit{% else %}Create{% endif %} target for {{ branch.name }}</h6>
+                </div>
+                <div class="card-body">
+                  <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    {% if form.non_field_errors %}
+                      <div class="alert alert-danger">
+                        {% for err in form.non_field_errors %}<div>{{ err }}</div>{% endfor %}
+                      </div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                      <label class="form-label">Branch</label>
+                      {{ form.branch }}
+                      {% for err in form.branch.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                      <label class="form-label">Daily remittance target (GHS)</label>
+                      {{ form.target_amount }}
+                      {% for err in form.target_amount.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                      <div class="form-text">
+                        The baseline expected each operating day. Anything net sales makes
+                        above this is recorded as a surplus, not carried forward.
+                      </div>
+                    </div>
+
+                    <div class="mb-3">
+                      <label class="form-label">Operating days</label>
+                      <div class="d-flex flex-wrap gap-3">
+                        {% for cb in form.apply_on %}
+                          <div class="form-check">
+                            {{ cb.tag }}
+                            <label class="form-check-label" for="{{ cb.id_for_label }}">{{ cb.choice_label }}</label>
+                          </div>
+                        {% endfor %}
+                      </div>
+                      <div class="form-text">{{ form.apply_on.help_text }}</div>
+                    </div>
+
+                    <div class="mb-3">
+                      <label class="form-label">Primary source</label>
+                      {{ form.primary_source }}
+                      <div class="form-text">
+                        Where the target portion lands by default on the remittance page.
+                        Always editable per day.
+                      </div>
+                    </div>
+
+                    <div class="form-check mb-3">
+                      {{ form.is_active }}
+                      <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Active</label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Save Setup</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12 col-lg-6">
+              <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">How it works</h6></div>
+                <div class="card-body small">
+                  <p class="mb-2">
+                    Each operating day a remittance row opens for the branch carrying:
+                  </p>
+                  <ul class="mb-2 ps-3">
+                    <li><strong>Net Sales</strong> — revenue less commission less operating expenses. This is what should be handed over, and it moves through the day.</li>
+                    <li><strong>Target</strong> — the baseline above.</li>
+                    <li><strong>Brought forward</strong> — whatever was due but not remitted on previous days.</li>
+                    <li><strong>Total due</strong> — target + brought forward.</li>
+                  </ul>
+                  <p class="mb-2">
+                    Remit less than is due and the gap rolls into the next day as arrears.
+                    Beat the target and it's flagged as a surplus for that day only — surpluses
+                    never become tomorrow's credit.
+                  </p>
+                </div>
+              </div>
+
+              {% if all_setups %}
+                <div class="card">
+                  <div class="card-header"><h6 class="mb-0">All Branches</h6></div>
+                  <div class="table-responsive">
+                    <table class="table table-bordered mb-0 align-middle">
+                      <thead>
+                        <tr>
+                          <th>Branch</th>
+                          <th class="text-end">Target</th>
+                          <th>Primary</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for s in all_setups %}
+                          <tr>
+                            <td><a href="?branch_id={{ s.branch_id }}">{{ s.branch.name }}</a></td>
+                            <td class="text-end">{{ s.target_amount|floatformat:2 }}</td>
+                            <td>{{ s.get_primary_source_display }}</td>
+                            <td>
+                              {% if s.is_active %}
+                                <span class="badge bg-label-success">Active</span>
+                              {% else %}
+                                <span class="badge bg-label-secondary">Inactive</span>
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% empty %}
+                          <tr><td colspan="4" class="text-muted text-center py-3">No branches configured yet.</td></tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+        </div>
+        {% include 'inc/footer.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
