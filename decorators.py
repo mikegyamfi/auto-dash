@@ -27,3 +27,28 @@ def staff_or_branch_admin_required(view_func):
         raise PermissionDenied
 
     return _wrapped
+
+
+def worker_or_elevated_required(view_func):
+    """
+    Allows any worker — plain workers included — plus staff/superusers.
+
+    For shop-floor pages where the person doing the task isn't necessarily a
+    manager (e.g. taking a utility reading). Callers must still scope writes
+    to the user's own branch; this only controls who gets through the door.
+    """
+
+    @wraps(view_func)
+    @login_required
+    def _wrapped(request, *args, **kwargs):
+        u = request.user
+        if u.is_superuser or u.is_staff:
+            return view_func(request, *args, **kwargs)
+
+        wp = getattr(u, 'worker_profile', None)
+        if wp and wp.branch_id:
+            return view_func(request, *args, **kwargs)
+
+        raise PermissionDenied
+
+    return _wrapped

@@ -17,7 +17,9 @@
               <div class="text-muted small">{{ branch.name }}</div>
             </div>
             <div class="d-flex gap-2">
-              <a href="{% url 'utilities_manage' %}" class="btn btn-outline-secondary">Manage Utilities</a>
+              {% if can_manage %}
+                <a href="{% url 'utilities_manage' %}" class="btn btn-outline-secondary">Manage Utilities</a>
+              {% endif %}
               <a href="{% url 'utility_reading_create' %}" class="btn btn-primary">New Reading</a>
             </div>
           </div>
@@ -122,7 +124,8 @@
                   {% else %}
                     <div class="text-muted small">
                       No utilities set up for this branch yet.
-                      <a href="{% url 'utilities_manage' %}">Add one</a>.
+                      {% if can_manage %}<a href="{% url 'utilities_manage' %}">Add one</a>.
+                      {% else %}Ask a manager to add one.{% endif %}
                     </div>
                   {% endif %}
                 </div>
@@ -177,12 +180,14 @@
                           </td>
                           <td class="text-end text-nowrap">
                             <a href="{% url 'utility_reading_edit' r.id %}" class="btn btn-sm btn-outline-primary">Edit</a>
+                            {% if can_manage %}
                             <form method="post" action="{% url 'utility_reading_delete' r.id %}"
                                   class="d-inline"
                                   onsubmit="return confirm('Delete this reading? The next day&#39;s opening balance will be re-linked.');">
                               {% csrf_token %}
                               <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
                             </form>
+                            {% endif %}
                           </td>
                         </tr>
                         {% if r.note %}

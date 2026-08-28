@@ -82,7 +82,7 @@
                     <div class="fs-4 fw-bold">{{ total_workers }}</div>
                     <small class="text-muted">
                       {{ total_scored_workers }} scored{% if unscored_workers %},
-                      <span class="text-warning">{{ unscored_workers }} not scored</span>{% endif %}
+                      <span class="text-info">{{ unscored_workers }} on default</span>{% endif %}
                     </small>
                   </div>
                 </div>
@@ -380,8 +380,8 @@
                     <td class="fw-semibold">
                       {{ row.name }}
                       {% if not row.is_scored %}
-                        <span class="badge bg-label-secondary ms-1"
-                              title="Worked in this period but has no scorecard yet">Not scored</span>
+                        <span class="badge bg-label-info ms-1"
+                              title="Not scored yet — holding the default full score">Default</span>
                       {% endif %}
                     </td>
                     <td>{{ row.worker__branch__name }}</td>
@@ -394,36 +394,24 @@
                       {% endif %}
                     </td>
                     <td>
-                      {% if row.is_scored %}
-                        <div class="d-flex align-items-center gap-2">
-                          <div class="progress flex-grow-1" style="height: 8px;">
-                            <div class="progress-bar
-                                {% if row.avg_score >= 0.8 %}bg-success
-                                {% elif row.avg_score >= 0.5 %}bg-warning
-                                {% else %}bg-danger{% endif %}"
-                              style="width: {{ row.avg_pct }}%;"></div>
-                          </div>
-                          <span class="fw-semibold small
-                              {% if row.avg_score >= 0.8 %}text-success
-                              {% elif row.avg_score >= 0.5 %}text-warning
-                              {% else %}text-danger{% endif %}" style="min-width: 50px;">
-                            {{ row.avg_pct }}%
-                          </span>
+                      <div class="d-flex align-items-center gap-2">
+                        <div class="progress flex-grow-1" style="height: 8px;">
+                          <div class="progress-bar
+                              {% if row.avg_score >= 0.8 %}bg-success
+                              {% elif row.avg_score >= 0.5 %}bg-warning
+                              {% else %}bg-danger{% endif %}"
+                            style="width: {{ row.avg_pct }}%;"></div>
                         </div>
-                      {% else %}
-                        <span class="text-muted small">Awaiting scoring</span>
-                      {% endif %}
+                        <span class="fw-semibold small
+                            {% if row.avg_score >= 0.8 %}text-success
+                            {% elif row.avg_score >= 0.5 %}text-warning
+                            {% else %}text-danger{% endif %}" style="min-width: 50px;">
+                          {{ row.avg_pct }}%
+                        </span>
+                      </div>
                     </td>
-                    <td class="text-end fw-semibold">
-                      {% if row.is_scored %}
-                        <span class="text-success">{{ row.best_pct }}%</span>
-                      {% else %}<span class="text-muted">—</span>{% endif %}
-                    </td>
-                    <td class="text-end fw-semibold">
-                      {% if row.is_scored %}
-                        <span class="text-danger">{{ row.worst_pct }}%</span>
-                      {% else %}<span class="text-muted">—</span>{% endif %}
-                    </td>
+                    <td class="text-end text-success fw-semibold">{{ row.best_pct }}%</td>
+                    <td class="text-end text-danger fw-semibold">{{ row.worst_pct }}%</td>
                     <td class="text-end text-nowrap">
                       {% if row.value_target %}GHS {{ row.value_target|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
                     </td>

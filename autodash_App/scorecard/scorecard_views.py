@@ -719,10 +719,13 @@ def scorecard_report(request):
                 "worker__branch__name": w.branch.name if w.branch else "",
                 "worker__position": w.position,
                 "worker__daily_value_target": w.daily_value_target,
+                # Everyone starts perfect and loses points from there, so an
+                # unscored worker sits at 100% until someone scores them —
+                # the same default the daily scorecard list shows.
                 "days_scored": 0,
-                "avg_score": None,
-                "best_score": None,
-                "worst_score": None,
+                "avg_score": 1.0,
+                "best_score": 1.0,
+                "worst_score": 1.0,
             })
 
     # Value actually generated in the period, derived from the prices of the
@@ -736,11 +739,13 @@ def scorecard_report(request):
     for row in per_worker:
         full = f"{row['worker__user__first_name'] or ''} {row['worker__user__last_name'] or ''}".strip()
         row["name"] = full or row["worker__user__username"] or "Worker"
-        row["is_scored"] = row["avg_score"] is not None
+        # "Scored" only drives the badge now — an unscored worker still carries
+        # the full 100% default, and counts towards the team figures on it.
+        row["is_scored"] = row["days_scored"] > 0
         row["days_worked"] = days_worked_map.get(row["worker_id"], 0)
-        row["avg_pct"] = round(row["avg_score"] * 100, 1) if row["is_scored"] else None
-        row["best_pct"] = round(row["best_score"] * 100, 1) if row["is_scored"] else None
-        row["worst_pct"] = round(row["worst_score"] * 100, 1) if row["is_scored"] else None
+        row["avg_pct"] = round((row["avg_score"] or 0) * 100, 1)
+        row["best_pct"] = round((row["best_score"] or 0) * 100, 1)
+        row["worst_pct"] = round((row["worst_score"] or 0) * 100, 1)
 
         row["value_actual"] = round(value_by_worker.get(row["worker_id"], 0.0), 2)
         # Target follows the days actually worked, so a daily target of 1 over
@@ -754,22 +759,21 @@ def scorecard_report(request):
         # Capped at 100 for the progress bar; value_pct keeps the true figure.
         row["value_bar_pct"] = min(100, row["value_pct"]) if row["value_pct"] is not None else 0
 
-    # Scored rows lead the table (best first); unscored workers trail it.
-    per_worker.sort(key=lambda r: (not r["is_scored"], -(r["avg_score"] or 0)))
+    # Ranked by score. Unscored workers hold the 100% default, so they rank
+    # alongside everyone else rather than being parked at the bottom.
+    per_worker.sort(key=lambda r: -(r["avg_score"] or 0))
     scored_rows = [r for r in per_worker if r["is_scored"]]
 
     # --- Summary cards ---
-    # Averages and best/worst are drawn only from workers who were actually
-    # scored — an unscored worker has no score to average in.
     total_workers = len(per_worker)
     total_scored_workers = len(scored_rows)
     unscored_workers = total_workers - total_scored_workers
     team_avg = (
-        sum(r["avg_score"] for r in scored_rows) / total_scored_workers
-        if total_scored_workers else 0
+        sum(r["avg_score"] or 0 for r in per_worker) / total_workers
+        if total_workers else 0
     )
-    best = scored_rows[0] if scored_rows else None
-    worst = scored_rows[-1] if scored_rows else None
+    best = per_worker[0] if per_worker else None
+    worst = per_worker[-1] if per_worker else None
 
     # --- Daily trend (team average per date) ---
     all_dates = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
@@ -782,7 +786,7 @@ def scorecard_report(request):
 
     # --- Distribution buckets by per-worker avg ---
     buckets = {"Excellent (80%+)": 0, "Good (50–80%)": 0, "Needs Work (<50%)": 0}
-    for row in scored_rows:
+    for row in per_worker:
         avg = row["avg_score"] or 0
         if avg >= 0.8:
             buckets["Excellent (80%+)"] += 1
@@ -792,7 +796,7 @@ def scorecard_report(request):
             buckets["Needs Work (<50%)"] += 1
 
     # --- Top N ranking (limit to 10 for chart readability) ---
-    top_ranked = scored_rows[:10]
+    top_ranked = per_worker[:10]
     rank_labels = [r["name"] for r in top_ranked]
     rank_values = [r["avg_pct"] for r in top_ranked]
 

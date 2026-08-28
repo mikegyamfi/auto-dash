@@ -32,7 +32,7 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 # from xhtml2pdf import pisa
 
-from decorators import staff_or_branch_admin_required
+from decorators import staff_or_branch_admin_required, worker_or_elevated_required
 from . import models, forms
 from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
@@ -8991,11 +8991,27 @@ def product_dashboard(request):
 #  Utilities — daily opening / purchase / closing trail
 # ============================================================================
 
+def _locked_branch(request):
+    """
+    The branch a non-staff user is confined to, or None for staff/superusers
+    (who may roam).
+
+    Unlike _get_user_branch this covers *every* worker, not just branch
+    admins — utility readings are taken by ordinary workers, and without this
+    their cross-branch guards would silently pass.
+    """
+    user = request.user
+    if user.is_superuser or user.is_staff:
+        return None
+    worker = getattr(user, "worker_profile", None)
+    return worker.branch if worker else None
+
+
 def _utility_scope(request):
     """
-    (branch, branches, can_pick) for the utilities pages.
-    Branch admins are pinned to their own branch; staff/superusers may pick
-    one with ?branch_id=, falling back to the first branch.
+    (branch, branches, can_pick) for the utilities and remittance pages.
+    Any worker is pinned to their own branch; staff/superusers may pick one
+    with ?branch_id=, falling back to the first branch.
     """
     user = request.user
     is_elevated = user.is_superuser or user.is_staff
@@ -9003,11 +9019,10 @@ def _utility_scope(request):
         branches = Branch.objects.all().order_by("name")
         branch = _get_admin_branch(request) or branches.first()
         return branch, branches, True
-    branch = _get_user_branch(request)
-    return branch, Branch.objects.none(), False
+    return _locked_branch(request), Branch.objects.none(), False
 
 
-@staff_or_branch_admin_required
+@worker_or_elevated_required
 def utilities_list(request):
     """Readings trail for a branch, newest first, filterable by utility/date."""
     branch, branches, can_pick = _utility_scope(request)
@@ -9056,10 +9071,19 @@ def utilities_list(request):
             "last_entry": latest.date if latest else None,
         })
 
+    # Adding/retiring utilities and deleting readings stay with managers;
+    # ordinary workers can read the trail and enter their branch's readings.
+    wp = getattr(request.user, "worker_profile", None)
+    can_manage = bool(
+        request.user.is_superuser or request.user.is_staff
+        or (wp and wp.is_branch_admin)
+    )
+
     context = {
         "branch": branch,
         "branches": branches,
         "can_pick_branch": can_pick,
+        "can_manage": can_manage,
         "readings": readings,
         "utilities": utilities,
         "summary": summary,
@@ -9072,7 +9096,7 @@ def utilities_list(request):
     return render(request, "layouts/admin/utilities_list.html", context)
 
 
-@staff_or_branch_admin_required
+@worker_or_elevated_required
 def utility_reading_create(request):
     branch, branches, can_pick = _utility_scope(request)
     if branch is None:
@@ -9106,12 +9130,12 @@ def utility_reading_create(request):
     })
 
 
-@staff_or_branch_admin_required
+@worker_or_elevated_required
 def utility_reading_edit(request, pk):
     reading = get_object_or_404(
         models.UtilityReading.objects.select_related("utility", "branch"), pk=pk
     )
-    own_branch = _get_user_branch(request)
+    own_branch = _locked_branch(request)
     if own_branch is not None and reading.branch_id != own_branch.id:
         messages.error(request, "That reading belongs to another branch.")
         return redirect("utilities_list")
@@ -9143,7 +9167,7 @@ def utility_reading_edit(request, pk):
 @require_POST
 def utility_reading_delete(request, pk):
     reading = get_object_or_404(models.UtilityReading, pk=pk)
-    own_branch = _get_user_branch(request)
+    own_branch = _locked_branch(request)
     if own_branch is not None and reading.branch_id != own_branch.id:
         messages.error(request, "That reading belongs to another branch.")
         return redirect("utilities_list")
@@ -9175,7 +9199,7 @@ def utilities_manage(request):
         toggle_id = request.POST.get("toggle_id", "").strip()
         if toggle_id.isdigit():
             util = get_object_or_404(models.Utility, pk=int(toggle_id))
-            own_branch = _get_user_branch(request)
+            own_branch = _locked_branch(request)
             if own_branch is not None and util.branch_id != own_branch.id:
                 messages.error(request, "That utility belongs to another branch.")
                 return redirect("utilities_manage")
@@ -9207,7 +9231,7 @@ def utilities_manage(request):
     })
 
 
-@staff_or_branch_admin_required
+@worker_or_elevated_required
 @require_GET
 def utility_opening_lookup(request):
     """AJAX: opening balance a new reading should carry forward."""
@@ -9217,7 +9241,7 @@ def utility_opening_lookup(request):
         return JsonResponse({"ok": False, "error": "No utility selected."})
 
     util = get_object_or_404(models.Utility, pk=int(utility_id))
-    own_branch = _get_user_branch(request)
+    own_branch = _locked_branch(request)
     if own_branch is not None and util.branch_id != own_branch.id:
         return JsonResponse({"ok": False, "error": "Not your branch."}, status=403)
 
