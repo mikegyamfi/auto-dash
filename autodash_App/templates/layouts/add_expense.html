@@ -12,14 +12,14 @@
 
           <div class="card">
             <div class="card-body">
-              {% if expense_branch and not petty_cash %}
+              {% if not petty_cash %}
                 {# Nothing to deduct from — say so rather than letting the #}
                 {# expense look like it drew down a float that isn't open.  #}
                 <div class="alert alert-secondary d-flex align-items-center">
                   <i class="bx bx-info-circle me-2"></i>
                   <div>
-                    No petty cash float is open for {{ expense_branch.name }},
-                    so this expense won't be deducted from one.
+                    The petty cash float has not been opened, so this expense
+                    won't be deducted from one.
                     <div class="small mt-1">
                       <a href="{% url 'petty_cash_dashboard' %}">Open a float</a>
                       to start tracking expenses against real cash.
@@ -30,8 +30,8 @@
                 <div class="alert alert-secondary d-flex align-items-center">
                   <i class="bx bx-info-circle me-2"></i>
                   <div>
-                    The petty cash float for {{ expense_branch.name }} is switched off,
-                    so this expense won't be deducted from it.
+                    The petty cash float is switched off, so this expense won't be
+                    deducted from it.
                   </div>
                 </div>
               {% endif %}
@@ -50,8 +50,8 @@
                       &mdash; at or below the GHS {{ petty_cash.low_threshold|floatformat:2 }} threshold.
                     {% endif %}
                     <div class="small mt-1">
-                      Only <strong>Other</strong> expenses are deducted from the float
-                      &mdash; operating costs are recorded but do not touch the cash tin.
+                      Only <strong>Other</strong> expenses are deducted from the shared
+                      float &mdash; operating costs are recorded but do not touch the cash tin.
                       <a href="{% url 'petty_cash_dashboard' %}">View petty cash</a>
                     </div>
                   </div>

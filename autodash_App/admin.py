@@ -809,9 +809,8 @@ class DailyScorecardAdmin(admin.ModelAdmin):
 
 @admin.register(PettyCashAccount)
 class PettyCashAccountAdmin(admin.ModelAdmin):
-    list_display = ('branch', 'balance', 'low_threshold', 'status', 'is_active')
-    list_filter = ('is_active', 'branch')
-    search_fields = ('branch__name',)
+    list_display = ('__str__', 'balance', 'low_threshold', 'status', 'is_active')
+    list_filter = ('is_active',)
     readonly_fields = ('balance', 'created_at', 'updated_at')
 
     @admin.display(description='Status')

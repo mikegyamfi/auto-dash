@@ -17,13 +17,11 @@ class PettyCashBalanceTest(TestCase):
         self.user = CustomUser.objects.create_user(
             username="0249999999", password="x", role="worker"
         )
-        self.account = PettyCashAccount.objects.create(
-            branch=self.branch, low_threshold=20.0
-        )
+        self.account = PettyCashAccount.objects.create(low_threshold=20.0)
 
     def _topup(self, amount, **kw):
         return PettyCashTransaction.objects.create(
-            account=self.account, branch=self.branch,
+            account=self.account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=amount, **kw
         )
 
@@ -92,11 +90,9 @@ class PettyCashThresholdTest(TestCase):
         self.branch = Branch.objects.create(
             name="Test Branch", location="Accra", phone_number="0240000000"
         )
-        self.account = PettyCashAccount.objects.create(
-            branch=self.branch, low_threshold=20.0
-        )
+        self.account = PettyCashAccount.objects.create(low_threshold=20.0)
         PettyCashTransaction.objects.create(
-            account=self.account, branch=self.branch,
+            account=self.account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=100.0,
         )
         self.account.refresh_from_db()
@@ -135,7 +131,7 @@ class PettyCashThresholdTest(TestCase):
         self.assertTrue(self.account.needs_topup)
 
         PettyCashTransaction.objects.create(
-            account=self.account, branch=self.branch,
+            account=self.account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=100.0,
         )
         self.account.refresh_from_db()
@@ -149,11 +145,9 @@ class PettyCashScopeTest(TestCase):
         self.branch = Branch.objects.create(
             name="Test Branch", location="Accra", phone_number="0240000000"
         )
-        self.account = PettyCashAccount.objects.create(
-            branch=self.branch, low_threshold=20.0
-        )
+        self.account = PettyCashAccount.objects.create(low_threshold=20.0)
         PettyCashTransaction.objects.create(
-            account=self.account, branch=self.branch,
+            account=self.account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=100.0,
         )
 
@@ -184,14 +178,20 @@ class PettyCashScopeTest(TestCase):
         self.account.refresh_from_db()
         self.assertAlmostEqual(self.account.balance, 120.0)
 
-    def test_a_branch_with_no_float_records_expenses_as_before(self):
+    def test_any_branch_draws_on_the_one_shared_float(self):
+        """There is a single pot, so a second branch spends from it too."""
         other = Branch.objects.create(
-            name="No Float", location="Kumasi", phone_number="0240000001"
+            name="Teshie", location="Kumasi", phone_number="0240000001"
         )
         expense = Expense.objects.create(
-            branch=other, description="Spend", amount=50.0
+            branch=other, description="Spend", amount=50.0,
+            expense_type=Expense.TYPE_OTHER,
         )
-        self.assertFalse(PettyCashTransaction.objects.filter(expense=expense).exists())
+        movement = PettyCashTransaction.objects.get(expense=expense)
+        self.assertEqual(movement.branch, other)
+        self.assertEqual(movement.account, self.account)
+        self.account.refresh_from_db()
+        self.assertAlmostEqual(self.account.balance, 50.0)  # 100 - 50
 
     def test_switching_the_float_off_stops_it_drawing_down(self):
         self.account.is_active = False
@@ -227,7 +227,7 @@ class PettyCashPagesTest(TestCase):
         self.client.force_login(self.admin_user)
         r = self.client.get(reverse("petty_cash_dashboard"))
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "No petty cash float")
+        self.assertContains(r, "float has not been opened")
 
     def test_branch_admin_can_open_and_top_up_a_float(self):
         self.client.force_login(self.admin_user)
@@ -235,7 +235,7 @@ class PettyCashPagesTest(TestCase):
         self.client.post(reverse("petty_cash_setup"), {
             "low_threshold": "20", "is_active": "on",
         })
-        account = PettyCashAccount.objects.get(branch=self.branch)
+        account = PettyCashAccount.current()
         self.assertAlmostEqual(account.low_threshold, 20.0)
 
         self.client.post(reverse("petty_cash_topup"), {
@@ -245,7 +245,7 @@ class PettyCashPagesTest(TestCase):
         self.assertAlmostEqual(account.balance, 100.0)
 
     def test_a_plain_worker_can_look_but_not_top_up(self):
-        PettyCashAccount.objects.create(branch=self.branch, low_threshold=20.0)
+        PettyCashAccount.objects.create(low_threshold=20.0)
         self.client.force_login(self.plain_user)
 
         r = self.client.get(reverse("petty_cash_dashboard"))
@@ -255,7 +255,7 @@ class PettyCashPagesTest(TestCase):
         self.client.post(reverse("petty_cash_topup"), {
             "kind": "topup", "amount": "500", "date": "2026-09-09",
         })
-        account = PettyCashAccount.objects.get(branch=self.branch)
+        account = PettyCashAccount.current()
         self.assertAlmostEqual(account.balance, 0.0)
 
     def test_an_adjustment_needs_a_reason(self):
@@ -268,9 +268,9 @@ class PettyCashPagesTest(TestCase):
         self.assertIn("note", form.errors)
 
     def test_a_downward_adjustment_reduces_the_float(self):
-        account = PettyCashAccount.objects.create(branch=self.branch, low_threshold=20.0)
+        account = PettyCashAccount.objects.create(low_threshold=20.0)
         PettyCashTransaction.objects.create(
-            account=account, branch=self.branch,
+            account=account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=100.0,
         )
         self.client.force_login(self.admin_user)
@@ -282,9 +282,9 @@ class PettyCashPagesTest(TestCase):
         self.assertAlmostEqual(account.balance, 95.0)
 
     def test_the_ledger_shows_what_the_money_went_on(self):
-        account = PettyCashAccount.objects.create(branch=self.branch, low_threshold=20.0)
+        account = PettyCashAccount.objects.create(low_threshold=20.0)
         PettyCashTransaction.objects.create(
-            account=account, branch=self.branch,
+            account=account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=100.0,
         )
         Expense.objects.create(
@@ -308,9 +308,7 @@ class UtilityReimbursementTest(TestCase):
         self.branch = Branch.objects.create(
             name="Test Branch", location="Accra", phone_number="0240000000"
         )
-        self.account = PettyCashAccount.objects.create(
-            branch=self.branch, low_threshold=20.0
-        )
+        self.account = PettyCashAccount.objects.create(low_threshold=20.0)
         self.utility = Utility.objects.create(
             branch=self.branch, name="Electricity", unit="units", cost_per_unit=2.0
         )
@@ -360,11 +358,11 @@ class UtilityReimbursementTest(TestCase):
     def test_the_full_formula(self):
         """Top-ups + manual reimbursement + utility - expenses."""
         PettyCashTransaction.objects.create(
-            account=self.account, branch=self.branch,
+            account=self.account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=100.0,
         )
         PettyCashTransaction.objects.create(
-            account=self.account, branch=self.branch,
+            account=self.account,
             kind=PettyCashTransaction.KIND_REIMBURSEMENT, amount=30.0,
             note="reimbursed by head office",
         )
@@ -417,9 +415,10 @@ class UtilityReimbursementTest(TestCase):
         self.account.refresh_from_db()
         self.assertAlmostEqual(self.account.balance, 70.0)
 
-    def test_a_branch_with_no_float_is_unaffected(self):
+    def test_usage_at_any_branch_credits_the_shared_float(self):
+        """Utility money always lands in the one pot, whichever branch burned it."""
         other = Branch.objects.create(
-            name="No Float", location="Kumasi", phone_number="0240000009"
+            name="Teshie", location="Kumasi", phone_number="0240000009"
         )
         util = Utility.objects.create(
             branch=other, name="Electricity", unit="units", cost_per_unit=2.0
@@ -428,9 +427,11 @@ class UtilityReimbursementTest(TestCase):
             utility=util, branch=other,
             opening_balance=100.0, purchase=0.0, closing_balance=90.0,
         )
-        self.assertFalse(
-            PettyCashTransaction.objects.filter(utility_reading=reading).exists()
-        )
+        movement = PettyCashTransaction.objects.get(utility_reading=reading)
+        self.assertEqual(movement.account, self.account)
+        self.assertEqual(movement.branch, other)
+        self.account.refresh_from_db()
+        self.assertAlmostEqual(self.account.balance, 20.0)  # 10 units x GHS 2
 
 
 class ExpenseTypeAndFloatVisibilityTest(TestCase):
@@ -453,9 +454,9 @@ class ExpenseTypeAndFloatVisibilityTest(TestCase):
         )
 
     def _float(self, opening=100.0):
-        account = PettyCashAccount.objects.create(branch=self.branch, low_threshold=20.0)
+        account = PettyCashAccount.objects.create(low_threshold=20.0)
         PettyCashTransaction.objects.create(
-            account=account, branch=self.branch,
+            account=account,
             kind=PettyCashTransaction.KIND_TOPUP, amount=opening,
         )
         account.refresh_from_db()
@@ -506,7 +507,7 @@ class ExpenseTypeAndFloatVisibilityTest(TestCase):
         self._float()
         self.client.force_login(self.user)
         r = self.client.get(reverse("add_expense"))
-        self.assertContains(r, "expenses are deducted from the float")
+        self.assertContains(r, "expenses are deducted from the shared")
 
     def test_without_a_float_the_expense_is_simply_recorded(self):
         expense = Expense.objects.create(
@@ -518,14 +519,14 @@ class ExpenseTypeAndFloatVisibilityTest(TestCase):
     def test_the_form_warns_when_no_float_is_open(self):
         self.client.force_login(self.user)
         r = self.client.get(reverse("add_expense"))
-        self.assertContains(r, "No petty cash float is open")
+        self.assertContains(r, "float has not been opened")
 
     def test_the_form_shows_the_balance_when_a_float_is_open(self):
         self._float()
         self.client.force_login(self.user)
         r = self.client.get(reverse("add_expense"))
         self.assertContains(r, "Petty cash available")
-        self.assertNotContains(r, "No petty cash float is open")
+        self.assertNotContains(r, "float has not been opened")
 
     def test_the_form_says_so_when_the_float_is_switched_off(self):
         account = self._float()
@@ -537,10 +538,10 @@ class ExpenseTypeAndFloatVisibilityTest(TestCase):
         self.assertContains(r, "is switched off")
 
 
-class PettyCashAggregateTest(TestCase):
+class SharedFloatTest(TestCase):
     """
-    With no branch chosen, staff see every branch's float added together;
-    choosing one drills in. It must never silently show a single branch.
+    One float for the whole business. Cash goes in once; every branch spends
+    from the same pot, and the movements say who took what.
     """
 
     def setUp(self):
@@ -550,76 +551,103 @@ class PettyCashAggregateTest(TestCase):
         self.teshie = Branch.objects.create(
             name="Teshie", location="Accra", phone_number="0240000001"
         )
-        self.spintex = Branch.objects.create(
-            name="Spintex", location="Accra", phone_number="0240000002"
-        )
         self.staff = CustomUser.objects.create_user(
             username="0248888888", password="x", role="worker",
             is_staff=True, is_superuser=True, approved=True,
         )
-
-        # Ridge: 100 in, 20 out -> 80.  Teshie: 30 in -> 30 (below its 50).
-        self.ridge_acct = self._float(self.ridge, 100.0, threshold=20.0)
+        self.account = PettyCashAccount.objects.create(low_threshold=20.0)
+        PettyCashTransaction.objects.create(
+            account=self.account,
+            kind=PettyCashTransaction.KIND_TOPUP, amount=500.0,
+        )
+        # Ridge takes 100, Teshie takes 40.
         Expense.objects.create(
-            branch=self.ridge, description="Coconut", amount=20.0,
+            branch=self.ridge, description="Brooms", amount=100.0,
             expense_type=Expense.TYPE_OTHER,
         )
-        self.teshie_acct = self._float(self.teshie, 30.0, threshold=50.0)
-        # Spintex deliberately has no float.
-
-    def _float(self, branch, opening, threshold):
-        account = PettyCashAccount.objects.create(branch=branch, low_threshold=threshold)
-        PettyCashTransaction.objects.create(
-            account=account, branch=branch,
-            kind=PettyCashTransaction.KIND_TOPUP, amount=opening,
+        Expense.objects.create(
+            branch=self.teshie, description="Soap", amount=40.0,
+            expense_type=Expense.TYPE_OTHER,
         )
-        account.refresh_from_db()
-        return account
+        self.account.refresh_from_db()
 
     def _get(self, **params):
         self.client.force_login(self.staff)
         return self.client.get(reverse("petty_cash_dashboard"), params)
 
-    def test_unfiltered_shows_the_combined_balance(self):
+    # ---- the pot itself --------------------------------------------------
+    def test_there_is_only_ever_one_float(self):
+        self.assertEqual(PettyCashAccount.objects.count(), 1)
+        self.assertEqual(PettyCashAccount.current(), self.account)
+
+    def test_every_branch_draws_on_the_same_pot(self):
+        self.assertAlmostEqual(self.account.balance, 360.0)  # 500 - 100 - 40
+
+    def test_a_topup_belongs_to_no_branch(self):
+        topup = self.account.transactions.get(kind=PettyCashTransaction.KIND_TOPUP)
+        self.assertIsNone(topup.branch)
+
+    def test_an_expense_carries_the_branch_that_spent_it(self):
+        movement = PettyCashTransaction.objects.get(expense__description="Brooms")
+        self.assertEqual(movement.branch, self.ridge)
+
+    # ---- unfiltered ------------------------------------------------------
+    def test_unfiltered_shows_the_whole_float(self):
         r = self._get()
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.context["show_all"])
-        self.assertAlmostEqual(r.context["combined_balance"], 110.0)  # 80 + 30
-        self.assertContains(r, "all branches")
+        self.assertAlmostEqual(r.context["account"].balance, 360.0)
 
-    def test_unfiltered_totals_span_every_branch(self):
+    def test_unfiltered_totals_cover_every_branch(self):
         totals = self._get().context["totals"]
-        self.assertAlmostEqual(totals["topups"], 130.0)  # 100 + 30
-        self.assertAlmostEqual(totals["spent"], 20.0)
+        self.assertAlmostEqual(totals["topups"], 500.0)
+        self.assertAlmostEqual(totals["spent"], 140.0)  # 100 + 40
 
-    def test_unfiltered_lists_every_float_and_flags_the_low_ones(self):
-        r = self._get()
-        self.assertEqual(len(r.context["accounts"]), 2)
-        self.assertContains(r, "Floats by branch")
-        # Teshie is at 30 against a 50 threshold.
-        needing = [a.branch.name for a in r.context["needing_topup"]]
-        self.assertEqual(needing, ["Teshie"])
+    def test_unfiltered_breaks_the_draw_down_by_branch(self):
+        rows = {r["branch"].name: r for r in self._get().context["by_branch"]}
+        self.assertAlmostEqual(rows["Ridge"]["spent"], 100.0)
+        self.assertAlmostEqual(rows["Teshie"]["spent"], 40.0)
 
-    def test_unfiltered_names_branches_with_no_float_open(self):
-        r = self._get()
-        without = [b.name for b in r.context["branches_without_float"]]
-        self.assertEqual(without, ["Spintex"])
-
-    def test_the_combined_ledger_labels_each_branch(self):
-        r = self._get()
-        self.assertContains(r, "Movements &mdash; all branches", html=False)
-        self.assertContains(r, "Ridge")
-        self.assertContains(r, "Teshie")
-
-    def test_filtering_drills_into_one_branch(self):
+    # ---- filtered --------------------------------------------------------
+    def test_filtering_shows_only_that_branchs_draw(self):
         r = self._get(branch_id=self.ridge.id)
         self.assertFalse(r.context["show_all"])
-        self.assertEqual(r.context["branch"], self.ridge)
-        self.assertAlmostEqual(r.context["account"].balance, 80.0)
-        self.assertAlmostEqual(r.context["totals"]["topups"], 100.0)
-        self.assertAlmostEqual(r.context["totals"]["spent"], 20.0)
+        self.assertAlmostEqual(r.context["totals"]["spent"], 100.0)
 
-    def test_a_worker_is_still_pinned_to_their_own_branch(self):
+    def test_filtering_does_not_change_the_balance(self):
+        """There is one pot; a filter narrows the movements, never the money."""
+        r = self._get(branch_id=self.ridge.id)
+        self.assertAlmostEqual(r.context["account"].balance, 360.0)
+
+    def test_filtering_hides_other_branches_movements(self):
+        movements = self._get(branch_id=self.ridge.id).context["transactions"]
+        self.assertTrue(all(m.branch_id == self.ridge.id for m in movements))
+        self.assertEqual(len(movements), 1)
+
+    def test_a_topup_is_not_attributed_to_any_branch_filter(self):
+        movements = self._get(branch_id=self.ridge.id).context["transactions"]
+        kinds = {m.kind for m in movements}
+        self.assertNotIn(PettyCashTransaction.KIND_TOPUP, kinds)
+
+    # ---- utility reimbursements go to the shared pot ---------------------
+    def test_utility_usage_from_any_branch_credits_the_shared_float(self):
+        electricity = Utility.objects.create(
+            branch=self.teshie, name="Electricity", unit="GHS", cost_per_unit=1.0
+        )
+        UtilityReading.objects.create(
+            utility=electricity, branch=self.teshie,
+            opening_balance=100.0, purchase=0.0, closing_balance=70.0,
+        )
+        self.account.refresh_from_db()
+        self.assertAlmostEqual(self.account.balance, 390.0)  # 360 + 30
+
+        movement = PettyCashTransaction.objects.get(utility_reading__isnull=False)
+        # Credited to the one pot, but still attributed to where it came from.
+        self.assertEqual(movement.account, self.account)
+        self.assertEqual(movement.branch, self.teshie)
+
+    # ---- access ----------------------------------------------------------
+    def test_a_worker_sees_their_own_branch(self):
         category = WorkerCategory.objects.create(name="Washer", service_provider=True)
         user = CustomUser.objects.create_user(
             username="0247777777", password="x", role="worker", approved=True
@@ -628,10 +656,10 @@ class PettyCashAggregateTest(TestCase):
 
         self.client.force_login(user)
         r = self.client.get(reverse("petty_cash_dashboard"))
-        self.assertFalse(r.context["show_all"])
         self.assertEqual(r.context["branch"], self.teshie)
+        self.assertAlmostEqual(r.context["totals"]["spent"], 40.0)
 
-    def test_a_worker_cannot_force_the_aggregate_view(self):
+    def test_a_worker_cannot_view_another_branch(self):
         category = WorkerCategory.objects.create(name="Washer", service_provider=True)
         user = CustomUser.objects.create_user(
             username="0246666666", password="x", role="worker", approved=True
@@ -640,5 +668,4 @@ class PettyCashAggregateTest(TestCase):
 
         self.client.force_login(user)
         r = self.client.get(reverse("petty_cash_dashboard"), {"branch_id": self.ridge.id})
-        self.assertFalse(r.context["show_all"])
         self.assertEqual(r.context["branch"], self.teshie)

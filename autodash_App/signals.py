@@ -232,7 +232,7 @@ def _drop_utility_reading_expense(sender, instance, **kwargs):
 
     # Its petty-cash reimbursement goes with it (CASCADE), but the balance
     # behind it still has to be rebuilt.
-    account = PettyCashAccount.for_branch(instance.branch)
+    account = PettyCashAccount.current()
     if account is not None:
         account.recalculate()
 
@@ -268,7 +268,7 @@ def _sync_expense_to_petty_cash(sender, instance: Expense, created, **kwargs):
     edited amount moves the existing movement rather than stacking a new one,
     and reclassifying an expense as auto-generated removes it from the float.
     """
-    account = PettyCashAccount.for_branch(instance.branch)
+    account = PettyCashAccount.current()
     existing = PettyCashTransaction.objects.filter(expense=instance).first()
 
     # No float open for this branch, or this expense shouldn't touch it.
@@ -312,7 +312,7 @@ def _drop_expense_petty_cash(sender, instance: Expense, **kwargs):
     Deleting an expense returns the cash to the float. The OneToOne is CASCADE,
     so the row goes on its own; this just rebuilds the balance behind it.
     """
-    account = PettyCashAccount.for_branch(instance.branch)
+    account = PettyCashAccount.current()
     if account is not None:
         account.recalculate()
 
@@ -335,7 +335,7 @@ def _reimburse_utility_usage_to_petty_cash(sender, instance: UtilityReading, cre
     stacking a second one, and `propagate_forward()` re-saves every later
     reading, so their reimbursements follow the repaired trail too.
     """
-    account = PettyCashAccount.for_branch(instance.branch)
+    account = PettyCashAccount.current()
     existing = PettyCashTransaction.objects.filter(utility_reading=instance).first()
 
     amount = instance.expense_amount  # usage x cost_per_unit, rounded

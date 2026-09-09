@@ -2093,10 +2093,14 @@ def worked_worker_ids(start, end, branch=None):
 
 class PettyCashAccount(models.Model):
     """
-    The physical cash float a branch keeps for day-to-day expenses.
+    The single cash float the business keeps for day-to-day expenses.
 
-    Two models are needed rather than one: this holds the per-branch settings
-    (the threshold, whether the float is in use) and a cached balance, while
+    There is exactly ONE of these, not one per branch: cash is put down once and
+    every branch spends from the same pot. Branches show up on the movements
+    instead, so you can still see what each of them took out.
+
+    Two models are needed rather than one: this holds the settings (the
+    threshold, whether the float is in use) and a cached balance, while
     `PettyCashTransaction` is the movement log. A ledger alone has nowhere to
     put the threshold; a settings row alone has no audit trail.
 
@@ -2104,9 +2108,6 @@ class PettyCashAccount(models.Model):
     `balance_after` on each movement, from the transactions themselves. The
     transactions are the truth.
     """
-    branch = models.OneToOneField(
-        Branch, on_delete=models.CASCADE, related_name="petty_cash"
-    )
     low_threshold = models.FloatField(
         default=0.0,
         help_text="Warn once the float falls to or below this. e.g. hold GHS 100, "
@@ -2121,12 +2122,11 @@ class PettyCashAccount(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["branch__name"]
-        verbose_name = "Petty cash account"
-        verbose_name_plural = "Petty cash accounts"
+        verbose_name = "Petty cash float"
+        verbose_name_plural = "Petty cash float"
 
     def __str__(self):
-        return f"{self.branch.name} petty cash: GHS {self.balance:.2f}"
+        return f"Petty cash: GHS {self.balance:.2f}"
 
     # ---- state ----------------------------------------------------------
     @property
@@ -2173,14 +2173,18 @@ class PettyCashAccount(models.Model):
         return running
 
     @classmethod
-    def for_branch(cls, branch, create=False):
-        """The branch's float, or None. `create=True` opens one on first use."""
-        if branch is None:
-            return None
-        if create:
-            account, _ = cls.objects.get_or_create(branch=branch)
-            return account
-        return cls.objects.filter(branch=branch).first()
+    def current(cls, create=False):
+        """
+        The one float, or None when it has never been opened.
+
+        `create=True` opens it on first use. Any extra rows that somehow exist
+        are ignored rather than summed — `recalculate()` on the survivor is the
+        only thing that should ever set a balance.
+        """
+        account = cls.objects.order_by("pk").first()
+        if account is None and create:
+            account = cls.objects.create()
+        return account
 
 
 class PettyCashTransaction(models.Model):
@@ -2209,8 +2213,13 @@ class PettyCashTransaction(models.Model):
     account = models.ForeignKey(
         PettyCashAccount, on_delete=models.CASCADE, related_name="transactions"
     )
+    # Which branch the movement belongs to. Money going IN — a top-up, a manual
+    # reimbursement — is not a branch's; it goes to the shared pot, so this is
+    # left null. Money coming OUT, and utility reimbursements, carry the branch
+    # they came from so each one's draw on the pot can still be totalled.
     branch = models.ForeignKey(
-        Branch, on_delete=models.CASCADE, related_name="petty_cash_transactions"
+        Branch, on_delete=models.CASCADE, related_name="petty_cash_transactions",
+        null=True, blank=True,
     )
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     amount = models.FloatField(
@@ -2260,7 +2269,8 @@ class PettyCashTransaction(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.get_kind_display()} GHS {self.amount:.2f} — {self.branch.name} {self.date}"
+        where = self.branch.name if self.branch_id else "all branches"
+        return f"{self.get_kind_display()} GHS {self.amount:.2f} — {where} {self.date}"
 
     @property
     def description(self):
@@ -2289,8 +2299,6 @@ class PettyCashTransaction(models.Model):
     def save(self, *args, **kwargs):
         if self.date is not None:
             self.date = self._meta.get_field("date").to_python(self.date)
-        if self.account_id and not self.branch_id:
-            self.branch = self.account.branch
         self.direction = self.resolve_direction()
         self.amount = abs(self.amount or 0.0)
         self.signed_amount = round(self.direction * self.amount, 2)
