@@ -2144,13 +2144,17 @@ class PettyCashTransaction(models.Model):
     `signed_amount` carries the direction so balances are a plain SUM.
     """
     KIND_TOPUP = "topup"
+    KIND_REIMBURSEMENT = "reimbursement"
     KIND_EXPENSE = "expense"
     KIND_ADJUSTMENT = "adjustment"
     KIND_CHOICES = (
         (KIND_TOPUP, "Top-up"),
+        (KIND_REIMBURSEMENT, "Reimbursement"),
         (KIND_EXPENSE, "Expense"),
         (KIND_ADJUSTMENT, "Adjustment"),
     )
+    # Money in.
+    INFLOW_KINDS = (KIND_TOPUP, KIND_REIMBURSEMENT)
     # Which way each kind moves the float. An adjustment can go either way, so
     # it carries its own sign in `direction`.
     OUTFLOW_KINDS = (KIND_EXPENSE,)
@@ -2182,6 +2186,12 @@ class PettyCashTransaction(models.Model):
         "Expense", on_delete=models.CASCADE, null=True, blank=True,
         related_name="petty_cash_transaction",
     )
+    # A utility reimbursement is the cash side of exactly one UtilityReading:
+    # the value consumed is handed back so the branch can spend it straight away.
+    utility_reading = models.OneToOneField(
+        "UtilityReading", on_delete=models.CASCADE, null=True, blank=True,
+        related_name="petty_cash_transaction",
+    )
 
     date = models.DateField(default=timezone.localdate)
     note = models.TextField(blank=True, default="")
@@ -2210,12 +2220,21 @@ class PettyCashTransaction(models.Model):
         """What the movement was for, for the ledger view."""
         if self.expense_id:
             return self.expense.description
+        if self.utility_reading_id:
+            reading = self.utility_reading
+            return (f"{reading.utility.name} usage reimbursed "
+                    f"({reading.usage:g} {reading.utility.unit})")
         return self.note or self.get_kind_display()
+
+    @property
+    def is_automatic(self):
+        """Written by the system rather than typed in by someone."""
+        return bool(self.utility_reading_id or self.expense_id)
 
     def resolve_direction(self):
         if self.kind in self.OUTFLOW_KINDS:
             return -1
-        if self.kind == self.KIND_TOPUP:
+        if self.kind in self.INFLOW_KINDS:
             return 1
         # Adjustment: whatever it was given.
         return -1 if self.direction < 0 else 1

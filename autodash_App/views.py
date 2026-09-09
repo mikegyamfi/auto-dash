@@ -9675,17 +9675,32 @@ def petty_cash_dashboard(request):
         end_date = today
 
     transactions = []
-    totals = {"topups": 0.0, "spent": 0.0, "adjustments": 0.0}
+    totals = {
+        "topups": 0.0,
+        "utility_reimbursed": 0.0,
+        "manual_reimbursed": 0.0,
+        "spent": 0.0,
+        "adjustments": 0.0,
+    }
     if account is not None:
         qs = (account.transactions
               .filter(date__range=[start_date, end_date])
-              .select_related("expense", "recorded_by")
+              .select_related("expense", "recorded_by",
+                              "utility_reading__utility")
               .order_by("-date", "-id"))
         transactions = qs
+        kinds = models.PettyCashTransaction
         for txn in qs:
-            if txn.kind == models.PettyCashTransaction.KIND_TOPUP:
+            if txn.kind == kinds.KIND_TOPUP:
                 totals["topups"] += txn.amount
-            elif txn.kind == models.PettyCashTransaction.KIND_EXPENSE:
+            elif txn.kind == kinds.KIND_REIMBURSEMENT:
+                # Utility money is reported apart from a hand-entered
+                # reimbursement, so the automatic inflow is auditable on its own.
+                if txn.utility_reading_id:
+                    totals["utility_reimbursed"] += txn.amount
+                else:
+                    totals["manual_reimbursed"] += txn.amount
+            elif txn.kind == kinds.KIND_EXPENSE:
                 totals["spent"] += txn.amount
             else:
                 totals["adjustments"] += txn.signed_amount

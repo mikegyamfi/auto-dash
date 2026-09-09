@@ -1174,6 +1174,8 @@ class PettyCashTopUpForm(forms.Form):
     """
     KIND_CHOICES = (
         (models.PettyCashTransaction.KIND_TOPUP, "Top-up — cash added to the float"),
+        (models.PettyCashTransaction.KIND_REIMBURSEMENT,
+         "Reimbursement — money owed back to the branch"),
         (models.PettyCashTransaction.KIND_ADJUSTMENT, "Adjustment — correct the balance"),
     )
     DIRECTION_CHOICES = (
@@ -1212,8 +1214,9 @@ class PettyCashTopUpForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         kind = cleaned.get("kind")
-        # A top-up is always money in; only a correction may go either way.
-        if kind == models.PettyCashTransaction.KIND_TOPUP:
+        # Top-ups and reimbursements are always money in; only a correction
+        # may go either way.
+        if kind in models.PettyCashTransaction.INFLOW_KINDS:
             cleaned["direction"] = 1
         elif not cleaned.get("direction"):
             cleaned["direction"] = 1

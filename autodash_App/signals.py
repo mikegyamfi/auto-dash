@@ -230,6 +230,12 @@ def _drop_utility_reading_expense(sender, instance, **kwargs):
     if instance.expense_id:
         Expense.objects.filter(pk=instance.expense_id).delete()
 
+    # Its petty-cash reimbursement goes with it (CASCADE), but the balance
+    # behind it still has to be rebuilt.
+    account = PettyCashAccount.for_branch(instance.branch)
+    if account is not None:
+        account.recalculate()
+
 
 # ---------------------------------------------------------------------------
 #  Petty cash: a manual expense is cash leaving the tin
@@ -303,3 +309,60 @@ def _drop_expense_petty_cash(sender, instance: Expense, **kwargs):
     account = PettyCashAccount.for_branch(instance.branch)
     if account is not None:
         account.recalculate()
+
+
+# ---------------------------------------------------------------------------
+#  Utility usage is reimbursed into petty cash
+# ---------------------------------------------------------------------------
+
+@receiver(post_save, sender=UtilityReading)
+def _reimburse_utility_usage_to_petty_cash(sender, instance: UtilityReading, created, **kwargs):
+    """
+    The cash value of the utility consumed is handed straight back to the branch
+    so they can spend it, rather than waiting for a reimbursement run.
+
+    The usage Expense still stands as the P&L cost, and deliberately does NOT
+    draw the float down (it is auto-generated) — otherwise the +X reimbursement
+    and the -X expense would cancel out and the branch would be no better off.
+
+    Idempotent: a corrected reading moves its own reimbursement rather than
+    stacking a second one, and `propagate_forward()` re-saves every later
+    reading, so their reimbursements follow the repaired trail too.
+    """
+    account = PettyCashAccount.for_branch(instance.branch)
+    existing = PettyCashTransaction.objects.filter(utility_reading=instance).first()
+
+    amount = instance.expense_amount  # usage x cost_per_unit, rounded
+    should_exist = account is not None and account.is_active and amount > 0
+
+    if not should_exist:
+        if existing is not None:
+            existing.delete()
+        return
+
+    if existing is None:
+        PettyCashTransaction.objects.create(
+            account=account,
+            branch=instance.branch,
+            kind=PettyCashTransaction.KIND_REIMBURSEMENT,
+            amount=amount,
+            utility_reading=instance,
+            date=instance.date,
+            recorded_by=instance.entered_by,
+        )
+        return
+
+    changed = False
+    for field, value in (
+        ("amount", amount),
+        ("date", instance.date),
+        ("branch_id", instance.branch_id),
+    ):
+        if getattr(existing, field) != value:
+            setattr(existing, field, value)
+            changed = True
+    if existing.account_id != account.id:
+        existing.account = account
+        changed = True
+    if changed:
+        existing.save()

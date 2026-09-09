@@ -115,8 +115,11 @@
                           {% else %}bg-success{% endif %}"
                           style="width: {% if account.balance > 0 and account.low_threshold > 0 %}{% widthratio account.balance account.low_threshold 50 %}{% elif account.balance > 0 %}100{% else %}0{% endif %}%;"></span>
                       </div>
-                      <small class="text-muted">
+                      <small class="text-muted d-block">
                         Threshold GHS {{ account.low_threshold|floatformat:2|intcomma }}
+                      </small>
+                      <small class="text-muted d-block mt-2" style="font-size:.72rem;">
+                        Top-ups + reimbursements (incl. utility usage) &minus; expenses
                       </small>
                     </div>
                   </div>
@@ -136,6 +139,21 @@
                         + GHS {{ totals.topups|floatformat:2|intcomma }}
                       </span>
                     </div>
+                    <div class="pc-stat mb-3">
+                      <small class="text-muted d-block">Reimbursed &mdash; utility usage</small>
+                      <span class="fw-semibold text-success">
+                        + GHS {{ totals.utility_reimbursed|floatformat:2|intcomma }}
+                      </span>
+                      <div class="text-muted" style="font-size:.72rem;">Added automatically as usage is logged</div>
+                    </div>
+                    {% if totals.manual_reimbursed %}
+                      <div class="pc-stat mb-3">
+                        <small class="text-muted d-block">Reimbursed &mdash; manual</small>
+                        <span class="fw-semibold text-success">
+                          + GHS {{ totals.manual_reimbursed|floatformat:2|intcomma }}
+                        </span>
+                      </div>
+                    {% endif %}
                     <div class="pc-stat mb-3">
                       <small class="text-muted d-block">Spent on expenses</small>
                       <span class="fw-semibold text-danger">
@@ -219,6 +237,8 @@
                         <td>
                           {% if t.kind == 'topup' %}
                             <span class="badge bg-label-success">Top-up</span>
+                          {% elif t.kind == 'reimbursement' %}
+                            <span class="badge bg-label-primary">Reimbursement</span>
                           {% elif t.kind == 'expense' %}
                             <span class="badge bg-label-danger">Expense</span>
                           {% else %}
@@ -230,6 +250,10 @@
                           {% if t.expense %}
                             <div class="text-muted small">
                               {{ t.expense.get_expense_type_display }}
+                            </div>
+                          {% elif t.utility_reading %}
+                            <div class="text-muted small">
+                              Automatic &middot; reading of {{ t.utility_reading.date|date:"d M Y" }}
                             </div>
                           {% endif %}
                         </td>
