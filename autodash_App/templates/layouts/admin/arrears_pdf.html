@@ -77,15 +77,15 @@
         <tbody>
             {% for a in arrears_list %}
             <tr>
-                <td>{{ a.service_order.service_order_number|default:"-" }}</td>
+                <td>{{ a.display_reference }}</td>
                 <td>
-                    {% if a.service_order and a.service_order.customer %}
-                        {{ a.service_order.customer.user.first_name }} {{ a.service_order.customer.user.last_name }}
+                    {% if a.display_customer_name %}
+                        {{ a.display_customer_name }}
                     {% else %}
                         N/A
                     {% endif %}
                 </td>
-                <td>{{ a.service_order.vehicle|default:"N/A" }}</td>
+                <td>{% if a.is_other_service %}Other service{% else %}{{ a.service_order.vehicle|default:"N/A" }}{% endif %}</td>
                 <td>{{ a.branch.name|default:"N/A" }}</td>
                 <td class="text-right">{{ a.amount_owed|floatformat:2 }}</td>
                 <td>{{ a.date_created|date:"Y-m-d H:i" }}</td>

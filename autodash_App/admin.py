@@ -299,12 +299,13 @@ class ServiceRenderedAdmin(admin.ModelAdmin):
 @admin.register(Commission)
 class CommissionAdmin(admin.ModelAdmin):
     list_display = (
-        'worker', 'service_rendered',
+        'worker', 'service_rendered', 'other_service',
         'amount', 'date'
     )
     search_fields = (
         'worker__user__username',
-        'service_rendered__order__service_order_number'
+        'service_rendered__order__service_order_number',
+        'other_service__service_name'
     )
     list_filter = ('date', 'worker__branch')
 
@@ -556,6 +557,9 @@ class ArrearsAdmin(admin.ModelAdmin):
         'service_order__customer__user__first_name',
         'service_order__customer__user__last_name',
         'service_order__customer__user__phone_number',
+        'other_service__service_name',
+        'other_service__contact_name',
+        'other_service__contact_phone',
         'branch__name',
     )
 
@@ -569,16 +573,14 @@ class ArrearsAdmin(admin.ModelAdmin):
     # -------------------------------------------------------------------------
     # CUSTOM DISPLAY METHODS
     # -------------------------------------------------------------------------
-    @admin.display(ordering='service_order__service_order_number', description='Order Number')
+    @admin.display(ordering='service_order__service_order_number', description='Reference')
     def get_order_number(self, obj):
-        return obj.service_order.service_order_number if obj.service_order else '-'
+        # Covers both a service order and a non-catalogue job.
+        return obj.display_reference
 
     @admin.display(ordering='service_order__customer__user__first_name', description='Customer')
     def get_customer_name(self, obj):
-        if obj.service_order and obj.service_order.customer and obj.service_order.customer.user:
-            user = obj.service_order.customer.user
-            return f"{user.first_name} {user.last_name}".strip() or user.username
-        return '-'
+        return obj.display_customer_name or '-'
 
     # -------------------------------------------------------------------------
     # EXPORT ACTIONS

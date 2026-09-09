@@ -66,7 +66,7 @@
                               class="arrears-details-link"
                               data-arrears-id="{{ arr.id }}"
                             >
-                              {{ arr.service_order.service_order_number }}
+                              {{ arr.display_reference }}
                             </a>
                           </td>
                           <td>{{ arr.amount_owed|floatformat:2 }}</td>
@@ -96,7 +96,7 @@
                                   data-arrears-id="{{ arr.id }}"
                                   data-amount="{{ arr.amount_owed|floatformat:2 }}"
                                   data-action="{% url 'mark_arrears_as_paid' arr.id %}"
-                                  data-order="{{ arr.service_order.service_order_number }}"
+                                  data-order="{{ arr.display_reference }}"
                                 >
                                   <i class="bx bx-check-circle me-1"></i> Mark as Paid
                                 </button>

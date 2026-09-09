@@ -854,11 +854,24 @@ class CustomerVehicleForm(forms.ModelForm):
 class OtherServiceForm(forms.ModelForm):
     class Meta:
         model = OtherService
-        fields = ["branch", "service_name", "amount", "contact_name", "contact_phone", "notes", "status", "workers"]
+        fields = ["branch", "service_name", "amount", "commission_rate", "contact_name", "contact_phone", "notes",
+                  "status", "workers", "cash_paid", "momo_amount", "card_amount"]
         widgets = {
             "branch": forms.Select(attrs={"class": "form-select", "id": "other-branch-select"}),
             "service_name": forms.TextInput(attrs={"class": "form-control"}),
             "amount": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "commission_rate": forms.NumberInput(
+                attrs={"class": "form-control", "step": "0.01", "min": "0", "max": "100"}
+            ),
+            "cash_paid": forms.NumberInput(
+                attrs={"class": "form-control other-tender", "step": "0.01", "min": "0"}
+            ),
+            "momo_amount": forms.NumberInput(
+                attrs={"class": "form-control other-tender", "step": "0.01", "min": "0"}
+            ),
+            "card_amount": forms.NumberInput(
+                attrs={"class": "form-control other-tender", "step": "0.01", "min": "0"}
+            ),
             "contact_name": forms.TextInput(attrs={"class": "form-control"}),
             "contact_phone": forms.TextInput(attrs={"class": "form-control"}),
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
@@ -899,6 +912,49 @@ class OtherServiceForm(forms.ModelForm):
                 self.fields["workers"].queryset = Worker.objects.filter(branch=branch)
             else:
                 self.fields["workers"].queryset = Worker.objects.none()
+
+        for name in ("cash_paid", "momo_amount", "card_amount"):
+            self.fields[name].required = False
+            self.fields[name].label = {
+                "cash_paid": "Cash", "momo_amount": "MoMo", "card_amount": "Card",
+            }[name]
+
+    def clean(self):
+        """
+        A completed job must be fully tendered; an on-credit one is owed in full
+        and so must not carry a payment. `payment_method` is derived from the
+        amounts rather than asked for separately.
+        """
+        cleaned = super().clean()
+        amount = cleaned.get("amount") or 0.0
+        status = cleaned.get("status")
+
+        for name in ("cash_paid", "momo_amount", "card_amount"):
+            cleaned[name] = cleaned.get(name) or 0.0
+
+        tendered = cleaned["cash_paid"] + cleaned["momo_amount"] + cleaned["card_amount"]
+
+        if status == "completed":
+            if abs(tendered - amount) > 0.01:
+                raise forms.ValidationError(
+                    f"The payment split must add up to the amount (GHS {amount:.2f}). "
+                    f"You entered GHS {tendered:.2f}."
+                )
+        elif status == "onCredit" and tendered > 0:
+            raise forms.ValidationError(
+                "An on-credit job is unpaid — leave the payment split blank. "
+                "It is recorded as arrears and settled from the arrears page."
+            )
+
+        return cleaned
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.payment_method = obj.infer_payment_method()
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj
 
 
 class MaintenanceLogForm(forms.ModelForm):

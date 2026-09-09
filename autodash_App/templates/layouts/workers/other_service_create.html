@@ -38,6 +38,11 @@
                   {{ form.amount }}
                 </div>
                 <div class="col-md-6">
+                  <label class="form-label">Commission rate (%)</label>
+                  {{ form.commission_rate }}
+                  <small class="text-muted">Split equally among the service providers on this job. Leave at 0 for none.</small>
+                </div>
+                <div class="col-md-6">
                   <label class="form-label">Contact name</label>
                   {{ form.contact_name }}
                 </div>
@@ -54,6 +59,21 @@
                 <div class="col-md-6">
                   <label class="form-label">Worker(s)</label>
                   {{ form.workers }}
+                </div>
+
+                <div class="col-12">
+                  <label class="form-label">Payment split</label>
+                  <div class="row g-2">
+                    <div class="col-md-4">{{ form.cash_paid }}<small class="text-muted">Cash</small></div>
+                    <div class="col-md-4">{{ form.momo_amount }}<small class="text-muted">MoMo</small></div>
+                    <div class="col-md-4">{{ form.card_amount }}<small class="text-muted">Card</small></div>
+                  </div>
+                  <small class="text-muted d-block mt-1">
+                    Must add up to the amount for a completed job; leave blank for on-credit.
+                  </small>
+                  {% if form.non_field_errors %}
+                    <div class="text-danger small mt-1">{{ form.non_field_errors|join:", " }}</div>
+                  {% endif %}
                 </div>
                 <div class="col-12">
                   <label class="form-label">Notes</label>

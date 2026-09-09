@@ -10,7 +10,7 @@ from .models import Expense
 
 
 # carwash/signals.py
-from django.db.models.signals import pre_save, post_save
+from django.db.models.signals import pre_save, post_save, m2m_changed
 from django.dispatch import receiver
 from django.utils import timezone
 from .models import ServiceRenderedOrder, Revenue
@@ -161,7 +161,56 @@ def other_service_sync_revenue(sender, instance: OtherService, created, **kwargs
         if rev:
             rev.delete()
 
+    # Commission follows the same status rule as Revenue: only a completed or
+    # on-credit job pays out.
+    instance.sync_commission()
+    _sync_other_service_arrears(instance)
 
+
+def _sync_other_service_arrears(instance: OtherService):
+    """
+    An on-credit job is money owed, so it gets an Arrears row exactly like an
+    on-credit service order does. Moving it off onCredit clears the row again —
+    but never one that has already been settled, since that is a payment record.
+    """
+    from .models import Arrears
+
+    existing = Arrears.objects.filter(other_service=instance).first()
+
+    if instance.status == "onCredit":
+        if existing is None:
+            Arrears.objects.create(
+                other_service=instance,
+                branch=instance.branch,
+                amount_owed=instance.amount or 0.0,
+            )
+        elif not existing.is_paid:
+            # Keep the debt in step with an edited amount.
+            if (existing.amount_owed or 0.0) != (instance.amount or 0.0):
+                existing.amount_owed = instance.amount or 0.0
+                existing.save(update_fields=["amount_owed"])
+            if existing.branch_id != instance.branch_id:
+                existing.branch = instance.branch
+                existing.save(update_fields=["branch"])
+    elif existing is not None and not existing.is_paid:
+        existing.delete()
+
+
+@receiver(m2m_changed, sender=OtherService.workers.through)
+def other_service_workers_changed(sender, instance: OtherService, action, reverse, **kwargs):
+    """
+    The worker list is saved after the row itself (form.save_m2m), so the
+    post_save above runs before anyone is on the job. Re-split once the team is
+    known, and again whenever it's edited.
+    """
+    if action not in ("post_add", "post_remove", "post_clear"):
+        return
+    if reverse:
+        # Changed from the Worker side — resync every job that was touched.
+        for other_service in OtherService.objects.filter(pk__in=kwargs.get("pk_set") or []):
+            other_service.sync_commission()
+        return
+    instance.sync_commission()
 
 
 # ---------------------------------------------------------------------------

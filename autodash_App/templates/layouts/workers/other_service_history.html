@@ -52,6 +52,8 @@
                   <th>Service</th>
                     <th>Workers</th>
                   <th>Amount</th>
+                  <th>Paid via</th>
+                  <th>Commission</th>
                   <th>Contact</th>
                   <th>Status</th>
                   <th>Revenue</th>
@@ -76,6 +78,33 @@
   {% endif %}
 </td>
                     <td>GHS {{ x.amount|floatformat:2|intcomma }}</td>
+                    <td>
+                      {% if x.payment_method %}
+                        <span class="badge bg-label-info">{{ x.get_payment_method_display }}</span>
+                        {% if x.payment_method == 'split' %}
+                          <div class="text-muted small">
+                            {% if x.cash_paid %}Cash {{ x.cash_paid|floatformat:2 }}{% endif %}
+                            {% if x.momo_amount %} · MoMo {{ x.momo_amount|floatformat:2 }}{% endif %}
+                            {% if x.card_amount %} · Card {{ x.card_amount|floatformat:2 }}{% endif %}
+                          </div>
+                        {% endif %}
+                      {% elif x.status == 'onCredit' %}
+                        <span class="badge bg-label-warning">On credit</span>
+                      {% else %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if x.commission_amount %}
+                        GHS {{ x.commission_amount|floatformat:2|intcomma }}
+                        <div class="text-muted small">{{ x.commission_rate|floatformat:"-2" }}%</div>
+                      {% elif x.commission_rate %}
+                        <span class="text-muted">—</span>
+                        <div class="text-muted small">{{ x.commission_rate|floatformat:"-2" }}% set</div>
+                      {% else %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    </td>
                     <td>
                       {{ x.contact_name }}{% if x.contact_phone %} — {{ x.contact_phone }}{% endif %}
                     </td>
@@ -124,7 +153,7 @@
                     </td>
                   </tr>
                 {% empty %}
-                  <tr><td colspan="7" class="text-center">No entries.</td></tr>
+                  <tr><td colspan="10" class="text-center">No entries.</td></tr>
                 {% endfor %}
               </tbody>
             </table>

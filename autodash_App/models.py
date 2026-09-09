@@ -3,12 +3,12 @@ from datetime import date
 
 from django.db import models, transaction
 from django.contrib.auth.models import AbstractUser
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
-from autodash_App.commission_util import allocate_commission
+from autodash_App.commission_util import allocate_commission, allocate_other_service_commission
 
 
 # -------------Your existing imports and models (CustomUser, Branch, etc.)-------------
@@ -582,17 +582,73 @@ class ServiceRendered(models.Model):
         self.save()
 
     def save(self, *args, **kwargs):
-        # Optionally compute initial commission if not set
-        if self.pk is None and self.service.commission_rate and self.commission_amount is None:
-            self.commission_amount = self.get_effective_price() * (self.service.commission_rate / 100.0)
+        # commission_amount is a CACHE of what allocate_commission actually paid
+        # out, so it must not be guessed at creation time: a line saved before
+        # its workers are attached would otherwise claim a commission that has
+        # no Commission rows behind it, and every report reading this field
+        # would overstate. It stays 0 until allocation writes the real figure.
+        if self.pk is None and self.commission_amount is None:
+            self.commission_amount = 0.0
         super().save(*args, **kwargs)
 
 
 class Commission(models.Model):
+    """
+    One worker's cut of one job. The job is either a catalogue line
+    (`service_rendered`) or a non-catalogue job (`other_service`) — exactly one
+    of the two is set. Reports aggregate on `worker`/`date`, so both kinds are
+    picked up without the caller having to know which is which.
+    """
     worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='commissions')
-    service_rendered = models.ForeignKey(ServiceRendered, on_delete=models.CASCADE, related_name='commissions')
+    service_rendered = models.ForeignKey(
+        ServiceRendered, on_delete=models.CASCADE, related_name='commissions',
+        null=True, blank=True,
+    )
+    other_service = models.ForeignKey(
+        "OtherService", on_delete=models.CASCADE, related_name='commissions',
+        null=True, blank=True,
+    )
     amount = models.FloatField()
-    date = models.DateField(auto_now_add=True)
+    # Deliberately NOT auto_now_add: that stamps the row with whenever
+    # allocation last ran, so re-touching an old job drags its commission into
+    # today's reports while the revenue stays in the original period. The
+    # allocator sets this from the job's own date instead.
+    date = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(service_rendered__isnull=False, other_service__isnull=True)
+                    | Q(service_rendered__isnull=True, other_service__isnull=False)
+                ),
+                name="commission_exactly_one_source",
+            ),
+            # Idempotency is enforced by the database, not merely assumed by
+            # update_or_create: one row per worker per job, so a double
+            # allocation can never quietly pay someone twice.
+            models.UniqueConstraint(
+                fields=["worker", "service_rendered"],
+                name="commission_unique_worker_per_line",
+            ),
+            models.UniqueConstraint(
+                fields=["worker", "other_service"],
+                name="commission_unique_worker_per_other_service",
+            ),
+        ]
+
+    @property
+    def source_name(self):
+        """What the commission was earned on, for reports and exports."""
+        if self.service_rendered_id and self.service_rendered.service_id:
+            return self.service_rendered.service.service_type
+        if self.other_service_id:
+            return self.other_service.service_name
+        return ""
+
+    @property
+    def is_other_service(self):
+        return self.other_service_id is not None
 
     def __str__(self):
         return f"{self.worker.user.get_full_name()} Commission on {self.date}: {self.amount}"
@@ -718,7 +774,14 @@ class Arrears(models.Model):
     Tracks on-credit services (where final_amount wasn't paid by the customer).
     Once paid, record date_paid and how the payment was split between cash / momo.
     """
-    service_order = models.OneToOneField(ServiceRenderedOrder, on_delete=models.CASCADE, related_name='arrears')
+    service_order = models.OneToOneField(
+        ServiceRenderedOrder, on_delete=models.CASCADE, related_name='arrears',
+        null=True, blank=True,
+    )
+    other_service = models.OneToOneField(
+        "OtherService", on_delete=models.CASCADE, related_name='arrears',
+        null=True, blank=True,
+    )
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='arrears')
     amount_owed = models.FloatField()
     date_created = models.DateTimeField(auto_now_add=True)
@@ -727,8 +790,69 @@ class Arrears(models.Model):
     paid_cash_amount = models.FloatField(default=0.0, help_text="Portion of arrears paid in cash.")
     paid_momo_amount = models.FloatField(default=0.0, help_text="Portion of arrears paid via MoMo.")
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(service_order__isnull=False, other_service__isnull=True)
+                    | Q(service_order__isnull=True, other_service__isnull=False)
+                ),
+                name="arrears_exactly_one_source",
+            ),
+        ]
+
+    # ---- dual-source accessors ------------------------------------------
+    # A debt is owed on either a service order or a non-catalogue job. These let
+    # reports, exports and templates read one shape regardless of which.
+    @property
+    def job(self):
+        return self.service_order if self.service_order_id else self.other_service
+
+    @property
+    def is_other_service(self):
+        return self.other_service_id is not None
+
+    @property
+    def display_reference(self):
+        if self.service_order_id:
+            return self.service_order.service_order_number or f"#{self.service_order_id}"
+        if self.other_service_id:
+            return self.other_service.display_reference
+        return "-"
+
+    @property
+    def display_description(self):
+        """What the debt is for."""
+        if self.service_order_id:
+            return ", ".join(
+                sr.service.service_type for sr in self.service_order.rendered.all()
+            ) or "N/A"
+        if self.other_service_id:
+            return self.other_service.service_name
+        return "N/A"
+
+    @property
+    def display_customer_name(self):
+        if self.service_order_id:
+            return self.service_order.display_customer_name
+        if self.other_service_id:
+            return self.other_service.contact_name or "N/A"
+        return "N/A"
+
+    @property
+    def display_customer_phone(self):
+        """The number to chase, whichever kind of job this is."""
+        if self.service_order_id:
+            order = self.service_order
+            if order.customer and order.customer.user.phone_number:
+                return order.customer.user.phone_number
+            return order.walkin_phone or ""
+        if self.other_service_id:
+            return self.other_service.contact_phone or ""
+        return ""
+
     def __str__(self):
-        return f"Arrears - {self.service_order.service_order_number} - Owed: {self.amount_owed}"
+        return f"Arrears - {self.display_reference} - Owed: {self.amount_owed}"
 
     def mark_as_paid(self):
         self.is_paid = True
@@ -736,15 +860,20 @@ class Arrears(models.Model):
         self.save()
 
         # Potentially create revenue record if the customer finally pays
+        job = self.job
+        link = (
+            {"service_rendered": self.service_order} if self.service_order_id
+            else {"other_service": self.other_service}
+        )
         Revenue.objects.update_or_create(
-            service_rendered=self.service_order,
             defaults=dict(
                 branch=self.branch,
                 amount=self.amount_owed,
                 final_amount=self.amount_owed,
-                user=self.service_order.user,
+                user=job.user if job else None,
                 date=timezone.now(),
-            )
+            ),
+            **link,
         )
 
 
@@ -1108,6 +1237,36 @@ class OtherService(models.Model):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
 
+    # Payment breakdown. Mirrors ServiceRenderedOrder's tender fields so the
+    # cash-flow buckets can sum both kinds of job the same way. There is no
+    # loyalty/subscription tender here — those need a registered Customer, and a
+    # non-catalogue job only carries a free-text contact.
+    payment_method = models.CharField(
+        max_length=50,
+        choices=[
+            ('cash', 'Cash'),
+            ('momo', 'MoMo'),
+            ('card', 'Card'),
+            ('split', 'Split'),
+        ],
+        null=True, blank=True,
+    )
+    cash_paid = models.FloatField(null=True, blank=True, default=0.0)
+    momo_amount = models.FloatField(null=True, blank=True, default=0.0)
+    card_amount = models.FloatField(null=True, blank=True, default=0.0)
+
+    # Commission. A non-catalogue job has no Service to inherit a rate from, so
+    # the rate is set per job. Defaults to 0 so existing rows stay uncommissioned.
+    commission_rate = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        help_text="Percent of the amount shared among the service-provider workers on this job.",
+    )
+    commission_amount = models.FloatField(
+        null=True, blank=True,
+        help_text="Cached commission pool; maintained by allocate_commission().",
+    )
+
     # audit
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1125,6 +1284,58 @@ class OtherService(models.Model):
 
     def __str__(self):
         return f"{self.service_name} ({self.get_status_display()}) – GHS{self.amount:.2f}"
+
+    # ---- payment ---------------------------------------------------------
+    @property
+    def amount_paid(self):
+        """What was actually tendered across all three methods."""
+        return (self.cash_paid or 0.0) + (self.momo_amount or 0.0) + (self.card_amount or 0.0)
+
+    @property
+    def display_reference(self):
+        """Other services have no order number; give reports something stable."""
+        return f"OS-{self.pk}"
+
+    def infer_payment_method(self):
+        """
+        Derive `payment_method` from whichever tender fields carry money, so a
+        caller only has to fill in the amounts.
+        """
+        used = [
+            name for name, value in (
+                ("cash", self.cash_paid), ("momo", self.momo_amount), ("card", self.card_amount)
+            ) if (value or 0) > 0
+        ]
+        if not used:
+            return None
+        return "split" if len(used) > 1 else used[0]
+
+    # ---- commission ------------------------------------------------------
+    # Mirrors ServiceRendered so callers can treat the two the same way.
+    EARNING_STATUSES = ("completed", "onCredit")
+
+    def get_effective_price(self):
+        return self.amount or 0.0
+
+    def allocate_commission(self, discount_factor=1):
+        allocate_other_service_commission(self, discount_factor=discount_factor)
+
+    def remove_commission(self):
+        Commission.objects.filter(other_service=self).delete()
+        self.commission_amount = 0.0
+        type(self).objects.filter(pk=self.pk).update(commission_amount=0.0)
+
+    def sync_commission(self):
+        """
+        Bring commission in line with the job's current status, amount, rate and
+        worker list. A job only earns once it's completed or on credit; anything
+        else clears the rows. Called from signals, so it stays right no matter
+        which view moved the job.
+        """
+        if self.status in self.EARNING_STATUSES:
+            self.allocate_commission()
+        else:
+            self.remove_commission()
 
     # helpers
     def mark_completed(self, when=None):

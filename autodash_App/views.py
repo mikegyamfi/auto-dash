@@ -280,18 +280,42 @@ def home(request):
     # Sum the per-tender component fields directly rather than filtering by
     # payment_method. This correctly attributes split orders (which carry a
     # cash_paid AND a momo_amount AND/OR a card_amount) to each bucket.
-    cash_flow_cash = completed.aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
-    cash_flow_momo = completed.aggregate(total=Coalesce(Sum('momo_amount'), 0.0))['total']
-    cash_flow_card = completed.aggregate(total=Coalesce(Sum('card_amount'), 0.0))['total']
+    # Other services carry the same three tender fields, so their money lands in
+    # the same buckets instead of falling out of the cash-flow breakdown.
+    completed_other = OtherService.objects.filter(
+        status='completed',
+        created_at__date__range=[start_dt, end_dt],
+        **branch_kw,
+    )
+    cash_flow_cash = (
+        completed.aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
+        + completed_other.aggregate(total=Coalesce(Sum('cash_paid'), 0.0))['total']
+    )
+    cash_flow_momo = (
+        completed.aggregate(total=Coalesce(Sum('momo_amount'), 0.0))['total']
+        + completed_other.aggregate(total=Coalesce(Sum('momo_amount'), 0.0))['total']
+    )
+    cash_flow_card = (
+        completed.aggregate(total=Coalesce(Sum('card_amount'), 0.0))['total']
+        + completed_other.aggregate(total=Coalesce(Sum('card_amount'), 0.0))['total']
+    )
     cash_flow_subscription = completed.aggregate(Sum('subscription_amount_used'))[
                                  'subscription_amount_used__sum'] or 0
     cash_flow_loyalty = completed.aggregate(Sum('loyalty_points_amount_deduction'))[
                             'loyalty_points_amount_deduction__sum'] or 0
-    cash_flow_credit = ServiceRenderedOrder.objects.filter(
-        status='onCredit',
-        date__date__range=[start_dt, end_dt],
-        **branch_kw,
-    ).aggregate(Sum('final_amount'))['final_amount__sum'] or 0
+    cash_flow_credit = (
+        ServiceRenderedOrder.objects.filter(
+            status='onCredit',
+            date__date__range=[start_dt, end_dt],
+            **branch_kw,
+        ).aggregate(Sum('final_amount'))['final_amount__sum'] or 0
+    ) + (
+        OtherService.objects.filter(
+            status='onCredit',
+            created_at__date__range=[start_dt, end_dt],
+            **branch_kw,
+        ).aggregate(Sum('amount'))['amount__sum'] or 0
+    )
 
     # 3) Build list of days in the range
     num_days = (end_dt - start_dt).days + 1
@@ -1809,9 +1833,9 @@ def service_history(request):
 
     if payment_filter != "all":
         core_qs = core_qs.filter(payment_method=payment_filter)
-        # OtherService doesn't have payment_method fields directly.
-        # So if the user explicitly filters by 'MoMo' or 'Cash', we hide OtherServices.
-        other_qs = other_qs.none()
+        # OtherService carries the same payment_method, so it filters alongside
+        # core orders rather than being hidden.
+        other_qs = other_qs.filter(payment_method=payment_filter)
 
     if type_filter == "core":
         other_qs = other_qs.none()
@@ -3510,12 +3534,17 @@ def commissions_by_date(request):
     if worker_obj:
         comm_qs = comm_qs.filter(worker=worker_obj)
 
-    # aggregate per worker
+    # aggregate per worker. A commission hangs off either a catalogue line or
+    # an "other service", so both are counted; Count(distinct) skips the NULL
+    # side on its own.
     agg = (
         comm_qs.values("worker")
         .annotate(
             total_commission=Sum("amount"),
-            num_services=Count("service_rendered_id", distinct=True),
+            num_services=(
+                Count("service_rendered_id", distinct=True)
+                + Count("other_service_id", distinct=True)
+            ),
             num_vehicles=Count("service_rendered__order__vehicle_id", distinct=True),
         )
     )
@@ -3636,22 +3665,27 @@ def commission_breakdown(request):
     commissions = (
         Commission.objects
         .filter(worker=worker, date=date_obj)
-        .select_related('service_rendered__service', 'service_rendered__order__vehicle')
+        .select_related(
+            'service_rendered__service', 'service_rendered__order__vehicle',
+            'other_service',
+        )
         .order_by('-date', '-id')
     )
 
     # 4) build JSON
     data = []
     for c in commissions:
-        service_name = ''
+        service_name = c.source_name
         vehicle_info = 'No Vehicle'
-        if c.service_rendered and c.service_rendered.service:
-            service_name = c.service_rendered.service.service_type
 
-        ord = c.service_rendered.order if c.service_rendered else None
+        ord = c.service_rendered.order if c.service_rendered_id else None
         if ord and ord.vehicle:
             v = ord.vehicle
             vehicle_info = f"{v.car_make} - {v.car_plate}"
+
+        if c.is_other_service:
+            # Non-catalogue jobs have no vehicle or order number of their own.
+            vehicle_info = 'Other service'
 
         data.append({
             'service': service_name,
@@ -4259,36 +4293,28 @@ def mark_arrears_as_paid(request, arrears_id):
     arrears.paid_momo_amount = momo_part
     arrears.save()
 
-    # Create the Revenue row first. The ServiceRenderedOrder post_save signal
-    # below will pick this up via update_or_create, preventing a duplicate.
-    Revenue.objects.create(
-        service_rendered=arrears.service_order,
-        branch=arrears.branch,
-        amount=arrears.amount_owed,
-        final_amount=arrears.amount_owed,
-        user=user,
-        date=timezone.now().date(),
-    )
-
-    # Mirror the split onto the underlying service order so it shows in
-    # receipts / history the same way a normal completed order would.
-    service_order = arrears.service_order
-    service_order.cash_paid = cash_part
-    service_order.momo_amount = momo_part
+    # Mirror the split onto the underlying job so it shows in receipts /
+    # history the same way a normally completed job would. Flipping it to
+    # 'completed' is what creates the Revenue row, via the post_save signal, so
+    # we must not create one here as well or it would be double counted.
+    job = arrears.job
+    job.cash_paid = cash_part
+    job.momo_amount = momo_part
     if cash_part > 0 and momo_part > 0:
-        service_order.payment_method = "split"
+        job.payment_method = "split"
     elif momo_part > 0:
-        service_order.payment_method = "momo"
+        job.payment_method = "momo"
     else:
-        service_order.payment_method = "cash"
-    service_order.status = "completed"
-    service_order.save()
-    if service_order and service_order.customer and service_order.customer.user.phone_number:
-        phone_number = service_order.customer.user.phone_number
-        # Customize your message text as needed
+        job.payment_method = "cash"
+    job.status = "completed"
+    job.save()
+
+    phone_number = arrears.display_customer_phone
+    if phone_number:
+        first_name = arrears.display_customer_name.split(" ")[0] or "there"
         message_text = (
-            f"Hello {service_order.customer.user.first_name}, "
-            f"your on-credit service (Order #{service_order.service_order_number}) for GHS {arrears.amount_owed:.2f} has now been fully paid."
+            f"Hello {first_name}, "
+            f"your on-credit service ({arrears.display_reference}) for GHS {arrears.amount_owed:.2f} has now been fully paid."
             "Thank you for clearing your balance!"
         )
         try:
@@ -4307,6 +4333,30 @@ def arrears_details(request, arrears_id):
     Includes services, workers, vehicle, etc.
     """
     arrears = get_object_or_404(Arrears, id=arrears_id)
+
+    # A non-catalogue job has no vehicle, no order number and no line items, so
+    # it gets a flatter payload built from the job itself.
+    if arrears.is_other_service:
+        job = arrears.other_service
+        return JsonResponse({'success': True, 'data': {
+            'order_number': arrears.display_reference,
+            'date': timezone.localtime(job.created_at).strftime('%Y-%m-%d %H:%M'),
+            'customer': arrears.display_customer_name,
+            'final_amount': job.amount,
+            'status': job.status,
+            'payment_method': job.payment_method or 'N/A',
+            'cash_paid': float(job.cash_paid or 0),
+            'momo_amount': float(job.momo_amount or 0),
+            'subscription_amount_used': 0.0,
+            'loyalty_amount': 0.0,
+            'arrears_paid_cash': float(arrears.paid_cash_amount or 0),
+            'arrears_paid_momo': float(arrears.paid_momo_amount or 0),
+            'arrears_is_paid': arrears.is_paid,
+            'vehicle': None,
+            'workers': [w.user.get_full_name() for w in job.workers.all()],
+            'services': [{'service_type': job.service_name, 'price': job.amount}],
+        }})
+
     service_order = arrears.service_order
 
     # Build a structure with all relevant info
@@ -4367,8 +4417,6 @@ def send_arrears_reminder(request, arrears_id):
     Sends an email or SMS reminder to the customer about their arrears.
     """
     arrears = get_object_or_404(Arrears, id=arrears_id)
-    service_order = arrears.service_order
-    customer = service_order.customer
 
     # Check if the user can send a reminder for this arrears
     # e.g. if user is staff or belongs to the same branch
@@ -4379,29 +4427,21 @@ def send_arrears_reminder(request, arrears_id):
             messages.error(request, "You cannot send reminders for another branch.")
             return redirect('arrears_list')
 
-    # Implement your email or SMS logic here:
-    customer_email = customer.user.email
-    phone_number = customer.user.phone_number
-    # For example, sending email:
-    if customer_email:
-        # Your email-sending function
-        subject = f"Reminder: Outstanding Arrears (Order #{service_order.service_order_number})"
-        body = (
-            f"Dear {customer.user.get_full_name()},\n\n"
-            f"You have an outstanding arrears of GHS {arrears.amount_owed} "
-            f"for Service Order #{service_order.service_order_number}. "
-            f"Kindly settle this as soon as possible.\n\n"
-            f"Thank you!"
-        )
-        # Actually send it (pseudo-code):
-        # send_email(to=customer_email, subject=subject, body=body)
+    # Works for a service order or a non-catalogue job; the latter only has the
+    # free-text contact captured on the job itself.
+    customer_name = arrears.display_customer_name
+    phone_number = arrears.display_customer_phone
+    if not phone_number:
+        messages.error(request, "No phone number on record for this debt.")
+        return redirect('arrears_list')
 
-    # Or send SMS if you have an SMS gateway
-    message = f"Dear {customer.user.get_full_name()},\n\n" \
-              f"You have an outstanding arrears of GHS {arrears.amount_owed} " \
-              f"for Service Order #{service_order.service_order_number}. " \
-              f"Kindly settle this as soon as possible.\n\n" \
-              f"Thank you!"
+    message = (
+        f"Dear {customer_name},\n\n"
+        f"You have an outstanding arrears of GHS {arrears.amount_owed} "
+        f"for {arrears.display_reference}. "
+        f"Kindly settle this as soon as possible.\n\n"
+        f"Thank you!"
+    )
     try:
         send_sms(phone_number, message)
     except Exception as e:
@@ -8446,20 +8486,14 @@ def export_arrears_excel(request):
 
     # Rows
     for a in arrears:
-        customer_name = "N/A"
-        services_str = "N/A"
-
-        if a.service_order:
-            if a.service_order.customer:
-                customer_name = a.service_order.customer.user.get_full_name()
-
-            # Fetch services rendered
-            services_str = ", ".join(sr.service.service_type for sr in a.service_order.rendered.all())
+        # Reads the same for a service order or a non-catalogue job.
+        customer_name = a.display_customer_name
+        services_str = a.display_description
 
         vehicle_info = str(a.service_order.vehicle) if a.service_order and a.service_order.vehicle else "N/A"
 
         ws.append([
-            a.service_order.service_order_number if a.service_order else "-",
+            a.display_reference,
             customer_name,
             vehicle_info,
             services_str,
@@ -8531,14 +8565,9 @@ def export_arrears_pdf(request):
 
     # 4. Table Rows
     for a in arrears:
-        customer_name = "N/A"
-        services_str = "N/A"
-
-        if a.service_order:
-            if a.service_order.customer:
-                customer_name = f"{a.service_order.customer.user.first_name} {a.service_order.customer.user.last_name}".strip()
-
-            services_str = ", ".join(sr.service.service_type for sr in a.service_order.rendered.all())
+        # Reads the same for a service order or a non-catalogue job.
+        customer_name = a.display_customer_name
+        services_str = a.display_description
 
         vehicle_info = str(a.service_order.vehicle) if a.service_order and a.service_order.vehicle else "N/A"
         created = timezone.localtime(a.date_created).strftime('%Y-%m-%d') if a.date_created else "-"
@@ -8546,7 +8575,7 @@ def export_arrears_pdf(request):
         status = "Paid" if a.is_paid else "Unpaid"
 
         data.append([
-            a.service_order.service_order_number if a.service_order else "-",
+            a.display_reference,
             customer_name,
             vehicle_info,
             services_str,

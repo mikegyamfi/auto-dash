@@ -13,8 +13,10 @@ class RevenueConsistencyTest(TestCase):
                    .filter(date__date=today,
                            status__in=["completed", "onCredit"])
                    .aggregate(Sum("final_amount"))["final_amount__sum"] or 0)
+        # Revenue also carries rows for OtherService jobs, so scope to the
+        # service-order side to compare like with like.
         rev_tot = (Revenue.objects
-                   .filter(timestamp__date=today)
+                   .filter(date=today, service_rendered__isnull=False)
                    .aggregate(Sum("final_amount"))["final_amount__sum"] or 0)
         self.assertEqual(
             srv_tot, rev_tot,
