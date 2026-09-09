@@ -229,3 +229,77 @@ def _drop_utility_reading_expense(sender, instance, **kwargs):
     """
     if instance.expense_id:
         Expense.objects.filter(pk=instance.expense_id).delete()
+
+
+# ---------------------------------------------------------------------------
+#  Petty cash: a manual expense is cash leaving the tin
+# ---------------------------------------------------------------------------
+
+from .models import PettyCashAccount, PettyCashTransaction
+
+
+def _expense_draws_petty_cash(expense):
+    """
+    Only expenses a person actually entered draw down the float.
+
+    Auto-generated rows (utility usage) are a computed consumption cost — units
+    burned x rate — not cash handed over. The cash for those left when the
+    credit was bought, so charging the float again would double-count it.
+    """
+    return not expense.is_auto_generated
+
+
+@receiver(post_save, sender=Expense)
+def _sync_expense_to_petty_cash(sender, instance: Expense, created, **kwargs):
+    """
+    Mirror a manual expense onto the branch's petty cash float. Idempotent: an
+    edited amount moves the existing movement rather than stacking a new one,
+    and reclassifying an expense as auto-generated removes it from the float.
+    """
+    account = PettyCashAccount.for_branch(instance.branch)
+    existing = PettyCashTransaction.objects.filter(expense=instance).first()
+
+    # No float open for this branch, or this expense shouldn't touch it.
+    if account is None or not account.is_active or not _expense_draws_petty_cash(instance):
+        if existing is not None:
+            existing.delete()
+        return
+
+    if existing is None:
+        PettyCashTransaction.objects.create(
+            account=account,
+            branch=instance.branch,
+            kind=PettyCashTransaction.KIND_EXPENSE,
+            amount=instance.amount or 0.0,
+            expense=instance,
+            date=instance.date,
+            recorded_by=instance.user,
+        )
+        return
+
+    # Keep the movement in step with the expense it mirrors.
+    changed = False
+    for field, value in (
+        ("amount", abs(instance.amount or 0.0)),
+        ("date", instance.date),
+        ("branch_id", instance.branch_id),
+    ):
+        if getattr(existing, field) != value:
+            setattr(existing, field, value)
+            changed = True
+    if existing.account_id != account.id:
+        existing.account = account
+        changed = True
+    if changed:
+        existing.save()
+
+
+@receiver(post_delete, sender=Expense)
+def _drop_expense_petty_cash(sender, instance: Expense, **kwargs):
+    """
+    Deleting an expense returns the cash to the float. The OneToOne is CASCADE,
+    so the row goes on its own; this just rebuilds the balance behind it.
+    """
+    account = PettyCashAccount.for_branch(instance.branch)
+    if account is not None:
+        account.recalculate()

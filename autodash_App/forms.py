@@ -1140,3 +1140,83 @@ class RemittancePaymentForm(forms.ModelForm):
         if amount <= 0:
             raise forms.ValidationError("Enter an amount greater than zero.")
         return amount
+
+
+class PettyCashAccountForm(forms.ModelForm):
+    """Per-branch float settings: the low-water mark and whether it is in use."""
+
+    class Meta:
+        model = models.PettyCashAccount
+        fields = ["low_threshold", "is_active"]
+        widgets = {
+            "low_threshold": forms.NumberInput(
+                attrs={"class": "form-control", "step": "0.01", "min": "0"}
+            ),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+        labels = {
+            "low_threshold": "Warn below (GHS)",
+            "is_active": "Float in use",
+        }
+        help_texts = {
+            "low_threshold": "Once the float falls to this, it needs topping up.",
+            "is_active": "Untick to stop expenses drawing down this branch's float.",
+        }
+
+
+class PettyCashTopUpForm(forms.Form):
+    """
+    Cash going into the float, or a correction after counting the tin.
+
+    A correction is deliberately separate from a top-up: real money added and
+    'the count was out by GHS 5' are different events, and the ledger should not
+    blur them.
+    """
+    KIND_CHOICES = (
+        (models.PettyCashTransaction.KIND_TOPUP, "Top-up — cash added to the float"),
+        (models.PettyCashTransaction.KIND_ADJUSTMENT, "Adjustment — correct the balance"),
+    )
+    DIRECTION_CHOICES = (
+        (1, "Increase the balance"),
+        (-1, "Decrease the balance"),
+    )
+
+    kind = forms.ChoiceField(
+        choices=KIND_CHOICES,
+        initial=models.PettyCashTransaction.KIND_TOPUP,
+        widget=forms.Select(attrs={"class": "form-select", "id": "petty-kind"}),
+    )
+    amount = forms.FloatField(
+        min_value=0.01,
+        widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0.01"}),
+        label="Amount (GHS)",
+    )
+    direction = forms.TypedChoiceField(
+        choices=DIRECTION_CHOICES, coerce=int, initial=1, required=False,
+        widget=forms.Select(attrs={"class": "form-select", "id": "petty-direction"}),
+        label="Correction direction",
+        help_text="Only used for an adjustment.",
+    )
+    date = forms.DateField(
+        initial=timezone.localdate,
+        widget=forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+    )
+    note = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            "class": "form-control",
+            "placeholder": "e.g. topped up from the safe, or why the count was out",
+        }),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        kind = cleaned.get("kind")
+        # A top-up is always money in; only a correction may go either way.
+        if kind == models.PettyCashTransaction.KIND_TOPUP:
+            cleaned["direction"] = 1
+        elif not cleaned.get("direction"):
+            cleaned["direction"] = 1
+        if kind == models.PettyCashTransaction.KIND_ADJUSTMENT and not cleaned.get("note"):
+            self.add_error("note", "Say why the balance is being corrected.")
+        return cleaned

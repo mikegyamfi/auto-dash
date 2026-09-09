@@ -1,0 +1,306 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<style>
+  .pc-balance { font-size: 2.25rem; font-weight: 700; line-height: 1.1; }
+  .pc-stat { border-left: 3px solid rgba(67,89,113,.15); padding-left: .9rem; }
+  .pc-stat small { text-transform: uppercase; letter-spacing: .07em; font-size: .7rem; }
+  .pc-meter { height: .5rem; border-radius: 50rem; background: rgba(67,89,113,.12); overflow: hidden; }
+  .pc-meter > span { display: block; height: 100%; border-radius: 50rem; }
+</style>
+
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+            <div>
+              <h4 class="fw-bold mb-1"><span class="text-muted fw-light">Cash /</span> Petty Cash</h4>
+              <p class="text-muted mb-0 small">
+                The float held at {{ branch.name }}, and what it has been spent on.
+              </p>
+            </div>
+            {% if can_pick %}
+              <form method="get" class="d-flex gap-2">
+                <select name="branch_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                  {% for b in branches %}
+                    <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            {% endif %}
+          </div>
+
+          {% if not account %}
+            {# ---------------- No float open yet ---------------- #}
+            <div class="card">
+              <div class="card-body text-center py-5">
+                <i class="bx bx-wallet mb-3" style="font-size:2.5rem;opacity:.5;"></i>
+                <h5 class="fw-semibold">No petty cash float for {{ branch.name }}</h5>
+                <p class="text-muted mb-4">
+                  Open one to start tracking expenses against real cash.
+                </p>
+                {% if can_manage %}
+                  <form method="post" action="{% url 'petty_cash_setup' %}"
+                        class="row g-2 justify-content-center" style="max-width:420px;margin:0 auto;">
+                    {% csrf_token %}
+                    <input type="hidden" name="branch_id" value="{{ branch.id }}">
+                    <div class="col-8 text-start">
+                      <label class="form-label">Warn below (GHS)</label>
+                      {{ setup_form.low_threshold }}
+                    </div>
+                    <div class="col-12 text-start form-check ms-2 mt-3">
+                      {{ setup_form.is_active }}
+                      <label class="form-check-label">Float in use</label>
+                    </div>
+                    <div class="col-12 mt-3">
+                      <button class="btn btn-primary">Open the float</button>
+                    </div>
+                  </form>
+                {% else %}
+                  <p class="text-muted small mb-0">Ask a branch admin to open it.</p>
+                {% endif %}
+              </div>
+            </div>
+
+          {% else %}
+            {# ---------------- Status banner ---------------- #}
+            {% if account.is_overdrawn %}
+              <div class="alert alert-danger d-flex align-items-center" role="alert">
+                <i class="bx bx-error-circle me-2"></i>
+                <div>
+                  <strong>Petty cash is overdrawn.</strong>
+                  More has been spent than was put down — top up by at least
+                  GHS {{ account.shortfall|floatformat:2|intcomma }} to clear it.
+                </div>
+              </div>
+            {% elif account.is_below_threshold %}
+              <div class="alert alert-warning d-flex align-items-center" role="alert">
+                <i class="bx bx-error me-2"></i>
+                <div>
+                  <strong>Running low.</strong>
+                  The float is at or below the GHS {{ account.low_threshold|floatformat:2|intcomma }}
+                  threshold. Top up GHS {{ account.shortfall|floatformat:2|intcomma }} to get back above it.
+                </div>
+              </div>
+            {% endif %}
+            {% if not account.is_active %}
+              <div class="alert alert-secondary">
+                This float is switched off, so new expenses are not drawing it down.
+              </div>
+            {% endif %}
+
+            <div class="row g-4 mb-4">
+              {# ---------------- Balance ---------------- #}
+              <div class="col-lg-4">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <small class="text-muted d-block mb-1">Cash on hand</small>
+                    <div class="pc-balance
+                      {% if account.is_overdrawn %}text-danger
+                      {% elif account.is_below_threshold %}text-warning
+                      {% else %}text-success{% endif %}">
+                      GHS {{ account.balance|floatformat:2|intcomma }}
+                    </div>
+                    <div class="mt-3">
+                      <div class="pc-meter">
+                        <span class="
+                          {% if account.is_overdrawn %}bg-danger
+                          {% elif account.is_below_threshold %}bg-warning
+                          {% else %}bg-success{% endif %}"
+                          style="width: {% if account.balance > 0 and account.low_threshold > 0 %}{% widthratio account.balance account.low_threshold 50 %}{% elif account.balance > 0 %}100{% else %}0{% endif %}%;"></span>
+                      </div>
+                      <small class="text-muted">
+                        Threshold GHS {{ account.low_threshold|floatformat:2|intcomma }}
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {# ---------------- Period totals ---------------- #}
+              <div class="col-lg-4">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <small class="text-muted d-block mb-3">
+                      {{ start_date|date:"d M Y" }} &ndash; {{ end_date|date:"d M Y" }}
+                    </small>
+                    <div class="pc-stat mb-3">
+                      <small class="text-muted d-block">Topped up</small>
+                      <span class="fw-semibold text-success">
+                        + GHS {{ totals.topups|floatformat:2|intcomma }}
+                      </span>
+                    </div>
+                    <div class="pc-stat mb-3">
+                      <small class="text-muted d-block">Spent on expenses</small>
+                      <span class="fw-semibold text-danger">
+                        &minus; GHS {{ totals.spent|floatformat:2|intcomma }}
+                      </span>
+                    </div>
+                    {% if totals.adjustments %}
+                      <div class="pc-stat">
+                        <small class="text-muted d-block">Adjustments</small>
+                        <span class="fw-semibold">GHS {{ totals.adjustments|floatformat:2|intcomma }}</span>
+                      </div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              {# ---------------- Top up ---------------- #}
+              <div class="col-lg-4">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <h6 class="fw-semibold mb-3">Record cash in</h6>
+                    {% if can_manage %}
+                      <form method="post" action="{% url 'petty_cash_topup' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="branch_id" value="{{ branch.id }}">
+                        <div class="mb-2">{{ topup_form.kind }}</div>
+                        <div class="mb-2" id="petty-direction-wrap" style="display:none;">
+                          {{ topup_form.direction }}
+                        </div>
+                        <div class="mb-2">{{ topup_form.amount }}</div>
+                        <div class="mb-2">{{ topup_form.date }}</div>
+                        <div class="mb-3">{{ topup_form.note }}</div>
+                        <button class="btn btn-primary w-100">
+                          <i class="bx bx-plus-circle me-1"></i> Record
+                        </button>
+                      </form>
+                    {% else %}
+                      <p class="text-muted small mb-0">
+                        Only branch admins can put money into the float or correct it.
+                      </p>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {# ---------------- Ledger ---------------- #}
+            <div class="card">
+              <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 class="mb-0">Movements</h5>
+                <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+                  {% if can_pick %}<input type="hidden" name="branch_id" value="{{ branch.id }}">{% endif %}
+                  <div>
+                    <label class="form-label mb-0 small">From</label>
+                    <input type="date" name="start_date" value="{{ start_date|date:'Y-m-d' }}" class="form-control form-control-sm">
+                  </div>
+                  <div>
+                    <label class="form-label mb-0 small">To</label>
+                    <input type="date" name="end_date" value="{{ end_date|date:'Y-m-d' }}" class="form-control form-control-sm">
+                  </div>
+                  <button class="btn btn-sm btn-outline-primary">Filter</button>
+                </form>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Date</th>
+                      <th>Type</th>
+                      <th>What for</th>
+                      <th>Recorded by</th>
+                      <th class="text-end">In</th>
+                      <th class="text-end">Out</th>
+                      <th class="text-end">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for t in transactions %}
+                      <tr>
+                        <td class="text-nowrap"><small>{{ t.date|date:"d M Y" }}</small></td>
+                        <td>
+                          {% if t.kind == 'topup' %}
+                            <span class="badge bg-label-success">Top-up</span>
+                          {% elif t.kind == 'expense' %}
+                            <span class="badge bg-label-danger">Expense</span>
+                          {% else %}
+                            <span class="badge bg-label-secondary">Adjustment</span>
+                          {% endif %}
+                        </td>
+                        <td>
+                          {{ t.description }}
+                          {% if t.expense %}
+                            <div class="text-muted small">
+                              {{ t.expense.get_expense_type_display }}
+                            </div>
+                          {% endif %}
+                        </td>
+                        <td><small class="text-muted">
+                          {% if t.recorded_by %}{{ t.recorded_by.get_full_name|default:t.recorded_by.username }}
+                          {% else %}&mdash;{% endif %}
+                        </small></td>
+                        <td class="text-end text-success">
+                          {% if t.signed_amount > 0 %}{{ t.amount|floatformat:2|intcomma }}{% endif %}
+                        </td>
+                        <td class="text-end text-danger">
+                          {% if t.signed_amount < 0 %}{{ t.amount|floatformat:2|intcomma }}{% endif %}
+                        </td>
+                        <td class="text-end fw-semibold {% if t.balance_after < 0 %}text-danger{% endif %}">
+                          {{ t.balance_after|floatformat:2|intcomma }}
+                        </td>
+                      </tr>
+                    {% empty %}
+                      <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                          No movements in this period.
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {% if can_manage %}
+              <div class="card mt-4">
+                <div class="card-body">
+                  <h6 class="fw-semibold mb-3">Settings</h6>
+                  <form method="post" action="{% url 'petty_cash_setup' %}" class="row g-3 align-items-end">
+                    {% csrf_token %}
+                    <input type="hidden" name="branch_id" value="{{ branch.id }}">
+                    <div class="col-md-4">
+                      <label class="form-label">Warn below (GHS)</label>
+                      {{ setup_form.low_threshold }}
+                    </div>
+                    <div class="col-md-4">
+                      <div class="form-check mt-4">
+                        {{ setup_form.is_active }}
+                        <label class="form-check-label">Float in use</label>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <button class="btn btn-outline-primary">Save settings</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            {% endif %}
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // The correction direction only applies to an adjustment, so keep it hidden
+  // until one is chosen.
+  document.addEventListener('DOMContentLoaded', function () {
+    var kind = document.getElementById('petty-kind');
+    var wrap = document.getElementById('petty-direction-wrap');
+    if (!kind || !wrap) return;
+    function sync() { wrap.style.display = (kind.value === 'adjustment') ? '' : 'none'; }
+    kind.addEventListener('change', sync);
+    sync();
+  });
+</script>
+{% endblock content %}

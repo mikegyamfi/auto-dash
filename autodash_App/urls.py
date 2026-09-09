@@ -210,6 +210,9 @@ urlpatterns = [
                   path("maintenance/<int:pk>/resolve/", views.maintenance_mark_resolved,
                        name="maintenance_mark_resolved"),
 
+                  path('elevated/petty-cash/', views.petty_cash_dashboard, name='petty_cash_dashboard'),
+                  path('elevated/petty-cash/topup/', views.petty_cash_topup, name='petty_cash_topup'),
+                  path('elevated/petty-cash/setup/', views.petty_cash_setup, name='petty_cash_setup'),
                   path('elevated/utilities/', views.utilities_list, name='utilities_list'),
                   path('elevated/utilities/new-reading/', views.utility_reading_create,
                        name='utility_reading_create'),

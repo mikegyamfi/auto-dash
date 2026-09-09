@@ -11,6 +11,7 @@ from .models import (
     Expense, DailyExpenseBudget, Revenue, Product,
     ProductCategory, ProductPurchased, ProductSale, RecurringExpense, WeeklyBudget, WorkerReference, WorkerGuarantor,
     WorkerEmployment, WorkerEducation, DailySalesTarget, Arrears, DailyPaymentTarget, RecurringPaymentSetup,
+    PettyCashAccount, PettyCashTransaction,
     ScorecardCategory, ScorecardCriterion, DailyScorecard, DailyScoreEntry,
 )
 
@@ -804,3 +805,25 @@ class DailyScorecardAdmin(admin.ModelAdmin):
     date_hierarchy = 'date'
     readonly_fields = ('final_score', 'created_at', 'updated_at', 'branch')
     inlines = [DailyScoreEntryInline]
+
+
+@admin.register(PettyCashAccount)
+class PettyCashAccountAdmin(admin.ModelAdmin):
+    list_display = ('branch', 'balance', 'low_threshold', 'status', 'is_active')
+    list_filter = ('is_active', 'branch')
+    search_fields = ('branch__name',)
+    readonly_fields = ('balance', 'created_at', 'updated_at')
+
+    @admin.display(description='Status')
+    def status(self, obj):
+        return obj.status
+
+
+@admin.register(PettyCashTransaction)
+class PettyCashTransactionAdmin(admin.ModelAdmin):
+    list_display = ('date', 'branch', 'kind', 'amount', 'signed_amount',
+                    'balance_after', 'description', 'recorded_by')
+    list_filter = ('kind', 'branch', 'date')
+    search_fields = ('note', 'expense__description', 'branch__name')
+    date_hierarchy = 'date'
+    readonly_fields = ('signed_amount', 'balance_after', 'created_at')

@@ -38,6 +38,7 @@ from .forms import (
     LogServiceForm, BranchForm, ExpenseForm, EnrollWorkerForm, CreateCustomerForm,
     CreateVehicleForm, EditCustomerVehicleForm, CustomerEditForm, LogServiceScannedForm, CustomerProfileForm,
     CustomerBookingForm, CustomerBookingEditForm, CustomerVehicleForm, OtherServiceForm, MaintenanceLogForm,
+    PettyCashAccountForm, PettyCashTopUpForm,
     MaintenanceExpenseForm
 )
 from .helper import send_sms, send_sms_club
@@ -3393,14 +3394,51 @@ def add_expense(request):
             expense = form.save(commit=False)
             expense.user = user
             expense.save()
-            messages.success(request, 'Expense added successfully.')
+
+            # The expense has just drawn down the branch's float (post_save
+            # signal), so tell them where that leaves it rather than making
+            # them go and look.
+            account = models.PettyCashAccount.for_branch(expense.branch)
+            if account is not None and account.is_active:
+                account.refresh_from_db()
+                if account.is_overdrawn:
+                    messages.warning(
+                        request,
+                        f'Expense added. Petty cash is now OVERDRAWN at '
+                        f'GHS {account.balance:,.2f} — top it up.'
+                    )
+                elif account.is_below_threshold:
+                    messages.warning(
+                        request,
+                        f'Expense added. Petty cash is down to '
+                        f'GHS {account.balance:,.2f}, at or below the '
+                        f'GHS {account.low_threshold:,.2f} threshold — top it up.'
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f'Expense added. Petty cash left: GHS {account.balance:,.2f}.'
+                    )
+            else:
+                messages.success(request, 'Expense added successfully.')
             return redirect('expense_list')
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
         form = ExpenseForm(user=user)
 
-    return render(request, 'layouts/add_expense.html', {'form': form})
+    return render(request, 'layouts/add_expense.html', {
+        'form': form,
+        'petty_cash': models.PettyCashAccount.for_branch(_expense_branch_for(user)),
+    })
+
+
+def _expense_branch_for(user):
+    """The branch whose float an expense from this user would draw down."""
+    if user.is_staff or user.is_superuser:
+        return None  # they pick a branch on the form; balance shown after saving
+    worker = getattr(user, 'worker_profile', None)
+    return worker.branch if worker else None
 
 
 @login_required(login_url='login')
@@ -9604,3 +9642,159 @@ def remittance_report(request):
             "end_date": end_date.strftime("%Y-%m-%d"),
         },
     })
+
+
+# ===========================================================================
+#  Petty cash
+# ===========================================================================
+
+@worker_or_elevated_required
+def petty_cash_dashboard(request):
+    """
+    The branch's cash float: what is left, whether it needs topping up, and the
+    movement trail showing exactly what the money went on.
+    """
+    branch, branches, can_pick = _utility_scope(request)
+    if branch is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+
+    account = models.PettyCashAccount.for_branch(branch)
+
+    today = timezone.localdate()
+    default_start = today - timedelta(days=30)
+    start_str = request.GET.get("start_date", "")
+    end_str = request.GET.get("end_date", "")
+    try:
+        start_date = datetime.strptime(start_str, "%Y-%m-%d").date() if start_str else default_start
+    except ValueError:
+        start_date = default_start
+    try:
+        end_date = datetime.strptime(end_str, "%Y-%m-%d").date() if end_str else today
+    except ValueError:
+        end_date = today
+
+    transactions = []
+    totals = {"topups": 0.0, "spent": 0.0, "adjustments": 0.0}
+    if account is not None:
+        qs = (account.transactions
+              .filter(date__range=[start_date, end_date])
+              .select_related("expense", "recorded_by")
+              .order_by("-date", "-id"))
+        transactions = qs
+        for txn in qs:
+            if txn.kind == models.PettyCashTransaction.KIND_TOPUP:
+                totals["topups"] += txn.amount
+            elif txn.kind == models.PettyCashTransaction.KIND_EXPENSE:
+                totals["spent"] += txn.amount
+            else:
+                totals["adjustments"] += txn.signed_amount
+
+    context = {
+        "account": account,
+        "branch": branch,
+        "branches": branches,
+        "can_pick": can_pick,
+        "transactions": transactions,
+        "totals": totals,
+        "start_date": start_date,
+        "end_date": end_date,
+        "can_manage": _can_manage_petty_cash(request.user),
+        "topup_form": PettyCashTopUpForm(),
+        "setup_form": PettyCashAccountForm(instance=account),
+    }
+    return render(request, "layouts/admin/petty_cash.html", context)
+
+
+def _can_manage_petty_cash(user):
+    """Putting money in and setting the threshold is a manager's job."""
+    if user.is_staff or user.is_superuser:
+        return True
+    worker = getattr(user, "worker_profile", None)
+    return bool(worker and worker.is_branch_admin)
+
+
+def _petty_cash_branch_or_deny(request):
+    """
+    The branch whose float this request may change, or None.
+
+    Resolved from POST rather than via _utility_scope, which only reads the
+    branch off the query string — a staff user posting the form would otherwise
+    silently write to whichever branch happens to sort first.
+    """
+    if not _can_manage_petty_cash(request.user):
+        messages.error(request, "Only branch admins can manage the petty cash float.")
+        return None
+
+    user = request.user
+    if user.is_staff or user.is_superuser:
+        branch_id = request.POST.get("branch_id") or request.GET.get("branch_id")
+        branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
+        if branch is None:
+            messages.error(request, "Pick a branch before recording petty cash.")
+        return branch
+
+    # A branch admin is pinned to their own branch, whatever was posted.
+    worker = getattr(user, "worker_profile", None)
+    if worker is None or worker.branch_id is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return None
+    return worker.branch
+
+
+@worker_or_elevated_required
+@transaction.atomic
+def petty_cash_topup(request):
+    """Put cash into the float."""
+    if request.method != "POST":
+        return redirect("petty_cash_dashboard")
+
+    branch = _petty_cash_branch_or_deny(request)
+    if branch is None:
+        return redirect("petty_cash_dashboard")
+
+    form = PettyCashTopUpForm(request.POST)
+    if not form.is_valid():
+        for error in form.errors.values():
+            messages.error(request, ", ".join(error))
+        return redirect(f"{reverse('petty_cash_dashboard')}?branch_id={branch.id}")
+
+    account = models.PettyCashAccount.for_branch(branch, create=True)
+    models.PettyCashTransaction.objects.create(
+        account=account,
+        branch=branch,
+        kind=form.cleaned_data["kind"],
+        amount=form.cleaned_data["amount"],
+        direction=form.cleaned_data["direction"],
+        date=form.cleaned_data["date"],
+        note=form.cleaned_data["note"],
+        recorded_by=request.user,
+    )
+    account.refresh_from_db()
+    messages.success(
+        request,
+        f"Recorded. Petty cash is now GHS {account.balance:,.2f}.",
+    )
+    return redirect(f"{reverse('petty_cash_dashboard')}?branch_id={branch.id}")
+
+
+@worker_or_elevated_required
+@transaction.atomic
+def petty_cash_setup(request):
+    """Open the float for a branch, or change its low threshold."""
+    if request.method != "POST":
+        return redirect("petty_cash_dashboard")
+
+    branch = _petty_cash_branch_or_deny(request)
+    if branch is None:
+        return redirect("petty_cash_dashboard")
+
+    account = models.PettyCashAccount.for_branch(branch, create=True)
+    form = PettyCashAccountForm(request.POST, instance=account)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Petty cash settings saved.")
+    else:
+        for error in form.errors.values():
+            messages.error(request, ", ".join(error))
+    return redirect(f"{reverse('petty_cash_dashboard')}?branch_id={branch.id}")

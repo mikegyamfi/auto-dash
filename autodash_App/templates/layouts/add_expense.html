@@ -12,6 +12,27 @@
 
           <div class="card">
             <div class="card-body">
+              {% if petty_cash and petty_cash.is_active %}
+                <div class="alert
+                  {% if petty_cash.is_overdrawn %}alert-danger
+                  {% elif petty_cash.is_below_threshold %}alert-warning
+                  {% else %}alert-info{% endif %} d-flex align-items-center">
+                  <i class="bx bx-wallet me-2"></i>
+                  <div>
+                    Petty cash available:
+                    <strong>GHS {{ petty_cash.balance|floatformat:2 }}</strong>
+                    {% if petty_cash.is_overdrawn %}
+                      &mdash; the float is overdrawn and needs topping up.
+                    {% elif petty_cash.is_below_threshold %}
+                      &mdash; at or below the GHS {{ petty_cash.low_threshold|floatformat:2 }} threshold.
+                    {% endif %}
+                    <div class="small mt-1">
+                      This expense will be deducted from the float.
+                      <a href="{% url 'petty_cash_dashboard' %}">View petty cash</a>
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
               <form method="POST">
                 {% csrf_token %}
                 {% if form.non_field_errors %}

@@ -2038,3 +2038,201 @@ def _worked_pairs(start, end, branch=None):
 def worked_worker_ids(start, end, branch=None):
     """IDs of workers who did any work in the period."""
     return set(worked_days_by_worker(start, end, branch).keys())
+
+
+# ============================================================================
+#  Petty cash
+# ============================================================================
+
+class PettyCashAccount(models.Model):
+    """
+    The physical cash float a branch keeps for day-to-day expenses.
+
+    Two models are needed rather than one: this holds the per-branch settings
+    (the threshold, whether the float is in use) and a cached balance, while
+    `PettyCashTransaction` is the movement log. A ledger alone has nowhere to
+    put the threshold; a settings row alone has no audit trail.
+
+    `balance` is a cache — `recalculate()` rebuilds it, and the running
+    `balance_after` on each movement, from the transactions themselves. The
+    transactions are the truth.
+    """
+    branch = models.OneToOneField(
+        Branch, on_delete=models.CASCADE, related_name="petty_cash"
+    )
+    low_threshold = models.FloatField(
+        default=0.0,
+        help_text="Warn once the float falls to or below this. e.g. hold GHS 100, "
+                  "warn at GHS 20.",
+    )
+    balance = models.FloatField(
+        default=0.0, editable=False,
+        help_text="Cached float balance; rebuilt by recalculate().",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["branch__name"]
+        verbose_name = "Petty cash account"
+        verbose_name_plural = "Petty cash accounts"
+
+    def __str__(self):
+        return f"{self.branch.name} petty cash: GHS {self.balance:.2f}"
+
+    # ---- state ----------------------------------------------------------
+    @property
+    def is_overdrawn(self):
+        """Spent more than was put down. Recorded, never blocked."""
+        return self.balance < 0
+
+    @property
+    def is_below_threshold(self):
+        return self.balance <= self.low_threshold
+
+    @property
+    def needs_topup(self):
+        return self.is_below_threshold or self.is_overdrawn
+
+    @property
+    def shortfall(self):
+        """How much a top-up needs to clear the threshold again."""
+        return max(0.0, self.low_threshold - self.balance)
+
+    @property
+    def status(self):
+        if self.is_overdrawn:
+            return "overdrawn"
+        if self.is_below_threshold:
+            return "low"
+        return "ok"
+
+    # ---- maintenance ----------------------------------------------------
+    def recalculate(self, commit=True):
+        """
+        Rebuild the running balance from the movements, oldest first, and stamp
+        each one's `balance_after`. Cheap at petty-cash volumes and it means a
+        back-dated or corrected entry repairs the whole trail after it.
+        """
+        running = 0.0
+        for txn in self.transactions.order_by("date", "id"):
+            running = round(running + txn.signed_amount, 2)
+            if txn.balance_after != running:
+                PettyCashTransaction.objects.filter(pk=txn.pk).update(balance_after=running)
+        self.balance = running
+        if commit:
+            type(self).objects.filter(pk=self.pk).update(balance=running)
+        return running
+
+    @classmethod
+    def for_branch(cls, branch, create=False):
+        """The branch's float, or None. `create=True` opens one on first use."""
+        if branch is None:
+            return None
+        if create:
+            account, _ = cls.objects.get_or_create(branch=branch)
+            return account
+        return cls.objects.filter(branch=branch).first()
+
+
+class PettyCashTransaction(models.Model):
+    """
+    One movement of the float: cash put in, or cash spent on an expense.
+
+    `amount` is always the positive figure a person would write down;
+    `signed_amount` carries the direction so balances are a plain SUM.
+    """
+    KIND_TOPUP = "topup"
+    KIND_EXPENSE = "expense"
+    KIND_ADJUSTMENT = "adjustment"
+    KIND_CHOICES = (
+        (KIND_TOPUP, "Top-up"),
+        (KIND_EXPENSE, "Expense"),
+        (KIND_ADJUSTMENT, "Adjustment"),
+    )
+    # Which way each kind moves the float. An adjustment can go either way, so
+    # it carries its own sign in `direction`.
+    OUTFLOW_KINDS = (KIND_EXPENSE,)
+
+    account = models.ForeignKey(
+        PettyCashAccount, on_delete=models.CASCADE, related_name="transactions"
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name="petty_cash_transactions"
+    )
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    amount = models.FloatField(
+        validators=[MinValueValidator(0.0)],
+        help_text="Positive figure. The kind decides whether it goes in or out.",
+    )
+    direction = models.SmallIntegerField(
+        default=1,
+        help_text="+1 money in, -1 money out. Only meaningful for adjustments; "
+                  "top-ups and expenses set it from their kind.",
+    )
+    signed_amount = models.FloatField(default=0.0, editable=False)
+    balance_after = models.FloatField(
+        default=0.0, editable=False,
+        help_text="Float balance immediately after this movement.",
+    )
+
+    # An expense-kind movement is the cash side of exactly one Expense row.
+    expense = models.OneToOneField(
+        "Expense", on_delete=models.CASCADE, null=True, blank=True,
+        related_name="petty_cash_transaction",
+    )
+
+    date = models.DateField(default=timezone.localdate)
+    note = models.TextField(blank=True, default="")
+    recorded_by = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="petty_cash_transactions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date", "-id"]
+        verbose_name = "Petty cash movement"
+        verbose_name_plural = "Petty cash movements"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(direction=1) | Q(direction=-1),
+                name="petty_cash_direction_is_plus_or_minus_one",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} GHS {self.amount:.2f} — {self.branch.name} {self.date}"
+
+    @property
+    def description(self):
+        """What the movement was for, for the ledger view."""
+        if self.expense_id:
+            return self.expense.description
+        return self.note or self.get_kind_display()
+
+    def resolve_direction(self):
+        if self.kind in self.OUTFLOW_KINDS:
+            return -1
+        if self.kind == self.KIND_TOPUP:
+            return 1
+        # Adjustment: whatever it was given.
+        return -1 if self.direction < 0 else 1
+
+    def save(self, *args, **kwargs):
+        if self.date is not None:
+            self.date = self._meta.get_field("date").to_python(self.date)
+        if self.account_id and not self.branch_id:
+            self.branch = self.account.branch
+        self.direction = self.resolve_direction()
+        self.amount = abs(self.amount or 0.0)
+        self.signed_amount = round(self.direction * self.amount, 2)
+        super().save(*args, **kwargs)
+        # The trail after this row moves with it.
+        self.account.recalculate()
+
+    def delete(self, *args, **kwargs):
+        account = self.account
+        super().delete(*args, **kwargs)
+        account.recalculate()
