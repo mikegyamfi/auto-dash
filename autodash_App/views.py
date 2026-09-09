@@ -9228,9 +9228,24 @@ def utility_reading_create(request):
     if request.method == "POST":
         form = forms.UtilityReadingForm(request.POST, branch=form_branch)
         if form.is_valid():
-            reading = form.save(commit=False)
-            reading.branch = reading.utility.branch
+            utility = form.cleaned_data["utility"]
+            for_date = form.cleaned_data["date"]
+
+            # A top-up expense may already have opened this day's row. Adopt it
+            # and supply the closing balance rather than refusing the entry.
+            reading = models.UtilityReading.objects.filter(
+                utility=utility, date=for_date
+            ).first()
+            if reading is None:
+                reading = form.save(commit=False)
+            else:
+                reading.note = form.cleaned_data.get("note") or reading.note
+
+            reading.utility = utility
+            reading.date = for_date
+            reading.branch = utility.branch
             reading.opening_balance = form.cleaned_data["opening_balance"]
+            reading.closing_balance = form.cleaned_data["closing_balance"]
             reading.entered_by = request.user
             reading.save()
             messages.success(
@@ -9371,13 +9386,16 @@ def utility_opening_lookup(request):
         for_date = timezone.localdate()
 
     prev = util.latest_reading(before_date=for_date)
-    exists = util.readings.filter(date=for_date).exists()
+    existing = util.readings.filter(date=for_date).first()
     return JsonResponse({
         "ok": True,
         "opening": util.opening_for(for_date),
         "unit": util.unit,
         "previous_date": prev.date.strftime("%Y-%m-%d") if prev else None,
-        "already_exists": exists,
+        "already_exists": existing is not None,
+        # Bought that day, from top-up expenses. Read-only on the form.
+        "purchase": existing.total_purchase if existing else 0.0,
+        "closing": existing.closing_balance if existing else None,
     })
 
 

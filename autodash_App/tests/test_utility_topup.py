@@ -1,4 +1,6 @@
 from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
 
 from autodash_App.models import (
     Branch, CustomUser, Expense, Utility, UtilityReading,
@@ -175,3 +177,121 @@ class TopupBecomesPurchaseTest(TestCase):
         usage_expense = Expense.objects.get(branch=self.branch, is_auto_generated=True)
         self.assertIsNone(usage_expense.topup_reading)
         self.assertAlmostEqual(usage_expense.amount, 30.0)
+
+
+class ReadingFormPurchaseTest(TestCase):
+    """
+    Purchases come from top-up expenses, so the reading form only takes the
+    closing balance. Nothing posted may add to what the expenses already say.
+    """
+
+    def setUp(self):
+        self.branch = Branch.objects.create(
+            name="Ridge", location="Accra", phone_number="0240000000"
+        )
+        self.user = CustomUser.objects.create_user(
+            username="0248888888", password="x", role="worker",
+            is_staff=True, is_superuser=True, approved=True,
+        )
+        self.electricity = Utility.objects.create(
+            branch=self.branch, name="Electricity", unit="GHS", cost_per_unit=1.0,
+            topup_keywords="ECG",
+        )
+        self.client.force_login(self.user)
+
+    def _form(self, **overrides):
+        from autodash_App.forms import UtilityReadingForm
+        data = {
+            "utility": str(self.electricity.id),
+            "date": str(timezone.localdate()),
+            "opening_balance": "0",
+            "closing_balance": "70",
+            "note": "",
+        }
+        data.update(overrides)
+        return UtilityReadingForm(data, branch=self.branch)
+
+    def test_purchase_is_not_an_editable_field(self):
+        from autodash_App.forms import UtilityReadingForm
+        form = UtilityReadingForm(branch=self.branch)
+        self.assertNotIn("purchase", form.fields)
+        self.assertTrue(form.fields["purchase_display"].disabled)
+
+    def test_a_posted_purchase_is_ignored(self):
+        """Tampering with the form cannot invent credit."""
+        Expense.objects.create(
+            branch=self.branch, description="ECG Prepaid Topup",
+            amount=100.0, user=self.user,
+        )
+        form = self._form(purchase="999", purchase_display="999")
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data["purchase_display"], 100.0)
+
+    def test_closing_is_validated_against_the_expense_driven_purchase(self):
+        Expense.objects.create(
+            branch=self.branch, description="ECG Prepaid Topup",
+            amount=100.0, user=self.user,
+        )
+        # opening 0 + purchase 100 = 100 available; 150 is impossible.
+        form = self._form(closing_balance="150")
+        self.assertFalse(form.is_valid())
+        self.assertIn("cannot exceed opening + purchase", str(form.errors))
+
+    def test_saving_a_reading_for_a_day_a_topup_opened_updates_it(self):
+        """
+        The top-up already created the row, so "New reading" must adopt it
+        rather than refuse as a duplicate.
+        """
+        Expense.objects.create(
+            branch=self.branch, description="ECG Prepaid Topup",
+            amount=100.0, user=self.user,
+        )
+        self.assertEqual(UtilityReading.objects.count(), 1)
+
+        r = self.client.post(reverse("utility_reading_create"), {
+            "utility": str(self.electricity.id),
+            "date": str(timezone.localdate()),
+            "opening_balance": "0",
+            "closing_balance": "70",
+            "note": "end of day",
+        })
+        self.assertEqual(r.status_code, 302)
+
+        self.assertEqual(UtilityReading.objects.count(), 1)  # adopted, not added
+        reading = UtilityReading.objects.get()
+        self.assertAlmostEqual(reading.auto_purchase, 100.0)
+        self.assertAlmostEqual(reading.closing_balance, 70.0)
+        self.assertAlmostEqual(reading.usage, 30.0)  # 0 + 100 - 70
+
+    def test_a_day_with_no_topup_still_works(self):
+        r = self.client.post(reverse("utility_reading_create"), {
+            "utility": str(self.electricity.id),
+            "date": str(timezone.localdate()),
+            "opening_balance": "0",
+            "closing_balance": "0",
+            "note": "",
+        })
+        self.assertEqual(r.status_code, 302)
+        reading = UtilityReading.objects.get()
+        self.assertAlmostEqual(reading.total_purchase, 0.0)
+        self.assertAlmostEqual(reading.usage, 0.0)
+
+    def test_the_lookup_reports_the_purchase_for_prefilling(self):
+        Expense.objects.create(
+            branch=self.branch, description="ECG Prepaid Topup",
+            amount=100.0, user=self.user,
+        )
+        r = self.client.get(reverse("utility_opening_lookup"), {
+            "utility": self.electricity.id,
+            "date": str(timezone.localdate()),
+        })
+        data = r.json()
+        self.assertTrue(data["ok"])
+        self.assertAlmostEqual(data["purchase"], 100.0)
+        self.assertTrue(data["already_exists"])
+
+    def test_the_form_page_renders_the_read_only_purchase(self):
+        r = self.client.get(reverse("utility_reading_create"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Filled in from top-up expenses")
+        self.assertContains(r, 'id="id_purchase_display"')

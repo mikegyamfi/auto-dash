@@ -1032,20 +1032,31 @@ class UtilityForm(forms.ModelForm):
 
 class UtilityReadingForm(forms.ModelForm):
     """
-    Opening balance is derived from the previous reading, never typed, so it
-    is rendered read-only and re-resolved server-side on save.
+    Only the closing balance is typed.
+
+    Opening comes from the previous reading and purchases come from top-up
+    expenses, so both are shown read-only and resolved server-side. `purchase`
+    is deliberately NOT a form field: a disabled display field carries the
+    figure instead, so nothing posted can add to what the expenses already say.
     """
+
+    purchase_display = forms.FloatField(
+        required=False, disabled=True, label="Purchase",
+        widget=forms.NumberInput(attrs={
+            "class": "form-control", "step": "0.01", "readonly": "readonly",
+        }),
+        help_text="Filled in from top-up expenses for this utility and date.",
+    )
 
     class Meta:
         model = models.UtilityReading
-        fields = ["utility", "date", "opening_balance", "purchase", "closing_balance", "note"]
+        fields = ["utility", "date", "opening_balance", "closing_balance", "note"]
         widgets = {
             "utility": forms.Select(attrs={"class": "form-select"}),
             "date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
             "opening_balance": forms.NumberInput(
                 attrs={"class": "form-control", "step": "0.01", "readonly": "readonly"}
             ),
-            "purchase": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
             "closing_balance": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
             "note": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
         }
@@ -1060,6 +1071,38 @@ class UtilityReadingForm(forms.ModelForm):
         self.fields["date"].initial = timezone.localdate()
         self.fields["opening_balance"].required = False
         self.fields["note"].required = False
+        # Show what has already been bought for this row, if anything.
+        if self.instance.pk:
+            self.fields["purchase_display"].initial = self.instance.total_purchase
+
+    def validate_unique(self):
+        """
+        A row for this utility and date may already exist because a top-up
+        expense opened it. The view adopts that row and this submission just
+        supplies the closing balance, so the model's unique_together is not a
+        collision to reject here.
+        """
+        exclude = self._get_validation_exclusions()
+        if isinstance(exclude, set):
+            exclude = exclude | {"utility", "date"}
+        else:  # older Django returns a list
+            exclude = list(exclude) + ["utility", "date"]
+        try:
+            self.instance.validate_unique(exclude=exclude)
+        except forms.ValidationError as e:
+            self._update_errors(e)
+
+    def resolved_purchase(self, utility, for_date):
+        """
+        What has been bought for this utility on this date, from the reading
+        that already exists. The purchase is never taken from the submission.
+        """
+        reading = models.UtilityReading.objects.filter(
+            utility=utility, date=for_date
+        ).first()
+        if reading is None:
+            return 0.0
+        return reading.total_purchase
 
     def clean(self):
         cleaned = super().clean()
@@ -1072,16 +1115,11 @@ class UtilityReadingForm(forms.ModelForm):
         opening = utility.opening_for(for_date)
         cleaned["opening_balance"] = opening
 
-        # Editing an existing row must not collide with another day's entry.
-        clash = models.UtilityReading.objects.filter(utility=utility, date=for_date)
-        if self.instance.pk:
-            clash = clash.exclude(pk=self.instance.pk)
-        if clash.exists():
-            raise forms.ValidationError(
-                f"A reading for {utility.name} on {for_date} already exists. Edit that one instead."
-            )
-
-        purchase = cleaned.get("purchase") or 0.0
+        # A reading for this day may already exist because a top-up expense
+        # opened it. That is not a clash to reject — the view adopts it and this
+        # submission simply supplies the closing balance.
+        purchase = self.resolved_purchase(utility, for_date)
+        cleaned["purchase_display"] = purchase
         closing = cleaned.get("closing_balance")
         if closing is None:
             return cleaned
@@ -1090,7 +1128,8 @@ class UtilityReadingForm(forms.ModelForm):
         if float(closing) > available + 1e-9:
             raise forms.ValidationError(
                 f"Closing balance ({closing:g}) cannot exceed opening + purchase ({available:g}). "
-                f"Record the extra as a purchase if more was bought."
+                f"If more credit was bought, enter it as a top-up expense and it "
+                f"will appear here as a purchase."
             )
         return cleaned
 

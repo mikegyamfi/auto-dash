@@ -68,12 +68,12 @@
                       </div>
 
                       <div class="col-md-4">
-                        <label class="form-label" for="{{ form.purchase.id_for_label }}">Purchase</label>
-                        {{ form.purchase }}
-                        {% for err in form.purchase.errors %}
-                          <div class="text-danger small mt-1">{{ err }}</div>
-                        {% endfor %}
-                        <div class="form-text">Bought today. Leave 0 if none.</div>
+                        <label class="form-label" for="{{ form.purchase_display.id_for_label }}">Purchase</label>
+                        {{ form.purchase_display }}
+                        <div class="form-text" id="purchase-hint">
+                          Filled in from top-up expenses. Record a purchase by entering
+                          the expense; it lands here automatically.
+                        </div>
                       </div>
 
                       <div class="col-md-4">
@@ -135,7 +135,7 @@
   const utility = document.getElementById("{{ form.utility.id_for_label }}");
   const dateEl  = document.getElementById("{{ form.date.id_for_label }}");
   const opening = document.getElementById("{{ form.opening_balance.id_for_label }}");
-  const purchase = document.getElementById("{{ form.purchase.id_for_label }}");
+  const purchase = document.getElementById("{{ form.purchase_display.id_for_label }}");
   const closing = document.getElementById("{{ form.closing_balance.id_for_label }}");
   const preview = document.getElementById("usage-preview");
   const unitEl  = document.getElementById("usage-unit");
@@ -170,8 +170,24 @@
         hint.textContent = data.previous_date
           ? "Carried forward from the reading on " + data.previous_date + "."
           : "First reading for this utility — starts at 0.";
+
+        // Purchases come from top-up expenses, so the field is filled in, never typed.
+        if (purchase) {
+          purchase.value = (data.purchase || 0).toFixed(2);
+          const ph = document.getElementById("purchase-hint");
+          if (ph) {
+            ph.textContent = data.purchase
+              ? "From top-up expenses recorded for this utility on this date."
+              : "No top-up expense recorded for this date. Enter one to record a purchase.";
+          }
+        }
+
         if (!isEdit && data.already_exists) {
-          dupWarn.textContent = "A reading for this utility on this date already exists. Saving will be rejected — edit the existing row instead.";
+          if (data.closing === null || data.closing === undefined) {
+            dupWarn.textContent = "This day was opened by a top-up expense. Enter the closing balance and save — it will update that row.";
+          } else {
+            dupWarn.textContent = "A reading for this utility on this date already exists. Saving will update it.";
+          }
           dupWarn.classList.remove("d-none");
         } else {
           dupWarn.classList.add("d-none");
@@ -185,7 +201,7 @@
     utility.addEventListener(evt, refreshOpening);
     dateEl.addEventListener(evt, refreshOpening);
   });
-  [opening, purchase, closing].forEach(el => el.addEventListener("input", renderUsage));
+  [opening, closing].forEach(el => el && el.addEventListener("input", renderUsage));
 
   refreshOpening();
   renderUsage();
