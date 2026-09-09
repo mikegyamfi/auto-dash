@@ -535,3 +535,110 @@ class ExpenseTypeAndFloatVisibilityTest(TestCase):
         self.client.force_login(self.user)
         r = self.client.get(reverse("add_expense"))
         self.assertContains(r, "is switched off")
+
+
+class PettyCashAggregateTest(TestCase):
+    """
+    With no branch chosen, staff see every branch's float added together;
+    choosing one drills in. It must never silently show a single branch.
+    """
+
+    def setUp(self):
+        self.ridge = Branch.objects.create(
+            name="Ridge", location="Accra", phone_number="0240000000"
+        )
+        self.teshie = Branch.objects.create(
+            name="Teshie", location="Accra", phone_number="0240000001"
+        )
+        self.spintex = Branch.objects.create(
+            name="Spintex", location="Accra", phone_number="0240000002"
+        )
+        self.staff = CustomUser.objects.create_user(
+            username="0248888888", password="x", role="worker",
+            is_staff=True, is_superuser=True, approved=True,
+        )
+
+        # Ridge: 100 in, 20 out -> 80.  Teshie: 30 in -> 30 (below its 50).
+        self.ridge_acct = self._float(self.ridge, 100.0, threshold=20.0)
+        Expense.objects.create(
+            branch=self.ridge, description="Coconut", amount=20.0,
+            expense_type=Expense.TYPE_OTHER,
+        )
+        self.teshie_acct = self._float(self.teshie, 30.0, threshold=50.0)
+        # Spintex deliberately has no float.
+
+    def _float(self, branch, opening, threshold):
+        account = PettyCashAccount.objects.create(branch=branch, low_threshold=threshold)
+        PettyCashTransaction.objects.create(
+            account=account, branch=branch,
+            kind=PettyCashTransaction.KIND_TOPUP, amount=opening,
+        )
+        account.refresh_from_db()
+        return account
+
+    def _get(self, **params):
+        self.client.force_login(self.staff)
+        return self.client.get(reverse("petty_cash_dashboard"), params)
+
+    def test_unfiltered_shows_the_combined_balance(self):
+        r = self._get()
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.context["show_all"])
+        self.assertAlmostEqual(r.context["combined_balance"], 110.0)  # 80 + 30
+        self.assertContains(r, "all branches")
+
+    def test_unfiltered_totals_span_every_branch(self):
+        totals = self._get().context["totals"]
+        self.assertAlmostEqual(totals["topups"], 130.0)  # 100 + 30
+        self.assertAlmostEqual(totals["spent"], 20.0)
+
+    def test_unfiltered_lists_every_float_and_flags_the_low_ones(self):
+        r = self._get()
+        self.assertEqual(len(r.context["accounts"]), 2)
+        self.assertContains(r, "Floats by branch")
+        # Teshie is at 30 against a 50 threshold.
+        needing = [a.branch.name for a in r.context["needing_topup"]]
+        self.assertEqual(needing, ["Teshie"])
+
+    def test_unfiltered_names_branches_with_no_float_open(self):
+        r = self._get()
+        without = [b.name for b in r.context["branches_without_float"]]
+        self.assertEqual(without, ["Spintex"])
+
+    def test_the_combined_ledger_labels_each_branch(self):
+        r = self._get()
+        self.assertContains(r, "Movements &mdash; all branches", html=False)
+        self.assertContains(r, "Ridge")
+        self.assertContains(r, "Teshie")
+
+    def test_filtering_drills_into_one_branch(self):
+        r = self._get(branch_id=self.ridge.id)
+        self.assertFalse(r.context["show_all"])
+        self.assertEqual(r.context["branch"], self.ridge)
+        self.assertAlmostEqual(r.context["account"].balance, 80.0)
+        self.assertAlmostEqual(r.context["totals"]["topups"], 100.0)
+        self.assertAlmostEqual(r.context["totals"]["spent"], 20.0)
+
+    def test_a_worker_is_still_pinned_to_their_own_branch(self):
+        category = WorkerCategory.objects.create(name="Washer", service_provider=True)
+        user = CustomUser.objects.create_user(
+            username="0247777777", password="x", role="worker", approved=True
+        )
+        Worker.objects.create(user=user, branch=self.teshie, worker_category=category)
+
+        self.client.force_login(user)
+        r = self.client.get(reverse("petty_cash_dashboard"))
+        self.assertFalse(r.context["show_all"])
+        self.assertEqual(r.context["branch"], self.teshie)
+
+    def test_a_worker_cannot_force_the_aggregate_view(self):
+        category = WorkerCategory.objects.create(name="Washer", service_provider=True)
+        user = CustomUser.objects.create_user(
+            username="0246666666", password="x", role="worker", approved=True
+        )
+        Worker.objects.create(user=user, branch=self.teshie, worker_category=category)
+
+        self.client.force_login(user)
+        r = self.client.get(reverse("petty_cash_dashboard"), {"branch_id": self.ridge.id})
+        self.assertFalse(r.context["show_all"])
+        self.assertEqual(r.context["branch"], self.teshie)

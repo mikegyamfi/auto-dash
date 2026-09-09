@@ -22,12 +22,17 @@
             <div>
               <h4 class="fw-bold mb-1"><span class="text-muted fw-light">Cash /</span> Petty Cash</h4>
               <p class="text-muted mb-0 small">
-                The float held at {{ branch.name }}, and what it has been spent on.
+                {% if show_all %}
+                  Every branch's float added together. Pick a branch to drill in.
+                {% else %}
+                  The float held at {{ branch.name }}, and what it has been spent on.
+                {% endif %}
               </p>
             </div>
             {% if can_pick %}
               <form method="get" class="d-flex gap-2">
                 <select name="branch_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                  <option value="">All branches</option>
                   {% for b in branches %}
                     <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
                   {% endfor %}
@@ -36,7 +41,204 @@
             {% endif %}
           </div>
 
-          {% if not account %}
+          {% if show_all %}
+            {# ================= All branches ================= #}
+            {% if needing_topup %}
+              <div class="alert alert-warning d-flex align-items-center" role="alert">
+                <i class="bx bx-error me-2"></i>
+                <div>
+                  <strong>{{ needing_topup|length }}
+                    branch{{ needing_topup|length|pluralize:"es" }} need topping up:</strong>
+                  {% for a in needing_topup %}
+                    {{ a.branch.name }} (GHS {{ a.balance|floatformat:2|intcomma }}){% if not forloop.last %}, {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+
+            <div class="row g-4 mb-4">
+              <div class="col-lg-6">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <small class="text-muted d-block mb-1">Cash on hand &mdash; all branches</small>
+                    <div class="pc-balance {% if combined_balance < 0 %}text-danger{% else %}text-success{% endif %}">
+                      GHS {{ combined_balance|floatformat:2|intcomma }}
+                    </div>
+                    <small class="text-muted d-block mt-3">
+                      Across {{ accounts|length }} float{{ accounts|length|pluralize }}
+                      {% if branches_without_float %}
+                        &middot; {{ branches_without_float|length }} branch{{ branches_without_float|length|pluralize:"es" }} with none open
+                      {% endif %}
+                    </small>
+                    <small class="text-muted d-block mt-2" style="font-size:.72rem;">
+                      Top-ups + reimbursements (incl. utility usage) &minus; expenses
+                    </small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-lg-6">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <small class="text-muted d-block mb-3">
+                      {{ start_date|date:"d M Y" }} &ndash; {{ end_date|date:"d M Y" }} &mdash; all branches
+                    </small>
+                    <div class="row">
+                      <div class="col-sm-6">
+                        <div class="pc-stat mb-3">
+                          <small class="text-muted d-block">Topped up</small>
+                          <span class="fw-semibold text-success">+ GHS {{ totals.topups|floatformat:2|intcomma }}</span>
+                        </div>
+                        <div class="pc-stat">
+                          <small class="text-muted d-block">Reimbursed &mdash; utility</small>
+                          <span class="fw-semibold text-success">+ GHS {{ totals.utility_reimbursed|floatformat:2|intcomma }}</span>
+                        </div>
+                      </div>
+                      <div class="col-sm-6">
+                        {% if totals.manual_reimbursed %}
+                          <div class="pc-stat mb-3">
+                            <small class="text-muted d-block">Reimbursed &mdash; manual</small>
+                            <span class="fw-semibold text-success">+ GHS {{ totals.manual_reimbursed|floatformat:2|intcomma }}</span>
+                          </div>
+                        {% endif %}
+                        <div class="pc-stat">
+                          <small class="text-muted d-block">Spent on expenses</small>
+                          <span class="fw-semibold text-danger">&minus; GHS {{ totals.spent|floatformat:2|intcomma }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {# ---------------- Branch breakdown ---------------- #}
+            <div class="card mb-4">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Floats by branch</h5>
+                <small class="text-muted">Pick a branch to top it up or change its threshold</small>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Branch</th>
+                      <th class="text-end">Balance (GHS)</th>
+                      <th class="text-end">Threshold</th>
+                      <th>Status</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for a in accounts %}
+                      <tr>
+                        <td class="fw-semibold">{{ a.branch.name }}</td>
+                        <td class="text-end fw-semibold {% if a.balance < 0 %}text-danger{% endif %}">
+                          {{ a.balance|floatformat:2|intcomma }}
+                        </td>
+                        <td class="text-end text-muted">{{ a.low_threshold|floatformat:2|intcomma }}</td>
+                        <td>
+                          {% if not a.is_active %}
+                            <span class="badge bg-label-secondary">Off</span>
+                          {% elif a.is_overdrawn %}
+                            <span class="badge bg-label-danger">Overdrawn</span>
+                          {% elif a.is_below_threshold %}
+                            <span class="badge bg-label-warning">Low</span>
+                          {% else %}
+                            <span class="badge bg-label-success">OK</span>
+                          {% endif %}
+                        </td>
+                        <td class="text-end">
+                          <a class="btn btn-sm btn-outline-primary" href="?branch_id={{ a.branch.id }}">Open</a>
+                        </td>
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="5" class="text-center text-muted py-4">
+                        No petty cash floats have been opened yet.
+                      </td></tr>
+                    {% endfor %}
+                    {% for b in branches_without_float %}
+                      <tr class="text-muted">
+                        <td>{{ b.name }}</td>
+                        <td class="text-end">&mdash;</td>
+                        <td class="text-end">&mdash;</td>
+                        <td><span class="badge bg-label-secondary">No float</span></td>
+                        <td class="text-end">
+                          <a class="btn btn-sm btn-outline-secondary" href="?branch_id={{ b.id }}">Open a float</a>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {# ---------------- Combined ledger ---------------- #}
+            <div class="card">
+              <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 class="mb-0">Movements &mdash; all branches</h5>
+                <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+                  <div>
+                    <label class="form-label mb-0 small">From</label>
+                    <input type="date" name="start_date" value="{{ start_date|date:'Y-m-d' }}" class="form-control form-control-sm">
+                  </div>
+                  <div>
+                    <label class="form-label mb-0 small">To</label>
+                    <input type="date" name="end_date" value="{{ end_date|date:'Y-m-d' }}" class="form-control form-control-sm">
+                  </div>
+                  <button class="btn btn-sm btn-outline-primary">Filter</button>
+                </form>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Date</th>
+                      <th>Branch</th>
+                      <th>Type</th>
+                      <th>What for</th>
+                      <th class="text-end">In</th>
+                      <th class="text-end">Out</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for t in transactions %}
+                      <tr>
+                        <td class="text-nowrap"><small>{{ t.date|date:"d M Y" }}</small></td>
+                        <td><small class="fw-semibold">{{ t.branch.name }}</small></td>
+                        <td>
+                          {% if t.kind == 'topup' %}
+                            <span class="badge bg-label-success">Top-up</span>
+                          {% elif t.kind == 'reimbursement' %}
+                            <span class="badge bg-label-primary">Reimbursement</span>
+                          {% elif t.kind == 'expense' %}
+                            <span class="badge bg-label-danger">Expense</span>
+                          {% else %}
+                            <span class="badge bg-label-secondary">Adjustment</span>
+                          {% endif %}
+                        </td>
+                        <td>{{ t.description }}</td>
+                        <td class="text-end text-success">
+                          {% if t.signed_amount > 0 %}{{ t.amount|floatformat:2|intcomma }}{% endif %}
+                        </td>
+                        <td class="text-end text-danger">
+                          {% if t.signed_amount < 0 %}{{ t.amount|floatformat:2|intcomma }}{% endif %}
+                        </td>
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="6" class="text-center text-muted py-4">
+                        No movements in this period.
+                      </td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <div class="card-footer text-muted small">
+                A running balance is only meaningful per branch &mdash; pick one to see it.
+              </div>
+            </div>
+
+          {% elif not account %}
             {# ---------------- No float open yet ---------------- #}
             <div class="card">
               <div class="card-body text-center py-5">

@@ -9660,18 +9660,46 @@ def remittance_report(request):
 #  Petty cash
 # ===========================================================================
 
+def _petty_cash_scope(request):
+    """
+    (branch, branches, can_pick) for the petty cash page.
+
+    Unlike _utility_scope this does NOT fall back to the first branch when
+    staff have picked none: `branch=None` means "all branches", which the page
+    renders as an aggregate. Silently showing one branch's tin while the header
+    says nothing would misreport the money.
+    """
+    user = request.user
+    if user.is_superuser or user.is_staff:
+        branches = Branch.objects.all().order_by("name")
+        branch_id = request.GET.get("branch_id") or request.GET.get("branch")
+        branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
+        return branch, branches, True
+    # Every other worker is pinned to their own branch.
+    worker = getattr(user, "worker_profile", None)
+    branch = worker.branch if worker else None
+    return branch, Branch.objects.none(), False
+
+
 @worker_or_elevated_required
 def petty_cash_dashboard(request):
     """
-    The branch's cash float: what is left, whether it needs topping up, and the
-    movement trail showing exactly what the money went on.
+    The cash float: what is left, whether it needs topping up, and the movement
+    trail showing exactly what the money went on.
+
+    With no branch chosen, staff see every branch's float added together, plus a
+    per-branch breakdown. Choosing a branch drills into just that one.
     """
-    branch, branches, can_pick = _utility_scope(request)
-    if branch is None:
+    branch, branches, can_pick = _petty_cash_scope(request)
+    show_all = branch is None and can_pick
+    if branch is None and not can_pick:
         messages.error(request, "You do not have a branch assigned.")
         return redirect("index")
 
-    account = models.PettyCashAccount.for_branch(branch)
+    accounts = (models.PettyCashAccount.objects.select_related("branch")
+                if show_all
+                else models.PettyCashAccount.objects.select_related("branch").filter(branch=branch))
+    account = None if show_all else accounts.first()
 
     today = timezone.localdate()
     default_start = today - timedelta(days=30)
@@ -9686,7 +9714,6 @@ def petty_cash_dashboard(request):
     except ValueError:
         end_date = today
 
-    transactions = []
     totals = {
         "topups": 0.0,
         "utility_reimbursed": 0.0,
@@ -9694,31 +9721,45 @@ def petty_cash_dashboard(request):
         "spent": 0.0,
         "adjustments": 0.0,
     }
-    if account is not None:
-        qs = (account.transactions
-              .filter(date__range=[start_date, end_date])
-              .select_related("expense", "recorded_by",
-                              "utility_reading__utility")
-              .order_by("-date", "-id"))
-        transactions = qs
-        kinds = models.PettyCashTransaction
-        for txn in qs:
-            if txn.kind == kinds.KIND_TOPUP:
-                totals["topups"] += txn.amount
-            elif txn.kind == kinds.KIND_REIMBURSEMENT:
-                # Utility money is reported apart from a hand-entered
-                # reimbursement, so the automatic inflow is auditable on its own.
-                if txn.utility_reading_id:
-                    totals["utility_reimbursed"] += txn.amount
-                else:
-                    totals["manual_reimbursed"] += txn.amount
-            elif txn.kind == kinds.KIND_EXPENSE:
-                totals["spent"] += txn.amount
+    transactions = (models.PettyCashTransaction.objects
+                    .filter(account__in=accounts, date__range=[start_date, end_date])
+                    .select_related("branch", "expense", "recorded_by",
+                                    "utility_reading__utility")
+                    .order_by("-date", "-id"))
+
+    kinds = models.PettyCashTransaction
+    for txn in transactions:
+        if txn.kind == kinds.KIND_TOPUP:
+            totals["topups"] += txn.amount
+        elif txn.kind == kinds.KIND_REIMBURSEMENT:
+            # Utility money is reported apart from a hand-entered
+            # reimbursement, so the automatic inflow is auditable on its own.
+            if txn.utility_reading_id:
+                totals["utility_reimbursed"] += txn.amount
             else:
-                totals["adjustments"] += txn.signed_amount
+                totals["manual_reimbursed"] += txn.amount
+        elif txn.kind == kinds.KIND_EXPENSE:
+            totals["spent"] += txn.amount
+        else:
+            totals["adjustments"] += txn.signed_amount
+
+    # Aggregate view: one row per branch so the combined figure can be broken
+    # back down, and a count of who actually needs cash.
+    account_rows = sorted(accounts, key=lambda a: a.branch.name)
+    combined_balance = sum(a.balance or 0.0 for a in account_rows)
+    needing_topup = [a for a in account_rows if a.is_active and a.needs_topup]
+    branches_without_float = (
+        [b for b in branches if not any(a.branch_id == b.id for a in account_rows)]
+        if show_all else []
+    )
 
     context = {
+        "show_all": show_all,
         "account": account,
+        "accounts": account_rows,
+        "combined_balance": combined_balance,
+        "needing_topup": needing_topup,
+        "branches_without_float": branches_without_float,
         "branch": branch,
         "branches": branches,
         "can_pick": can_pick,
