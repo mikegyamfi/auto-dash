@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="layout-wrapper layout-content-navbar">
+  <div class="layout-container">
+    {% include 'inc/side_nav.html' %}
+    <div class="layout-page">
+      {% include 'inc/header.html' %}
+      <div class="content-wrapper">
+        <div class="container-xxl flex-grow-1 container-p-y">
+
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">
+                <span class="text-muted fw-light">Other Services /</span> {{ svc.service_name }}
+              </h4>
+              <p class="text-muted mb-0 small">
+                Reference {{ svc.display_reference }} &middot; logged {{ svc.created_at|date:"d M Y, H:i" }}
+                {% if svc.user %}by {{ svc.user.get_full_name|default:svc.user.username }}{% endif %}
+              </p>
+            </div>
+            <a href="{% url 'other_service_history' %}" class="btn btn-outline-secondary btn-sm">
+              <i class="bx bx-arrow-back me-1"></i> Back to history
+            </a>
+          </div>
+
+          <div class="row g-4">
+            {# ---------------- Job summary ---------------- #}
+            <div class="col-lg-7">
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title mb-3">Job</h5>
+                  <div class="row g-3">
+                    <div class="col-sm-6">
+                      <small class="text-muted d-block">Service</small>
+                      <span class="fw-semibold">{{ svc.service_name }}</span>
+                    </div>
+                    <div class="col-sm-6">
+                      <small class="text-muted d-block">Branch</small>
+                      <span class="fw-semibold">{{ svc.branch.name }}</span>
+                    </div>
+                    <div class="col-sm-6">
+                      <small class="text-muted d-block">Amount</small>
+                      <span class="fw-semibold">GHS {{ svc.amount|floatformat:2|intcomma }}</span>
+                    </div>
+                    <div class="col-sm-6">
+                      <small class="text-muted d-block">Status</small>
+                      <span class="badge
+                        {% if svc.status == 'completed' %}bg-label-success
+                        {% elif svc.status == 'pending' %}bg-label-warning
+                        {% elif svc.status == 'canceled' %}bg-label-danger
+                        {% elif svc.status == 'onCredit' %}bg-label-info
+                        {% endif %}">{{ svc.get_status_display }}</span>
+                    </div>
+                    <div class="col-sm-6">
+                      <small class="text-muted d-block">Contact</small>
+                      <span class="fw-semibold">{{ svc.contact_name|default:"—" }}</span>
+                      {% if svc.contact_phone %}
+                        <div class="text-muted small">{{ svc.contact_phone }}</div>
+                      {% endif %}
+                    </div>
+                    <div class="col-sm-6">
+                      <small class="text-muted d-block">Commission rate</small>
+                      <span class="fw-semibold">{{ svc.commission_rate|floatformat:"-2" }}%</span>
+                    </div>
+                    {% if svc.notes %}
+                      <div class="col-12">
+                        <small class="text-muted d-block">Notes</small>
+                        <span>{{ svc.notes }}</span>
+                      </div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              {# ---------------- Workers & commission ---------------- #}
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title mb-3">Workers &amp; commission</h5>
+
+                  {% if commissions or unpaid_workers %}
+                    <div class="table-responsive">
+                      <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                          <tr><th>Worker</th><th>Category</th><th class="text-end">Commission (GHS)</th></tr>
+                        </thead>
+                        <tbody>
+                          {% for c in commissions %}
+                            <tr>
+                              <td>{{ c.worker.user.get_full_name|default:c.worker.user.username }}</td>
+                              <td><small class="text-muted">{{ c.worker.worker_category.name|default:"—" }}</small></td>
+                              <td class="text-end fw-semibold">{{ c.amount|floatformat:2|intcomma }}</td>
+                            </tr>
+                          {% endfor %}
+                          {% for w in unpaid_workers %}
+                            <tr>
+                              <td>{{ w.user.get_full_name|default:w.user.username }}</td>
+                              <td><small class="text-muted">{{ w.worker_category.name|default:"No category" }}</small></td>
+                              <td class="text-end text-muted">
+                                —
+                                <div class="small">not commission-eligible</div>
+                              </td>
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                        <tfoot class="table-light">
+                          <tr>
+                            <th colspan="2">Total</th>
+                            <th class="text-end">{{ svc.commission_amount|default:0|floatformat:2|intcomma }}</th>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  {% else %}
+                    <div class="alert alert-warning mb-0">
+                      <i class="bx bx-error-circle me-1"></i>
+                      No workers were recorded on this job, so it paid no commission.
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            {# ---------------- Money ---------------- #}
+            <div class="col-lg-5">
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title mb-3">Payment</h5>
+                  {% if svc.payment_method %}
+                    <p class="mb-3">
+                      <span class="badge bg-label-info">{{ svc.get_payment_method_display }}</span>
+                    </p>
+                    <table class="table table-sm mb-0">
+                      <tbody>
+                        {% for label, value in tenders %}
+                          {% if value %}
+                            <tr>
+                              <td>{{ label }}</td>
+                              <td class="text-end">{{ value|floatformat:2|intcomma }}</td>
+                            </tr>
+                          {% endif %}
+                        {% endfor %}
+                        <tr class="table-light">
+                          <th>Total tendered</th>
+                          <th class="text-end">{{ svc.amount_paid|floatformat:2|intcomma }}</th>
+                        </tr>
+                      </tbody>
+                    </table>
+                  {% elif svc.status == 'onCredit' %}
+                    <p class="text-muted mb-0">
+                      Unpaid — recorded as arrears and settled from the arrears page.
+                    </p>
+                  {% else %}
+                    <p class="text-muted mb-0">No payment recorded.</p>
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if arrears %}
+                <div class="card mb-4">
+                  <div class="card-body">
+                    <h5 class="card-title mb-3">Arrears</h5>
+                    <p class="mb-2">
+                      <strong>GHS {{ arrears.amount_owed|floatformat:2|intcomma }}</strong>
+                      {% if arrears.is_paid %}
+                        <span class="badge bg-label-success ms-1">Paid</span>
+                      {% else %}
+                        <span class="badge bg-label-danger ms-1">Outstanding</span>
+                      {% endif %}
+                    </p>
+                    {% if arrears.is_paid %}
+                      <small class="text-muted">
+                        Settled {{ arrears.date_paid|date:"d M Y, H:i" }} —
+                        cash {{ arrears.paid_cash_amount|floatformat:2 }},
+                        MoMo {{ arrears.paid_momo_amount|floatformat:2 }}
+                      </small>
+                    {% else %}
+                      <a href="{% url 'arrears_list' %}" class="btn btn-sm btn-outline-primary mt-1">
+                        Go to arrears
+                      </a>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
+
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title mb-3">Revenue</h5>
+                  {% if revenue %}
+                    <p class="mb-0">
+                      Booked <strong>GHS {{ revenue.final_amount|floatformat:2|intcomma }}</strong>
+                      on {{ revenue.date|date:"d M Y" }}.
+                    </p>
+                  {% else %}
+                    <p class="text-muted mb-0">
+                      Not booked yet — revenue is recorded once the job is completed.
+                    </p>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}

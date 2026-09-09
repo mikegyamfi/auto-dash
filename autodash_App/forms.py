@@ -919,6 +919,15 @@ class OtherServiceForm(forms.ModelForm):
                 "cash_paid": "Cash", "momo_amount": "MoMo", "card_amount": "Card",
             }[name]
 
+        # The model allows an empty worker list, which meant a job could be
+        # logged with nobody on it: the Workers column rendered blank and, worse,
+        # the job silently paid no commission because there was no one to pay.
+        # Someone did the work, so the form insists on recording who.
+        self.fields["workers"].required = True
+        self.fields["workers"].help_text = (
+            "Who did the job. Commission is shared between the service providers here."
+        )
+
     def clean(self):
         """
         A completed job must be fully tendered; an on-credit one is owed in full

@@ -197,6 +197,7 @@ urlpatterns = [
 
                   path("other-services/new/", views.other_service_create, name="other_service_create"),
                   path("other-services/", views.other_service_history, name="other_service_history"),
+                  path("other-services/<int:pk>/", views.other_service_details, name="other_service_details"),
                   path("other-services/<int:pk>/status/<str:new_status>/", views.other_service_update_status,
                        name="other_service_update_status"),
 

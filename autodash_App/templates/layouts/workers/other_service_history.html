@@ -65,7 +65,7 @@
                   <tr>
                     <td>{{ x.created_at|date:"Y-m-d H:i" }}</td>
                     <td>
-                      <strong>{{ x.service_name }}</strong>
+                      <a href="{% url 'other_service_details' pk=x.id %}" class="fw-bold">{{ x.service_name }}</a>
                       {% if x.notes %}<div class="text-muted small">{{ x.notes }}</div>{% endif %}
                     </td>
                       <td>

@@ -6969,6 +6969,46 @@ def other_service_history(request):
 
 
 @login_required(login_url='login')
+def other_service_details(request, pk):
+    """
+    Detail page for a non-catalogue job — the counterpart to
+    `service_order_details` for core orders. Shows the job, who worked it, what
+    each of them earned, how it was paid, and any arrears still outstanding.
+    """
+    svc = get_object_or_404(
+        OtherService.objects.select_related("branch", "user"), pk=pk
+    )
+
+    # Same-branch workers and elevated users only; mirrors the status view.
+    if not (request.user.is_staff or request.user.is_superuser):
+        worker = getattr(request.user, "worker_profile", None)
+        if worker is None or worker.branch_id != svc.branch_id:
+            messages.error(request, "You can only view services in your branch.")
+            return redirect("other_service_history")
+
+    commissions = svc.commissions.select_related("worker__user").order_by("id")
+    # Workers with no commission row still belong on the page — they worked the
+    # job, they just aren't in a commission-eligible category.
+    paid_worker_ids = {c.worker_id for c in commissions}
+    unpaid_workers = [w for w in svc.workers.select_related("user", "worker_category")
+                      if w.id not in paid_worker_ids]
+
+    context = {
+        "svc": svc,
+        "commissions": commissions,
+        "unpaid_workers": unpaid_workers,
+        "arrears": getattr(svc, "arrears", None),
+        "revenue": getattr(svc, "revenue", None),
+        "tenders": [
+            ("Cash", svc.cash_paid or 0.0),
+            ("MoMo", svc.momo_amount or 0.0),
+            ("Card", svc.card_amount or 0.0),
+        ],
+    }
+    return render(request, "layouts/workers/other_service_details.html", context)
+
+
+@login_required(login_url='login')
 @transaction.atomic
 def other_service_update_status(request, pk, new_status):
     """

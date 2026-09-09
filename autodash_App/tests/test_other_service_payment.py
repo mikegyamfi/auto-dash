@@ -49,6 +49,16 @@ class OtherServiceFormPaymentTest(TestCase):
         self.branch = Branch.objects.create(
             name="Test Branch", location="Accra", phone_number="0240000000"
         )
+        # A job must record who did it, so every payload carries a worker.
+        self.worker = Worker.objects.create(
+            user=CustomUser.objects.create_user(
+                username="0241111111", password="x", role="worker"
+            ),
+            branch=self.branch,
+            worker_category=WorkerCategory.objects.create(
+                name="Washer", service_provider=True
+            ),
+        )
 
     def _post(self, **overrides):
         data = {
@@ -59,7 +69,7 @@ class OtherServiceFormPaymentTest(TestCase):
             "contact_phone": "",
             "notes": "",
             "status": "completed",
-            "workers": [],
+            "workers": [str(self.worker.id)],
             "cash_paid": "200",
             "momo_amount": "0",
             "card_amount": "0",
