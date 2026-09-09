@@ -431,3 +431,107 @@ class UtilityReimbursementTest(TestCase):
         self.assertFalse(
             PettyCashTransaction.objects.filter(utility_reading=reading).exists()
         )
+
+
+class ExpenseTypeAndFloatVisibilityTest(TestCase):
+    """
+    Both expense types draw the float down, and the Add Expense page says so
+    when there is no float to draw down.
+    """
+
+    def setUp(self):
+        self.branch = Branch.objects.create(
+            name="Ridge", location="Accra", phone_number="0240000000"
+        )
+        self.category = WorkerCategory.objects.create(name="Washer", service_provider=True)
+        self.user = CustomUser.objects.create_user(
+            username="0247777777", password="x", role="worker", approved=True
+        )
+        Worker.objects.create(
+            user=self.user, branch=self.branch, worker_category=self.category,
+            is_branch_admin=True,
+        )
+
+    def _float(self, opening=100.0):
+        account = PettyCashAccount.objects.create(branch=self.branch, low_threshold=20.0)
+        PettyCashTransaction.objects.create(
+            account=account, branch=self.branch,
+            kind=PettyCashTransaction.KIND_TOPUP, amount=opening,
+        )
+        account.refresh_from_db()
+        return account
+
+    def test_only_other_type_expenses_deduct(self):
+        """
+        Operating costs are settled elsewhere; the tin is for incidental
+        "other" spending.
+        """
+        account = self._float()
+        other = Expense.objects.create(
+            branch=self.branch, description="Coconut", amount=20.0,
+            expense_type=Expense.TYPE_OTHER,
+        )
+        operating = Expense.objects.create(
+            branch=self.branch, description="Dusters", amount=30.0,
+            expense_type=Expense.TYPE_OPERATING,
+        )
+
+        account.refresh_from_db()
+        self.assertAlmostEqual(account.balance, 80.0)  # only the 20 came out
+        self.assertTrue(PettyCashTransaction.objects.filter(expense=other).exists())
+        self.assertFalse(PettyCashTransaction.objects.filter(expense=operating).exists())
+
+    def test_reclassifying_an_expense_moves_it_on_and_off_the_float(self):
+        account = self._float()
+        expense = Expense.objects.create(
+            branch=self.branch, description="Coconut", amount=20.0,
+            expense_type=Expense.TYPE_OTHER,
+        )
+        account.refresh_from_db()
+        self.assertAlmostEqual(account.balance, 80.0)
+
+        # Reclassified as operating: the cash goes back.
+        expense.expense_type = Expense.TYPE_OPERATING
+        expense.save()
+        account.refresh_from_db()
+        self.assertAlmostEqual(account.balance, 100.0)
+
+        # And back again.
+        expense.expense_type = Expense.TYPE_OTHER
+        expense.save()
+        account.refresh_from_db()
+        self.assertAlmostEqual(account.balance, 80.0)
+
+    def test_the_form_explains_which_type_deducts(self):
+        self._float()
+        self.client.force_login(self.user)
+        r = self.client.get(reverse("add_expense"))
+        self.assertContains(r, "expenses are deducted from the float")
+
+    def test_without_a_float_the_expense_is_simply_recorded(self):
+        expense = Expense.objects.create(
+            branch=self.branch, description="Coconut", amount=20.0,
+            expense_type=Expense.TYPE_OTHER,
+        )
+        self.assertFalse(PettyCashTransaction.objects.filter(expense=expense).exists())
+
+    def test_the_form_warns_when_no_float_is_open(self):
+        self.client.force_login(self.user)
+        r = self.client.get(reverse("add_expense"))
+        self.assertContains(r, "No petty cash float is open")
+
+    def test_the_form_shows_the_balance_when_a_float_is_open(self):
+        self._float()
+        self.client.force_login(self.user)
+        r = self.client.get(reverse("add_expense"))
+        self.assertContains(r, "Petty cash available")
+        self.assertNotContains(r, "No petty cash float is open")
+
+    def test_the_form_says_so_when_the_float_is_switched_off(self):
+        account = self._float()
+        account.is_active = False
+        account.save()
+
+        self.client.force_login(self.user)
+        r = self.client.get(reverse("add_expense"))
+        self.assertContains(r, "is switched off")

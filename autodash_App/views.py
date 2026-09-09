@@ -3395,11 +3395,21 @@ def add_expense(request):
             expense.user = user
             expense.save()
 
-            # The expense has just drawn down the branch's float (post_save
-            # signal), so tell them where that leaves it rather than making
-            # them go and look.
+            # If the expense drew down the branch's float (post_save signal),
+            # say where that leaves it rather than making them go and look.
+            # Only "other" expenses do, so check what actually happened rather
+            # than assuming.
             account = models.PettyCashAccount.for_branch(expense.branch)
-            if account is not None and account.is_active:
+            drew_down = models.PettyCashTransaction.objects.filter(
+                expense=expense
+            ).exists()
+            if account is not None and account.is_active and not drew_down:
+                messages.success(
+                    request,
+                    'Expense added. Operating costs do not come out of petty cash, '
+                    f'so the float is unchanged at GHS {account.balance:,.2f}.'
+                )
+            elif account is not None and account.is_active:
                 account.refresh_from_db()
                 if account.is_overdrawn:
                     messages.warning(
@@ -3427,9 +3437,11 @@ def add_expense(request):
     else:
         form = ExpenseForm(user=user)
 
+    expense_branch = _expense_branch_for(user)
     return render(request, 'layouts/add_expense.html', {
         'form': form,
-        'petty_cash': models.PettyCashAccount.for_branch(_expense_branch_for(user)),
+        'expense_branch': expense_branch,
+        'petty_cash': models.PettyCashAccount.for_branch(expense_branch),
     })
 
 

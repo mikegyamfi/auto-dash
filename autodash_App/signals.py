@@ -246,13 +246,19 @@ from .models import PettyCashAccount, PettyCashTransaction
 
 def _expense_draws_petty_cash(expense):
     """
-    Only expenses a person actually entered draw down the float.
+    Only "other" expenses come out of the float.
 
-    Auto-generated rows (utility usage) are a computed consumption cost — units
-    burned x rate — not cash handed over. The cash for those left when the
-    credit was bought, so charging the float again would double-count it.
+    Operating costs are the branch's running costs and are settled elsewhere, so
+    they are recorded against Net Sales but do not touch the cash tin. Petty cash
+    is for the incidental "other" spending.
+
+    Auto-generated rows (utility usage) are excluded outright: they are a computed
+    consumption cost — units burned x rate — not cash handed over, and their value
+    is separately reimbursed INTO the float. Charging them here would cancel that.
     """
-    return not expense.is_auto_generated
+    if expense.is_auto_generated:
+        return False
+    return expense.expense_type == Expense.TYPE_OTHER
 
 
 @receiver(post_save, sender=Expense)
