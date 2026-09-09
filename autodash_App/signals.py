@@ -372,3 +372,63 @@ def _reimburse_utility_usage_to_petty_cash(sender, instance: UtilityReading, cre
         changed = True
     if changed:
         existing.save()
+
+
+# ---------------------------------------------------------------------------
+#  A top-up expense is a utility purchase
+# ---------------------------------------------------------------------------
+
+from .models import UtilityReading, find_utility_for_expense
+
+
+@receiver(post_save, sender=Expense)
+def _record_topup_as_utility_purchase(sender, instance: Expense, created, **kwargs):
+    """
+    "ECG Prepaid Topup GHS 100" is credit bought, so it lands on that day's
+    UtilityReading as a purchase and the meter trail balances without anyone
+    typing the figure twice.
+
+    Idempotent: editing the amount re-totals the reading, and re-describing the
+    expense so it no longer reads as a top-up detaches it again.
+    """
+    utility = find_utility_for_expense(instance)
+    previous = instance.topup_reading
+
+    if utility is None:
+        if previous is not None:
+            Expense.objects.filter(pk=instance.pk).update(topup_reading=None)
+            instance.topup_reading = None
+            previous.recalculate_auto_purchase()
+        return
+
+    reading = UtilityReading.objects.filter(utility=utility, date=instance.date).first()
+    if reading is None:
+        opening = utility.opening_for(instance.date)
+        # Buying credit consumes nothing, so the day closes where it opened plus
+        # what was bought. Whoever takes the real closing reading overwrites this.
+        reading = UtilityReading.objects.create(
+            utility=utility,
+            branch=instance.branch,
+            date=instance.date,
+            opening_balance=opening,
+            closing_balance=opening + float(instance.amount or 0.0),
+            entered_by=instance.user,
+        )
+
+    if previous is not None and previous.pk != reading.pk:
+        Expense.objects.filter(pk=instance.pk).update(topup_reading=None)
+        previous.recalculate_auto_purchase()
+
+    if instance.topup_reading_id != reading.pk:
+        Expense.objects.filter(pk=instance.pk).update(topup_reading=reading)
+        instance.topup_reading = reading
+
+    reading.recalculate_auto_purchase()
+
+
+@receiver(post_delete, sender=Expense)
+def _drop_topup_utility_purchase(sender, instance: Expense, **kwargs):
+    """Removing the top-up expense takes its purchase off the reading."""
+    reading = instance.topup_reading
+    if reading is not None:
+        UtilityReading.objects.filter(pk=reading.pk).exists() and reading.recalculate_auto_purchase()

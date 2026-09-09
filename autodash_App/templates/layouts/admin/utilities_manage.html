@@ -80,6 +80,20 @@
                       </div>
                     </div>
 
+                    <div class="mb-3">
+                      <label class="form-label" for="{{ form.topup_keywords.id_for_label }}">Top-up aliases</label>
+                      {{ form.topup_keywords }}
+                      {% for err in form.topup_keywords.errors %}
+                        <div class="text-danger small mt-1">{{ err }}</div>
+                      {% endfor %}
+                      <div class="form-text">
+                        Other words that name this utility on an expense line, comma-separated.
+                        An expense like &ldquo;ECG Prepaid Topup&rdquo; is then booked as a purchase
+                        here automatically. The utility&rsquo;s own name always matches, and the line
+                        must also read as buying credit (topup, prepaid, recharge&hellip;).
+                      </div>
+                    </div>
+
                     <div class="form-check mb-3">
                       {{ form.is_active }}
                       <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Active</label>

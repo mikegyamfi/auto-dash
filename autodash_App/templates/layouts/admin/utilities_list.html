@@ -163,8 +163,13 @@
                           </td>
                           <td class="text-end">{{ r.opening_balance|floatformat:2 }}</td>
                           <td class="text-end">
-                            {% if r.purchase %}
-                              <span class="text-success">+{{ r.purchase|floatformat:2 }}</span>
+                            {% if r.total_purchase %}
+                              <span class="text-success">+{{ r.total_purchase|floatformat:2 }}</span>
+                              {% if r.auto_purchase %}
+                                <div class="text-muted" style="font-size:.72rem;">
+                                  incl. {{ r.auto_purchase|floatformat:2 }} from top-up expense{{ r.topup_expenses.count|pluralize }}
+                                </div>
+                              {% endif %}
                             {% else %}
                               <span class="text-muted">&mdash;</span>
                             {% endif %}

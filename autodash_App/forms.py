@@ -1007,14 +1007,18 @@ class MaintenanceExpenseForm(forms.ModelForm):
 class UtilityForm(forms.ModelForm):
     class Meta:
         model = models.Utility
-        fields = ["branch", "name", "unit", "cost_per_unit", "is_active"]
+        fields = ["branch", "name", "unit", "cost_per_unit", "topup_keywords", "is_active"]
         widgets = {
             "branch": forms.Select(attrs={"class": "form-select"}),
             "name": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. Electricity"}),
             "unit": forms.TextInput(attrs={"class": "form-control", "placeholder": "units / litres / GHS"}),
             "cost_per_unit": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
+            "topup_keywords": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "e.g. ECG, power, light"}
+            ),
             "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
+        labels = {"topup_keywords": "Top-up aliases"}
 
     def __init__(self, *args, **kwargs):
         branch = kwargs.pop("branch", None)

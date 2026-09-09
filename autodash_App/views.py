@@ -9185,7 +9185,8 @@ def utilities_list(request):
         summary.append({
             "utility": util,
             "total_usage": sum(r.usage for r in window),
-            "total_purchase": sum((r.purchase or 0.0) for r in window),
+            # Includes credit picked up from top-up expenses, not just typed rows.
+            "total_purchase": sum(r.total_purchase for r in window),
             "current_balance": float(latest.closing_balance) if latest else None,
             "last_entry": latest.date if latest else None,
         })

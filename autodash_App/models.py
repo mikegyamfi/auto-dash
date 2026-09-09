@@ -710,6 +710,14 @@ class Expense(models.Model):
     date = models.DateField(auto_now_add=True)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='expenses', null=True, blank=True)
 
+    # Set when this expense is a utility top-up (buying credit): the amount is
+    # carried onto that day's UtilityReading as a purchase, so the meter trail
+    # balances without anyone typing it twice.
+    topup_reading = models.ForeignKey(
+        "UtilityReading", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="topup_expenses",
+    )
+
     # Optional fields to handle recurring (start_date, end_date, is_recurring, etc.)
     # e.g.
     is_recurring = models.BooleanField(default=False)
@@ -1574,6 +1582,12 @@ class Utility(models.Model):
         help_text="GHS per unit, used to book daily usage as an expense. "
                   "Leave at 1.0 when the balance is already in GHS.",
     )
+    topup_keywords = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Comma-separated aliases used to spot a top-up expense for this "
+                  "utility, e.g. 'ECG, power, light' for Electricity. The utility's "
+                  "own name always matches.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1581,6 +1595,12 @@ class Utility(models.Model):
         unique_together = ("branch", "name")
         ordering = ["branch__name", "name"]
         verbose_name_plural = "Utilities"
+
+    def match_tokens(self):
+        """Lower-cased strings that identify this utility in an expense line."""
+        tokens = [self.name.strip().lower()]
+        tokens += [t.strip().lower() for t in (self.topup_keywords or "").split(",")]
+        return [t for t in tokens if t]
 
     def __str__(self):
         return f"{self.name} ({self.branch.name})"
@@ -1614,7 +1634,15 @@ class UtilityReading(models.Model):
     date = models.DateField(default=timezone.localdate)
 
     opening_balance = models.FloatField(default=0.0)
-    purchase = models.FloatField(default=0.0)
+    purchase = models.FloatField(
+        default=0.0, help_text="Credit bought and entered by hand on this page."
+    )
+    # Purchases picked up from top-up Expenses. Kept apart from `purchase` so an
+    # automatic pickup can never silently overwrite a figure someone typed.
+    auto_purchase = models.FloatField(
+        default=0.0, editable=False,
+        help_text="Credit bought, totalled from matching top-up expenses.",
+    )
     closing_balance = models.FloatField(default=0.0)
     usage = models.FloatField(default=0.0, editable=False)
 
@@ -1636,12 +1664,31 @@ class UtilityReading(models.Model):
         unique_together = ("utility", "date")
         ordering = ["-date", "utility__name"]
 
+    @property
+    def total_purchase(self):
+        """Everything bought that day, typed in or picked up from an expense."""
+        return float(self.purchase or 0.0) + float(self.auto_purchase or 0.0)
+
     def compute_usage(self):
         return (
             float(self.opening_balance or 0.0)
-            + float(self.purchase or 0.0)
+            + self.total_purchase
             - float(self.closing_balance or 0.0)
         )
+
+    def recalculate_auto_purchase(self, commit=True):
+        """
+        Re-total the top-up expenses pointing at this reading. Called whenever
+        one is added, edited, re-described or deleted.
+        """
+        total = self.topup_expenses.aggregate(t=Sum("amount"))["t"] or 0.0
+        total = round(total, 2)
+        if commit and float(self.auto_purchase or 0.0) != total:
+            self.auto_purchase = total
+            self.save()
+        else:
+            self.auto_purchase = total
+        return total
 
     @property
     def expense_amount(self):
@@ -2255,3 +2302,54 @@ class PettyCashTransaction(models.Model):
         account = self.account
         super().delete(*args, **kwargs)
         account.recalculate()
+
+
+# ---------------------------------------------------------------------------
+#  Spotting a utility top-up in an expense line
+# ---------------------------------------------------------------------------
+
+# A description must carry one of these before it is read as buying credit.
+# Without it, an ordinary line like "[Recurring] Water" or "Water bottles for
+# staff" would be mistaken for a water purchase.
+TOPUP_MARKERS = (
+    "topup",
+    "top up",
+    "top-up",
+    "prepaid",
+    "pre-paid",
+    "recharge",
+    "credit purchase",
+    "bought credit",
+)
+
+
+def looks_like_topup(description):
+    text = (description or "").lower()
+    return any(marker in text for marker in TOPUP_MARKERS)
+
+
+def find_utility_for_expense(expense):
+    """
+    The utility an expense is topping up, or None.
+
+    Two things must hold: the line has to read as buying credit (see
+    TOPUP_MARKERS), and it has to name a utility at that branch — by the
+    utility's own name or one of its `topup_keywords`. "ECG Prepaid" therefore
+    reaches a utility called Electricity once "ECG" is listed as a keyword.
+
+    The longest matching token wins, so a specific alias beats a generic one.
+    """
+    if expense is None or expense.branch_id is None:
+        return None
+    if getattr(expense, "is_auto_generated", False):
+        return None
+    description = (expense.description or "").lower()
+    if not looks_like_topup(description):
+        return None
+
+    best, best_len = None, 0
+    for utility in Utility.objects.filter(branch_id=expense.branch_id, is_active=True):
+        for token in utility.match_tokens():
+            if token in description and len(token) > best_len:
+                best, best_len = utility, len(token)
+    return best
