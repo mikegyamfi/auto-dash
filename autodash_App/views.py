@@ -9614,9 +9614,15 @@ def remittance_setup(request):
 
 @staff_or_branch_admin_required
 def remittance_report(request):
-    """Remittance across a date range, with the running shortfall."""
-    branch, branches, can_pick = _utility_scope(request)
-    if branch is None:
+    """
+    Remittance across a date range, with the running shortfall.
+
+    With no branch chosen, staff see every branch together — the table carries a
+    branch column and the totals span all of them. Picking one narrows to it.
+    """
+    branch, branches, can_pick = _petty_cash_scope(request)
+    show_all = branch is None
+    if branch is None and not can_pick:
         messages.error(request, "You do not have a branch assigned.")
         return redirect("index")
 
@@ -9635,11 +9641,16 @@ def remittance_report(request):
     if end_date < start_date:
         start_date, end_date = end_date, start_date
 
-    rows = list(
-        models.DailyRemittance.objects
-        .filter(branch=branch, date__range=[start_date, end_date])
-        .order_by("-date")
-    )
+    row_qs = (models.DailyRemittance.objects
+              .select_related("branch")
+              .filter(date__range=[start_date, end_date]))
+    payment_qs = (models.RemittancePayment.objects
+                  .filter(remittance__date__range=[start_date, end_date]))
+    if branch is not None:
+        row_qs = row_qs.filter(branch=branch)
+        payment_qs = payment_qs.filter(remittance__branch=branch)
+
+    rows = list(row_qs.order_by("-date", "branch__name"))
     for row in rows:
         row.refresh_net_sales(commit=True)
         row.recalc()
@@ -9653,9 +9664,24 @@ def remittance_report(request):
         "surplus": sum(r.surplus or 0.0 for r in rows),
     }
 
+    # Unfiltered, break the same figures back down per branch so the combined
+    # total can be traced to who it came from.
+    by_branch = []
+    if show_all:
+        grouped = {}
+        for row in rows:
+            entry = grouped.setdefault(row.branch, {
+                "branch": row.branch, "net_sales": 0.0, "due": 0.0,
+                "remitted": 0.0, "outstanding": 0.0,
+            })
+            entry["net_sales"] += row.net_sales or 0.0
+            entry["due"] += row.total_due or 0.0
+            entry["remitted"] += row.amount_remitted or 0.0
+            entry["outstanding"] += row.outstanding
+        by_branch = sorted(grouped.values(), key=lambda e: -e["outstanding"])
+
     by_source = (
-        models.RemittancePayment.objects
-        .filter(remittance__branch=branch, remittance__date__range=[start_date, end_date])
+        payment_qs
         .values("source")
         .annotate(total=Sum("amount"))
         .order_by("-total")
@@ -9663,6 +9689,8 @@ def remittance_report(request):
 
     return render(request, "layouts/admin/remittance_report.html", {
         "branch": branch,
+        "show_all": show_all,
+        "by_branch": by_branch,
         "branches": branches,
         "can_pick_branch": can_pick,
         "rows": rows,
@@ -9866,12 +9894,41 @@ def petty_cash_setup(request):
     if not _may_manage_petty_cash_or_deny(request):
         return redirect("petty_cash_dashboard")
 
-    account = models.PettyCashAccount.current(create=True)
+    existing = models.PettyCashAccount.current()
+    is_first_open = existing is None
+    account = existing or models.PettyCashAccount()
+
     form = PettyCashAccountForm(request.POST, instance=account)
-    if form.is_valid():
-        form.save()
-        messages.success(request, "Petty cash settings saved.")
-    else:
+    if not form.is_valid():
         for error in form.errors.values():
             messages.error(request, ", ".join(error))
+        return redirect("petty_cash_dashboard")
+
+    account = form.save()
+
+    # Opening the float and putting the cash in are one step, so the operator
+    # never lands on a balance of 0.00 wondering where the money goes.
+    opening = form.cleaned_data.get("opening_amount") or 0.0
+    if is_first_open and opening > 0:
+        models.PettyCashTransaction.objects.create(
+            account=account,
+            branch=None,
+            kind=models.PettyCashTransaction.KIND_TOPUP,
+            amount=opening,
+            date=timezone.localdate(),
+            note="Opening float",
+            recorded_by=request.user,
+        )
+        account.refresh_from_db()
+        messages.success(
+            request,
+            f"Float opened with GHS {account.balance:,.2f}."
+        )
+    elif is_first_open:
+        messages.success(
+            request,
+            "Float opened. Record the cash you are putting down to start it off."
+        )
+    else:
+        messages.success(request, "Petty cash settings saved.")
     return redirect("petty_cash_dashboard")

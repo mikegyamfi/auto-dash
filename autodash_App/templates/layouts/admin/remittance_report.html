@@ -14,7 +14,9 @@
           <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
               <h4 class="mb-0">Remittance Report</h4>
-              <div class="text-muted small">{{ branch.name }}</div>
+              <div class="text-muted small">
+                {% if show_all %}All branches{% else %}{{ branch.name }}{% endif %}
+              </div>
             </div>
             <a href="{% url 'remittance_list' %}" class="btn btn-outline-secondary">Back to Today</a>
           </div>
@@ -26,6 +28,7 @@
                   <div class="col-md-3">
                     <label class="form-label">Branch</label>
                     <select name="branch_id" class="form-select">
+                      <option value="">All branches</option>
                       {% for b in branches %}
                         <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
                       {% endfor %}
@@ -109,12 +112,56 @@
 
             <div class="col-12 col-lg-8 order-2 order-lg-1">
               <div class="card">
+                {% if show_all %}
+                  <div class="card-header"><h6 class="mb-0">By Branch</h6></div>
+                  <div class="table-responsive">
+                    <table class="table table-bordered align-middle mb-0">
+                      <thead>
+                        <tr>
+                          <th>Branch</th>
+                          <th class="text-end">Net Sales</th>
+                          <th class="text-end">Due</th>
+                          <th class="text-end">Remitted</th>
+                          <th class="text-end">Outstanding</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for b in by_branch %}
+                          <tr>
+                            <td class="fw-semibold">{{ b.branch.name }}</td>
+                            <td class="text-end">{{ b.net_sales|floatformat:2 }}</td>
+                            <td class="text-end">{{ b.due|floatformat:2 }}</td>
+                            <td class="text-end text-success">{{ b.remitted|floatformat:2 }}</td>
+                            <td class="text-end">
+                              {% if b.outstanding %}
+                                <span class="text-danger fw-semibold">{{ b.outstanding|floatformat:2 }}</span>
+                              {% else %}
+                                <span class="text-muted">&mdash;</span>
+                              {% endif %}
+                            </td>
+                            <td class="text-end">
+                              <a class="btn btn-sm btn-outline-primary"
+                                 href="?branch_id={{ b.branch.id }}&start_date={{ selected.start_date }}&end_date={{ selected.end_date }}">View</a>
+                            </td>
+                          </tr>
+                        {% empty %}
+                          <tr><td colspan="6" class="text-center text-muted py-3">
+                            Nothing in this period.
+                          </td></tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                {% endif %}
+
                 <div class="card-header"><h6 class="mb-0">Daily Breakdown</h6></div>
                 <div class="table-responsive">
                   <table class="table table-bordered align-middle mb-0">
                     <thead>
                       <tr>
                         <th>Date</th>
+                        {% if show_all %}<th>Branch</th>{% endif %}
                         <th class="text-end">Net Sales</th>
                         <th class="text-end">Target</th>
                         <th class="text-end">B/F</th>
@@ -128,10 +175,13 @@
                       {% for r in rows %}
                         <tr>
                           <td>
-                            <a href="{% url 'remittance_list' %}?date={{ r.date|date:'Y-m-d' }}{% if can_pick_branch %}&branch_id={{ branch.id }}{% endif %}">
+                            <a href="{% url 'remittance_list' %}?date={{ r.date|date:'Y-m-d' }}{% if can_pick_branch %}&branch_id={{ r.branch.id }}{% endif %}">
                               {{ r.date|date:"d M Y" }}
                             </a>
                           </td>
+                          {% if show_all %}
+                            <td><small class="fw-semibold">{{ r.branch.name }}</small></td>
+                          {% endif %}
                           <td class="text-end">{{ r.net_sales|floatformat:2 }}</td>
                           <td class="text-end">{{ r.target_amount|floatformat:2 }}</td>
                           <td class="text-end">

@@ -1186,7 +1186,24 @@ class RemittancePaymentForm(forms.ModelForm):
 
 
 class PettyCashAccountForm(forms.ModelForm):
-    """Per-branch float settings: the low-water mark and whether it is in use."""
+    """
+    Float settings: the low-water mark and whether it is in use.
+
+    On the very first save it also takes the cash being put down, so opening
+    the float is one step rather than "create it, then work out where to add
+    the money".
+    """
+
+    opening_amount = forms.FloatField(
+        required=False, min_value=0.0,
+        widget=forms.NumberInput(attrs={
+            "class": "form-control", "step": "0.01", "min": "0",
+            "placeholder": "e.g. 500.00",
+        }),
+        label="Opening cash (GHS)",
+        help_text="How much is being put down to start the float. "
+                  "Recorded as the first top-up.",
+    )
 
     class Meta:
         model = models.PettyCashAccount
@@ -1203,8 +1220,15 @@ class PettyCashAccountForm(forms.ModelForm):
         }
         help_texts = {
             "low_threshold": "Once the float falls to this, it needs topping up.",
-            "is_active": "Untick to stop expenses drawing down this branch's float.",
+            "is_active": "Untick to stop expenses drawing down the float.",
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Opening cash is only meaningful the first time; afterwards it is a
+        # top-up like any other and belongs on the "Record cash in" form.
+        if self.instance.pk:
+            self.fields.pop("opening_amount", None)
 
 
 class PettyCashTopUpForm(forms.Form):
