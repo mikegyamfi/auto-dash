@@ -236,7 +236,10 @@ def home(request):
     worker_branch_kw = {'worker__branch': branch} if branch else {}
     service_order_branch_kw = {'order__branch': branch} if branch else {}
 
-    # parse & validate date range
+    # parse & validate date range.
+    # Only staff/superusers get a range; a branch admin reads one day at a time,
+    # so whatever end date is posted is ignored for them.
+    can_pick_range = user.is_staff or user.is_superuser
     start_str = request.GET.get('start_date', '')
     end_str = request.GET.get('end_date', '')
     today = timezone.now().date()
@@ -252,9 +255,14 @@ def home(request):
             end_dt = datetime.strptime(end_str, '%Y-%m-%d').date()
         except (ValueError, TypeError):
             end_dt = today
-            messages.warning(request, "Invalid end date; defaulting to today.")
+            if can_pick_range:
+                messages.warning(request, "Invalid end date; defaulting to today.")
         if end_dt < start_dt:
             start_dt, end_dt = end_dt, start_dt
+
+    if not can_pick_range:
+        # One day only, enforced server-side so a hand-typed URL cannot widen it.
+        end_dt = start_dt
 
     # 1) Core aggregates — via the shared definition in models.compute_sales_figures
     # so the dashboard and the remittance pages can never disagree on Net Sales.
@@ -559,10 +567,13 @@ def home(request):
         'show_branch_selector': not is_branch_admin,
         'is_all_branches_view': branch is None,
 
-        'start_date_str': start_str,
-        'end_date_str': end_str,
+        # Echo the dates actually used, not what was typed, so the inputs
+        # agree with the figures shown.
+        'start_date_str': start_dt.strftime('%Y-%m-%d'),
+        'end_date_str': end_dt.strftime('%Y-%m-%d'),
         'start_dt': start_dt,
         'end_dt': end_dt,
+        'can_pick_range': can_pick_range,
 
         # core metrics
         'revenue_today': revenue_total,

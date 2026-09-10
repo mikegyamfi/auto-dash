@@ -52,6 +52,7 @@ Single Django project `autodash_management` with one app `autodash_App` doing es
 - Workers have a `Worker` profile (`user.worker_profile`). A worker with `is_branch_admin=True` is a branch-level admin.
 - `decorators.staff_or_branch_admin_required` (at repo root) is the standard gate for "elevated" views — allows `is_staff`/`is_superuser` OR branch admins. Use it for any new admin/branch-admin view rather than `@staff_member_required` alone.
 - `decorators.worker_or_elevated_required` (same file) is the looser gate for shop-floor pages any worker with a branch may reach — currently the Utilities views. It only controls who gets through the door; the view must still scope reads and writes to the user's own branch.
+- The admin dashboard (`views.home`) gives a **date range only to staff/superusers**; a branch admin reads **one day at a time**. `can_pick_range` drives it, and the collapse (`end_dt = start_dt`) happens server-side after parsing, so a hand-typed `?end_date=` cannot widen it — the template's single date field is presentation, not the control.
 - Branch scoping pattern in `views.py`: `_get_admin_branch(request)` and `_get_user_branch(request)`. Branch admins are forced to their own branch; staff/superusers can pick via `?branch_id=` / `?branch=`. Follow this pattern when adding branch-scoped reports — never trust `request.GET['branch_id']` for non-staff.
 
 ### Domain model (`autodash_App/models.py`, ~1830 lines)
