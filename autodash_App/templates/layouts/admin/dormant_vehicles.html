@@ -67,10 +67,19 @@
                         <span class="text-muted">Never</span>
                       {% endif %}
                     </td>
-                    <td>{{ v.customer.branch.name }}</td>
+                    {# CustomerVehicle.customer is nullable, so an orphaned
+                       vehicle must not try to reverse a URL with a blank id. #}
                     <td>
-                      {{ v.customer.user.get_full_name }}
-                      <a href="{% url 'customer_detail' customer_id=v.customer.id %}" class="ms-2 small">view</a>
+                      {% if v.customer %}{{ v.customer.branch.name }}
+                      {% else %}<span class="text-muted">&mdash;</span>{% endif %}
+                    </td>
+                    <td>
+                      {% if v.customer %}
+                        {{ v.customer.user.get_full_name }}
+                        <a href="{% url 'customer_detail' customer_id=v.customer.id %}" class="ms-2 small">view</a>
+                      {% else %}
+                        <span class="text-muted">No owner on record</span>
+                      {% endif %}
                     </td>
                     <td>{{ v.other_vehicles }}</td>
                     <td>
@@ -83,7 +92,7 @@
                           Delete Vehicle
                         </button>
                       </form>
-                      {% if v.other_vehicles == 0 %}
+                      {% if v.other_vehicles == 0 and v.customer %}
                       <form method="post" class="d-inline ms-1">
                         {% csrf_token %}
                         <input type="hidden" name="vehicle_id" value="{{ v.id }}">

@@ -2076,20 +2076,68 @@ def export_service_history_pdf(request):
         total_final=Sum('final_amount'),
     )
 
-    html = render_to_string('layouts/admin/service_history_pdf.html', {
-        'services_rendered': services,
-        'total_amount': agg['total_amount'] or 0,
-        'total_final': agg['total_final'] or 0,
-        'now': timezone.now(),
-    })
-
     resp = HttpResponse(content_type='application/pdf')
     fname = timezone.now().strftime("service_history_%Y%m%d_%H%M.pdf")
     resp['Content-Disposition'] = f'attachment; filename="{fname}"'
 
-    pisa_status = pisa.CreatePDF(html, dest=resp)
-    if pisa_status.err:
-        return HttpResponse("PDF generation error; please try again.")
+    # Built with reportlab, like the arrears export. This used to call
+    # xhtml2pdf's `pisa`, whose import is commented out at the top of this
+    # module — so every request raised NameError and returned a 500.
+    doc = SimpleDocTemplate(resp, pagesize=landscape(letter))
+    styles = getSampleStyleSheet()
+    elements = [
+        Paragraph("Service History", styles['Title']),
+        Paragraph(
+            f"Generated on: {timezone.localtime(timezone.now()):%Y-%m-%d %H:%M}",
+            styles['Normal'],
+        ),
+        Spacer(1, 12),
+        Paragraph(
+            f"<b>Total:</b> GHS {agg['total_amount'] or 0:,.2f} &nbsp;&nbsp; "
+            f"<b>Final:</b> GHS {agg['total_final'] or 0:,.2f}",
+            styles['Heading3'],
+        ),
+        Spacer(1, 12),
+    ]
+
+    cell = ParagraphStyle('cell', parent=styles['Normal'], fontSize=7, leading=9)
+    header = ["Service #", "Date", "Customer", "Vehicle", "Services", "Workers",
+              "Branch", "Status", "Payment", "Total", "Final"]
+    data = [header]
+    for s in services:
+        workers_str = ", ".join(
+            f"{w.user.first_name} {w.user.last_name}" for w in s.workers.all()
+        )
+        services_list = ", ".join(sr.service.service_type for sr in s.rendered.all())
+        data.append([
+            s.service_order_number or "-",
+            s.date.strftime('%d %b %Y') if s.date else "-",
+            # Walk-ins have no customer record; the property handles both.
+            Paragraph(s.display_customer_name, cell),
+            Paragraph(s.vehicle.car_name() if s.vehicle else "N/A", cell),
+            Paragraph(services_list or "-", cell),
+            Paragraph(workers_str or "-", cell),
+            s.branch.name if s.branch else "N/A",
+            s.get_status_display(),
+            s.payment_method or "-",
+            f"{s.total_amount or 0:,.2f}",
+            f"{s.final_amount or 0:,.2f}",
+        ])
+
+    # Eleven columns need fixing, or the free text pushes the money off the page.
+    widths = [58, 56, 78, 78, 108, 92, 60, 48, 52, 48, 48]
+
+    if len(data) == 1:
+        data.append(["No services in this range."] + [""] * (len(header) - 1))
+        elements.append(_export_pdf_table(data, col_widths=widths))
+    else:
+        data.append([
+            "Totals", "", "", "", "", "", "", "", "",
+            f"{agg['total_amount'] or 0:,.2f}", f"{agg['total_final'] or 0:,.2f}",
+        ])
+        elements.append(_export_pdf_table(data, bold_last=True, col_widths=widths))
+
+    doc.build(elements)
     return resp
 
 
@@ -6077,8 +6125,11 @@ def dormant_vehicles(request):
         show_branch_selector = True
     else:
         branches = None
-        # branch-admin or staff: fixed to their branch
-        branch = user.worker_profile.branch
+        # branch-admin or staff: fixed to their branch. Staff without a worker
+        # profile have no branch, so fall through to every branch rather than
+        # raising on the missing relation.
+        worker = getattr(user, 'worker_profile', None)
+        branch = worker.branch if worker else None
         show_branch_selector = False
 
     # — Period selection & cutoff calculation —
@@ -6108,9 +6159,15 @@ def dormant_vehicles(request):
             messages.success(request, f"Vehicle {vehicle.car_plate} deleted.")
         elif action == 'delete_customer':
             cust = vehicle.customer
+            if cust is None:
+                # An orphaned vehicle has no owner to delete; drop the vehicle.
+                vehicle.delete()
+                messages.success(request, f"Vehicle {vehicle.car_plate} deleted (no owner on record).")
+                return redirect('dormant_vehicles')
+            name = cust.user.get_full_name()
             vehicle.delete()
             cust.delete()
-            messages.success(request, f"Vehicle and customer {cust.user.get_full_name()} deleted.")
+            messages.success(request, f"Vehicle and customer {name} deleted.")
         return redirect('dormant_vehicles')
 
     return render(request, 'layouts/admin/dormant_vehicles.html', {
@@ -8626,7 +8683,7 @@ def export_arrears_excel(request):
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from django.http import HttpResponse, HttpResponseForbidden
 from django.utils import timezone
 from django.db.models import Sum
@@ -10034,7 +10091,7 @@ def remittance_report_pdf(request):
         ]
         table_data.append(total_row)
 
-    elements.append(_remittance_pdf_table(table_data, bold_last=len(table_data) > 1))
+    elements.append(_export_pdf_table(table_data, bold_last=len(table_data) > 1))
 
     if data["by_branch"]:
         elements.append(Spacer(1, 18))
@@ -10045,7 +10102,7 @@ def remittance_report_pdf(request):
                 b["branch"].name, f"{b['net_sales']:,.2f}", f"{b['due']:,.2f}",
                 f"{b['remitted']:,.2f}", f"{b['outstanding']:,.2f}",
             ])
-        elements.append(_remittance_pdf_table(rows))
+        elements.append(_export_pdf_table(rows))
 
     by_source = list(data["by_source"])
     if by_source:
@@ -10056,15 +10113,15 @@ def remittance_report_pdf(request):
         for s in by_source:
             rows.append([labels.get(s["source"], s["source"]),
                          f"{s['total'] or 0.0:,.2f}"])
-        elements.append(_remittance_pdf_table(rows))
+        elements.append(_export_pdf_table(rows))
 
     doc.build(elements)
     return response
 
 
-def _remittance_pdf_table(data, bold_last=False):
-    """Shared styling so every table in the export reads the same."""
-    table = Table(data, repeatRows=1)
+def _export_pdf_table(data, bold_last=False, col_widths=None):
+    """Shared styling so every exported PDF table reads the same."""
+    table = Table(data, repeatRows=1, colWidths=col_widths)
     style = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
