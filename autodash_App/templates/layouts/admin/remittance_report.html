@@ -67,6 +67,7 @@
               <div class="card h-100"><div class="card-body p-3 text-center">
                 <div class="text-muted small">Total Due</div>
                 <div class="fw-bold">GHS {{ totals.due|floatformat:2 }}</div>
+                <div class="text-muted" style="font-size:0.66rem;">targets + arrears carried in</div>
               </div></div>
             </div>
             <div class="col-6 col-lg-2">
@@ -199,6 +200,9 @@
                           <td class="text-nowrap">
                             {% if r.is_settled %}
                               <span class="badge bg-label-success">Settled</span>
+                            {% elif r.is_carried %}
+                              <span class="badge bg-label-secondary"
+                                    title="Balance moved on to the next day's brought forward.">Carried</span>
                             {% else %}
                               <span class="badge bg-label-danger">Short</span>
                             {% endif %}

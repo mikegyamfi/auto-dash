@@ -124,3 +124,7 @@ AUTH_USER_MODEL = 'autodash_App.CustomUser'
 
 # Whitenoise storage for production (serves static files efficiently)
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Public base URL used in customer-facing links (SMS receipts, etc.). Kept here
+# rather than inline so the domain moves in one place; no trailing slash.
+SITE_URL = config('SITE_URL', default='https://management.ghautodash.com').rstrip('/')

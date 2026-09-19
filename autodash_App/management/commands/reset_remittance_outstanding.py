@@ -108,6 +108,18 @@ class Command(BaseCommand):
                 row.save()
                 row.recalc()
 
+        if not dry and touched:
+            # Writing a row off changes what every later day opens with. Rebuild
+            # once from the earliest row touched in each branch rather than per
+            # row — otherwise a scoped run (--before) leaves the day after the
+            # cutoff still claiming arrears from days that now owe nothing, and
+            # the backlog simply carries on past the write-off.
+            earliest = {}
+            for item in touched:  # already ordered by branch, then date
+                earliest.setdefault(item["row"].branch_id, item["row"])
+            for row in earliest.values():
+                row.propagate_forward()
+
         self.stdout.write("\n  Rows changed          : %d" % len(touched))
         self.stdout.write("  Carried-forward cleared: %s" % f"{carried_cleared:,.2f}")
         self.stdout.write("  Targets written off    : %s" % f"{written_off:,.2f}")

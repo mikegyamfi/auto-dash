@@ -64,6 +64,10 @@ class DailyTargetGenerationMiddleware:
                 target_amount=setup.target_amount,
                 brought_forward=brought_forward,
             )
+            if previous:
+                # Yesterday's balance now lives on today's row, so yesterday
+                # stops reporting it as still outstanding.
+                previous._stamp_carried(brought_forward)
 
     def _generate_targets_for(self, today):
         setups = RecurringPaymentSetup.objects.all()

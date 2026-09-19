@@ -533,6 +533,23 @@ class ServiceRenderedOrder(models.Model):
         return f"{self.walkin_vehicle_plate} ({self.walkin_vehicle_make})"
 
     @property
+    def total_tendered(self):
+        """
+        What the customer actually handed over, across every tender.
+
+        Reading `cash_paid` alone tells a MoMo or card customer they paid GHS 0.
+        Subscription and loyalty are deliberately excluded — nothing changed
+        hands for those.
+
+        Deliberately *not* called `amount_paid`: that is an existing (and
+        largely unpopulated) field on this model, and a property of the same
+        name would shadow it and break loading a row from the database.
+        """
+        return ((self.cash_paid or 0.0)
+                + (self.momo_amount or 0.0)
+                + (self.card_amount or 0.0))
+
+    @property
     def display_date(self):
         return self.date
 
@@ -1908,6 +1925,11 @@ class DailyRemittance(models.Model):
     )
 
     amount_remitted = models.FloatField(default=0.0, editable=False)
+    carried_forward = models.FloatField(
+        default=0.0, editable=False,
+        help_text="How much of this day's balance a later day has taken on as its "
+                  "brought_forward. Once carried, the debt lives there, not here.",
+    )
     surplus = models.FloatField(default=0.0, editable=False)
     is_settled = models.BooleanField(default=False, editable=False)
 
@@ -1921,8 +1943,27 @@ class DailyRemittance(models.Model):
 
     # ---- derived helpers -------------------------------------------------
     @property
-    def outstanding(self):
+    def balance_due(self):
+        """This day's own closing balance: what was due, less what was handed over."""
         return max(0.0, (self.total_due or 0.0) - (self.amount_remitted or 0.0))
+
+    @property
+    def outstanding(self):
+        """
+        What this day still owes *here*.
+
+        A day's balance is discharged one of two ways: it is remitted, or a later
+        day takes it on as its own `brought_forward`. Netting off what was carried
+        keeps the debt on exactly one row, so history stops showing red for money
+        that has already moved on — and so totalling a range gives the real figure
+        instead of counting the same cedi once per day it stayed unpaid.
+        """
+        return max(0.0, self.balance_due - (self.carried_forward or 0.0))
+
+    @property
+    def is_carried(self):
+        """True once a later day has taken this row's balance on."""
+        return (self.carried_forward or 0.0) > 0.005
 
     @property
     def shortfall_vs_target(self):
@@ -1945,7 +1986,7 @@ class DailyRemittance(models.Model):
             self.save()
         return self.net_sales
 
-    def recalc(self, commit=True):
+    def recalc(self, commit=True, propagate=False):
         self.total_due = (self.target_amount or 0.0) + (self.brought_forward or 0.0)
         self.amount_remitted = self.payments.aggregate(t=Sum('amount'))['t'] or 0.0
         # Surplus is measured against the target, per the day's own performance,
@@ -1954,33 +1995,108 @@ class DailyRemittance(models.Model):
         self.is_settled = self.amount_remitted >= self.total_due - 1e-9
         if commit:
             super().save()
+        if propagate:
+            self.propagate_forward()
         return self
 
     def carry_to_next_day(self):
         """
         What rolls into tomorrow: due minus what was actually handed over.
-        Floored at zero so a surplus never becomes tomorrow's credit.
+        Floored at zero, so over-remitting never becomes tomorrow's credit —
+        brought forward is arrears, and arrears do not go negative.
         """
-        return max(0.0, (self.total_due or 0.0) - (self.amount_remitted or 0.0))
+        return self.balance_due
+
+    def _stamp_carried(self, amount):
+        """Record how much of this row's balance the next day took on."""
+        amount = round(max(0.0, amount), 2)
+        if abs((self.carried_forward or 0.0) - amount) > 0.005:
+            self.carried_forward = amount
+            type(self).objects.filter(pk=self.pk).update(carried_forward=amount)
+
+    def propagate_forward(self):
+        """
+        Rebuild `brought_forward` on every later day of this branch.
+
+        A remittance row is a running balance: what a day leaves unpaid becomes
+        the next day's brought forward. So recording a payment against an old
+        day, editing a target, or opening a day that was missed invalidates
+        every row after it — and left alone the chain drifts, with the same
+        money sitting on one row *and* inside a later row's carry. Rebuilding
+        here is the same trick `UtilityReading.propagate_forward` uses to repair
+        a reading trail, and it means a correction anywhere fixes everything
+        after it.
+
+        Returns the balance still open at the end of the chain.
+        """
+        previous = self
+        carry = self.balance_due
+        later = (
+            DailyRemittance.objects
+            .filter(branch_id=self.branch_id, date__gt=self.date)
+            .order_by("date")
+        )
+        for row in later:
+            if abs((row.brought_forward or 0.0) - carry) > 0.005:
+                row.brought_forward = carry
+            row.recalc(propagate=False)
+            previous._stamp_carried(carry)
+            previous, carry = row, row.balance_due
+        # Nobody has taken the last row's balance on, so it owes it itself.
+        previous._stamp_carried(0.0)
+        return carry
 
     def suggested_split(self):
         """
-        Prefill for the payment form: the target goes to the branch's primary
-        source, the remainder (surplus) on a second line. Both editable.
+        Prefill for the payment form: what is *owed*, capped by the cash the day
+        actually took. Editable, as always.
+
+        It deliberately does not offer net sales. Settlement is measured against
+        `total_due`, so offering the day's takings over-remits on a good day and
+        — whenever anything is brought forward — offers *less* than is due,
+        leaving a row this button could never clear.
         """
         setup = getattr(self.branch, "remittance_setup", None)
         primary = setup.primary_source if setup else REMITTANCE_SOURCE_CASH
-        expected = self.net_sales or 0.0
-        target = min(self.target_amount or 0.0, expected)
-        remainder = round(expected - target, 2)
+        in_hand = self.net_sales or 0.0
+        owed = max(0.0, (self.total_due or 0.0) - (self.amount_remitted or 0.0))
+        payable = round(min(owed, in_hand), 2)
+        if payable <= 0:
+            return []
+
         rows = []
+        # Arrears first, so the oldest debt is what gets paid down.
+        arrears = round(min(self.brought_forward or 0.0, payable), 2)
+        if arrears > 0:
+            rows.append({"source": primary, "amount": arrears, "label": "Brought forward"})
+        target = round(payable - arrears, 2)
         if target > 0:
-            rows.append({"source": primary, "amount": round(target, 2), "label": "Target"})
-        if remainder > 0:
-            rows.append({"source": primary, "amount": remainder, "label": "Surplus"})
-        if not rows and expected > 0:
-            rows.append({"source": primary, "amount": round(expected, 2), "label": "Net sales"})
+            rows.append({"source": primary, "amount": target, "label": "Target"})
         return rows
+
+    def allocation_for(self, amount=None):
+        """
+        Where a remittance of `amount` actually lands: arrears first, then
+        today's target. Defaults to everything remitted so far.
+
+        Managers hand over "the target" and reasonably expect the day to close.
+        But due is target *plus* arrears, so on a day carrying a balance that
+        figure is a part payment, and the rest quietly carries again — which is
+        how a backlog sits at the same number for weeks and looks like a bug.
+        Splitting the money out here is what lets the page say so at the moment
+        it is entered, instead of leaving it to be discovered in a report.
+        """
+        amount = (self.amount_remitted or 0.0) if amount is None else (amount or 0.0)
+        amount = max(0.0, amount)
+        to_arrears = round(min(self.brought_forward or 0.0, amount), 2)
+        to_target = round(min(self.target_amount or 0.0, amount - to_arrears), 2)
+        return {
+            "arrears": to_arrears,
+            "arrears_left": round(max(0.0, (self.brought_forward or 0.0) - to_arrears), 2),
+            "target": to_target,
+            "target_left": round(max(0.0, (self.target_amount or 0.0) - to_target), 2),
+            "excess": round(max(0.0, amount - to_arrears - to_target), 2),
+        }
 
     def save(self, *args, **kwargs):
         if self.date is not None:
@@ -2016,12 +2132,14 @@ class RemittancePayment(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        self.remittance.recalc()
+        # Paying one day changes what every later day opens with, so repair the
+        # chain rather than leaving tomorrow holding a debt already settled.
+        self.remittance.recalc(propagate=True)
 
     def delete(self, *args, **kwargs):
         remittance = self.remittance
         super().delete(*args, **kwargs)
-        remittance.recalc()
+        remittance.recalc(propagate=True)
 
     def __str__(self):
         return f"{self.get_source_display()} {self.amount} — {self.remittance}"

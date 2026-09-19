@@ -41,7 +41,11 @@ from .forms import (
     PettyCashAccountForm, PettyCashTopUpForm,
     MaintenanceExpenseForm
 )
+from django.conf import settings as django_settings
 from .helper import send_sms, send_sms_club
+
+# Public base URL for links sent to customers (SMS receipts).
+SITE_URL = django_settings.SITE_URL
 from .models import (
     CustomerSubscription, CustomUser,
     Service, LoyaltyTransaction, VehicleGroup, Subscription, WorkerCategory, CustomerSubscriptionTrail,
@@ -1239,13 +1243,15 @@ def confirm_service(request, pk):
     # 10. SMS
     def _send_completed_sms():
         try:
-            cash = order.cash_paid or 0.0
+            # Every tender, not just cash — a MoMo or card customer was being
+            # told they paid GHS 0.00.
+            paid = order.total_tendered
             plate = order.display_vehicle_info or "your vehicle"
             send_sms(
                 phone,
                 (
-                    f"Payment received: GHS{cash:.2f} for {plate}. "
-                    f"Receipt: https://management.autodashgh.com/service/{order.id}/receipt/"
+                    f"Payment made: GHS{paid:.2f} for {plate}. "
+                    f"Receipt: {SITE_URL}/service/{order.id}/receipt/"
                 ),
             )
         except Exception as e:
@@ -1257,13 +1263,13 @@ def confirm_service(request, pk):
             if hasattr(order, "arrears") and order.arrears and not order.arrears.is_paid:
                 owed = order.arrears.amount_owed or 0.0
             else:
-                owed = order.cash_paid or 0.0
+                owed = order.total_tendered
             send_sms(
                 phone,
                 (
                     f"Service on credit: {order.service_order_number}. "
                     f"Amount owed: GHS{owed:.2f}. "
-                    f"Details: https://management.autodashgh.com/service/{order.id}/receipt/"
+                    f"Details: {SITE_URL}/service/{order.id}/receipt/"
                 ),
             )
         except Exception as e:
@@ -9416,12 +9422,17 @@ def utility_opening_lookup(request):
 
 def _ensure_remittance(branch, day):
     """
-    Fetch (or open) a branch's remittance row for `day`, carrying in any
-    unremitted balance. Mirrors the middleware so a page viewed before the
-    day's first request still behaves.
+    Fetch a branch's remittance row for `day`, opening today's if the middleware
+    hasn't yet. Returns None for a past day that was never opened.
+
+    Only *today* is ever created. A past date is history: opening a row for it
+    would invent a target nobody was ever asked to remit, and splice a fresh
+    debt into the middle of the carry chain just because somebody looked at it.
     """
     row = models.DailyRemittance.objects.filter(branch=branch, date=day).first()
     if row is None:
+        if day != timezone.localdate():
+            return None
         setup = getattr(branch, "remittance_setup", None)
         previous = (
             models.DailyRemittance.objects
@@ -9439,6 +9450,8 @@ def _ensure_remittance(branch, day):
             target_amount=(setup.target_amount if setup else 0.0),
             brought_forward=brought_forward,
         )
+        if previous:
+            previous._stamp_carried(brought_forward)
 
     # The target is copied onto the row when the day opens. If the branch's
     # setup is created or changed after that — which is the normal order of
@@ -9446,12 +9459,16 @@ def _ensure_remittance(branch, day):
     # (typically 0) while the setup page shows the real one. Re-sync any day
     # that hasn't been finalised; closed days keep the target they ran under.
     setup = getattr(branch, "remittance_setup", None)
+    resynced = False
     if setup and not row.is_finalized and row.target_amount != setup.target_amount:
         row.target_amount = setup.target_amount
         row.save()
+        resynced = True
 
     row.refresh_net_sales(commit=True)
-    row.recalc()
+    # A re-synced target changes what this day leaves behind, so every later day
+    # has to be rebuilt off it.
+    row.recalc(propagate=resynced)
     return row
 
 
@@ -9491,9 +9508,10 @@ def remittance_list(request):
         "is_today": day == timezone.localdate(),
         "remittance": remittance,
         "figures": figures,
-        "payments": remittance.payments.select_related("recorded_by"),
+        "payments": (remittance.payments.select_related("recorded_by")
+                     if remittance else []),
         "payment_form": forms.RemittancePaymentForm(),
-        "suggested": remittance.suggested_split(),
+        "suggested": remittance.suggested_split() if remittance else [],
         "history": history,
         "setup": getattr(branch, "remittance_setup", None),
         "source_choices": models.REMITTANCE_SOURCE_CHOICES,
@@ -9515,11 +9533,26 @@ def remittance_add_payment(request, pk):
         payment = form.save(commit=False)
         payment.remittance = remittance
         payment.recorded_by = request.user
-        payment.save()  # triggers recalc
-        messages.success(
-            request,
-            f"Recorded GHS {payment.amount:.2f} via {payment.get_source_display()}."
-        )
+        payment.save()  # triggers recalc + chain repair
+        remittance.refresh_from_db()
+        note = f"Recorded GHS {payment.amount:.2f} via {payment.get_source_display()}."
+        # Say plainly what is left. Handing over "the target" on a day that
+        # carries arrears is a part payment, and silently carrying the rest is
+        # what made the backlog look like phantom accumulation.
+        if remittance.balance_due > 0.005:
+            split = remittance.allocation_for()
+            detail = ""
+            if split["arrears_left"] > 0.005:
+                detail = (f" GHS {split['arrears_left']:.2f} of the brought-forward "
+                          f"arrears is still unpaid.")
+            messages.warning(
+                request,
+                f"{note} GHS {remittance.balance_due:.2f} of the "
+                f"GHS {remittance.total_due:.2f} due is still outstanding and will "
+                f"carry to the next remittance day.{detail}"
+            )
+        else:
+            messages.success(request, f"{note} This day is now fully settled.")
     else:
         messages.error(request, "; ".join(
             f"{f}: {', '.join(e)}" for f, e in form.errors.items()
@@ -9666,11 +9699,21 @@ def remittance_report(request):
         row.refresh_net_sales(commit=True)
         row.recalc()
 
+    # `total_due` already contains the previous day's balance, so summing it
+    # would count the same debt once per day it stayed unpaid. What is genuinely
+    # due across a range is every target in it, plus only the arrears carried in
+    # from before the range started — one opening balance per branch.
+    opening = {}
+    for row in sorted(rows, key=lambda r: (r.branch_id, r.date)):
+        opening.setdefault(row.branch_id, row.brought_forward or 0.0)
+
     totals = {
         "net_sales": sum(r.net_sales or 0.0 for r in rows),
         "target": sum(r.target_amount or 0.0 for r in rows),
-        "due": sum(r.total_due or 0.0 for r in rows),
+        "due": sum(r.target_amount or 0.0 for r in rows) + sum(opening.values()),
         "remitted": sum(r.amount_remitted or 0.0 for r in rows),
+        # `outstanding` nets off what a later day took on, so only the still-open
+        # row of each branch contributes — this is the real closing balance.
         "outstanding": sum(r.outstanding for r in rows),
         "surplus": sum(r.surplus or 0.0 for r in rows),
     }
@@ -9686,9 +9729,15 @@ def remittance_report(request):
                 "remitted": 0.0, "outstanding": 0.0,
             })
             entry["net_sales"] += row.net_sales or 0.0
-            entry["due"] += row.total_due or 0.0
+            # Targets in the range plus this branch's one opening balance — see
+            # the note on totals["due"] above.
+            entry["due"] += row.target_amount or 0.0
             entry["remitted"] += row.amount_remitted or 0.0
             entry["outstanding"] += row.outstanding
+        for branch_id, carried_in in opening.items():
+            for entry in grouped.values():
+                if entry["branch"].id == branch_id:
+                    entry["due"] += carried_in
         by_branch = sorted(grouped.values(), key=lambda e: -e["outstanding"])
 
     by_source = (

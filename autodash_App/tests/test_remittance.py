@@ -114,11 +114,28 @@ class ResetRemittanceOutstandingTest(TestCase):
         self.assertAlmostEqual(todays.outstanding, 500.0)
 
     def test_it_can_be_limited_by_date(self):
+        """
+        --before writes off the days before the cutoff; its own target and
+        payments are left alone.
+        """
         cutoff = self.today - timedelta(days=1)
         self._run("--before", cutoff.strftime("%Y-%m-%d"))
 
         untouched = DailyRemittance.objects.get(branch=self.ridge, date=cutoff)
-        self.assertAlmostEqual(untouched.brought_forward, 1000.0)
+        self.assertAlmostEqual(untouched.target_amount, 500.0)
+
+    def test_a_scoped_reset_does_not_leak_the_backlog_past_the_cutoff(self):
+        """
+        The written-off days now owe nothing, so nothing carries into the day
+        after them. Without this the arrears survive on the first row outside
+        the scope and the snowball just starts again from there.
+        """
+        cutoff = self.today - timedelta(days=1)
+        self._run("--before", cutoff.strftime("%Y-%m-%d"))
+
+        first_outside = DailyRemittance.objects.get(branch=self.ridge, date=cutoff)
+        self.assertAlmostEqual(first_outside.brought_forward, 0.0)
+        self.assertAlmostEqual(first_outside.total_due, 500.0)
 
 
 class RemittanceReportScopeTest(TestCase):

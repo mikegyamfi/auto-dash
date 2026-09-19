@@ -67,6 +67,20 @@
             </div>
           </div>
 
+          {% if not remittance %}
+            {# A past day nobody opened. Showing a row here would invent a debt. #}
+            <div class="card">
+              <div class="card-body text-center py-5">
+                <h6 class="mb-2">No remittance recorded for {{ day|date:"d M Y" }}</h6>
+                <p class="text-muted mb-3">
+                  This day was never opened, so nothing was due and nothing carried.
+                </p>
+                <a href="?{% if can_pick_branch %}branch_id={{ branch.id }}{% endif %}"
+                   class="btn btn-primary btn-sm">Go to today</a>
+              </div>
+            </div>
+          {% else %}
+
           {# ───────────────── The money story, in order ───────────────── #}
           <div class="row g-3 mb-2">
             <div class="col-6 col-lg">
@@ -245,6 +259,18 @@
 
                 {# ---- add a line ---- #}
                 <div class="card-body border-top">
+                  {% if remittance.balance_due %}
+                    <div class="alert {% if remittance.brought_forward %}alert-warning{% else %}alert-secondary{% endif %} py-2 px-3 mb-3 small">
+                      <strong>GHS {{ remittance.balance_due|floatformat:2 }} still to remit.</strong>
+                      {% if remittance.brought_forward %}
+                        That is GHS {{ remittance.target_amount|floatformat:2 }} for today
+                        <em>plus</em> GHS {{ remittance.brought_forward|floatformat:2 }} brought forward —
+                        remitting only the target will leave the arrears carrying again.
+                      {% else %}
+                        Today's target is GHS {{ remittance.target_amount|floatformat:2 }}.
+                      {% endif %}
+                    </div>
+                  {% endif %}
                   <form method="post" action="{% url 'remittance_add_payment' remittance.id %}"
                         class="row g-2 align-items-end">
                     {% csrf_token %}
@@ -277,9 +303,10 @@
                   </div>
                   <div class="card-body">
                     <div class="text-muted small mb-2">
-                      Based on net sales of GHS {{ remittance.net_sales|floatformat:2 }}
-                      and a primary source of
+                      What is owed — GHS {{ remittance.balance_due|floatformat:2 }}, capped at the
+                      GHS {{ remittance.net_sales|floatformat:2 }} actually taken — to
                       <strong>{% if setup %}{{ setup.get_primary_source_display }}{% else %}Cash{% endif %}</strong>.
+                      Arrears are paid down first.
                     </div>
                     <ul class="list-group list-group-flush mb-3">
                       {% for row in suggested %}
@@ -348,6 +375,11 @@
                         </div>
                         {% if h.is_settled %}
                           <span class="badge bg-label-success">Settled</span>
+                        {% elif h.is_carried %}
+                          <span class="badge bg-label-secondary"
+                                title="This day's balance moved on to the next day's brought forward.">
+                            Carried {{ h.carried_forward|floatformat:2 }}
+                          </span>
                         {% else %}
                           <span class="badge bg-label-danger">−{{ h.outstanding|floatformat:2 }}</span>
                         {% endif %}
@@ -360,6 +392,8 @@
               </div>
             </div>
           </div>
+
+          {% endif %}{# remittance exists #}
 
         </div>
         {% include 'inc/footer.html' %}
