@@ -14,7 +14,9 @@
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <div>
               <h4 class="mb-0">Utilities</h4>
-              <div class="text-muted small">{{ branch.name }}</div>
+              <div class="text-muted small">
+                {% if show_all %}All branches{% else %}{{ branch.name }}{% endif %}
+              </div>
             </div>
             <div class="d-flex gap-2">
               {% if can_manage %}
@@ -41,6 +43,7 @@
                   <div class="col-md-3">
                     <label class="form-label">Branch</label>
                     <select name="branch_id" class="form-select">
+                      <option value="" {% if show_all %}selected{% endif %}>All branches</option>
                       {% for b in branches %}
                         <option value="{{ b.id }}" {% if b.id == branch.id %}selected{% endif %}>{{ b.name }}</option>
                       {% endfor %}
@@ -54,7 +57,7 @@
                     <option value="">All</option>
                     {% for u in utilities %}
                       <option value="{{ u.id }}" {% if selected.utility == u.id|stringformat:'s' %}selected{% endif %}>
-                        {{ u.name }}
+                        {{ u.name }}{% if show_all %} — {{ u.branch.name }}{% endif %}
                       </option>
                     {% endfor %}
                   </select>
@@ -81,9 +84,71 @@
               <div class="card">
                 <div class="card-header">
                   <h6 class="mb-0">Current Position</h6>
+                  {% if show_all %}
+                    <small class="text-muted">Every branch added together</small>
+                  {% endif %}
                 </div>
                 <div class="card-body">
-                  {% if summary %}
+                  {% if show_all %}
+                    {% if combined %}
+                      <ul class="list-group list-group-flush">
+                        {% for row in combined %}
+                          <li class="list-group-item px-0">
+                            <div class="d-flex justify-content-between align-items-start">
+                              <div>
+                                <strong>{{ row.name }}</strong>
+                                <div class="text-muted small">
+                                  Across {{ row.branches }} branch{{ row.branches|pluralize:"es" }}
+                                  {% if row.last_entry %} · last entry {{ row.last_entry|date:"d M Y" }}{% endif %}
+                                </div>
+                              </div>
+                              <div class="text-end">
+                                <div class="fw-semibold">{{ row.current_balance|floatformat:2 }}</div>
+                                <div class="text-muted small">{{ row.unit }} on hand</div>
+                              </div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-2 small">
+                              <span class="text-muted">Used in range</span>
+                              <span class="fw-semibold">{{ row.total_usage|floatformat:2 }} {{ row.unit }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between small">
+                              <span class="text-muted">Purchased in range</span>
+                              <span>{{ row.total_purchase|floatformat:2 }} {{ row.unit }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between small">
+                              <span class="text-muted">Cost in range</span>
+                              <span>GHS {{ row.total_cost|floatformat:2 }}</span>
+                            </div>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    {% else %}
+                      <div class="text-muted small">No utilities set up on any branch yet.</div>
+                    {% endif %}
+
+                    {% if by_branch %}
+                      <hr>
+                      <h6 class="mb-2">Spend by branch</h6>
+                      <ul class="list-group list-group-flush">
+                        {% for b in by_branch %}
+                          <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                            <div>
+                              <span class="fw-semibold">{{ b.branch.name }}</span>
+                              <div class="text-muted small">
+                                {{ b.readings }} reading{{ b.readings|pluralize }} · used {{ b.usage|floatformat:2 }}
+                              </div>
+                            </div>
+                            <span class="fw-semibold">GHS {{ b.cost|floatformat:2 }}</span>
+                          </li>
+                        {% endfor %}
+                        <li class="list-group-item px-0 d-flex justify-content-between">
+                          <span class="fw-semibold">Total</span>
+                          <span class="fw-semibold">GHS {{ totals.cost|floatformat:2 }}</span>
+                        </li>
+                      </ul>
+                    {% endif %}
+
+                  {% elif summary %}
                     <ul class="list-group list-group-flush">
                       {% for row in summary %}
                         <li class="list-group-item px-0">
@@ -144,6 +209,7 @@
                     <thead>
                       <tr>
                         <th>Date</th>
+                        {% if show_all %}<th>Branch</th>{% endif %}
                         <th>Utility</th>
                         <th class="text-end">Opening</th>
                         <th class="text-end">Purchase</th>
@@ -157,6 +223,9 @@
                       {% for r in readings %}
                         <tr>
                           <td>{{ r.date|date:"d M Y" }}</td>
+                          {% if show_all %}
+                            <td><small class="fw-semibold">{{ r.branch.name }}</small></td>
+                          {% endif %}
                           <td>
                             {{ r.utility.name }}
                             <div class="text-muted small">{{ r.utility.unit }}</div>
@@ -197,12 +266,12 @@
                         </tr>
                         {% if r.note %}
                           <tr class="table-light">
-                            <td colspan="8" class="small text-muted">{{ r.note }}</td>
+                            <td colspan="{% if show_all %}9{% else %}8{% endif %}" class="small text-muted">{{ r.note }}</td>
                           </tr>
                         {% endif %}
                       {% empty %}
                         <tr>
-                          <td colspan="8" class="text-center text-muted py-4">
+                          <td colspan="{% if show_all %}9{% else %}8{% endif %}" class="text-center text-muted py-4">
                             No readings in this range.
                           </td>
                         </tr>

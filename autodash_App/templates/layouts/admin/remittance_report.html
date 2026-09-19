@@ -18,7 +18,18 @@
                 {% if show_all %}All branches{% else %}{{ branch.name }}{% endif %}
               </div>
             </div>
-            <a href="{% url 'remittance_list' %}" class="btn btn-outline-secondary">Back to Today</a>
+            <div class="d-flex gap-2 flex-wrap">
+              {# Carry the current filters through so the file matches the screen. #}
+              <a href="{% url 'remittance_report_excel' %}?{{ request.GET.urlencode }}"
+                 class="btn btn-outline-success">
+                <i class="bx bx-spreadsheet me-1"></i>Excel
+              </a>
+              <a href="{% url 'remittance_report_pdf' %}?{{ request.GET.urlencode }}"
+                 class="btn btn-outline-danger">
+                <i class="bx bxs-file-pdf me-1"></i>PDF
+              </a>
+              <a href="{% url 'remittance_list' %}" class="btn btn-outline-secondary">Back to Today</a>
+            </div>
           </div>
 
           <div class="card mb-3">

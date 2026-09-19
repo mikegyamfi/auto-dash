@@ -9143,9 +9143,32 @@ def _locked_branch(request):
     return worker.branch if worker else None
 
 
+def _aggregate_branch_scope(request):
+    """
+    (branch, branches, can_pick) where `branch=None` means "every branch".
+
+    Unlike `_utility_scope` this never falls back to the first branch. On a page
+    that can total across branches, silently showing one branch's figures while
+    the header claims nothing would misreport them — so no choice means all of
+    them, rendered as an aggregate. Non-staff stay pinned to their own branch.
+
+    For pages that must write to exactly one branch (taking a reading, setting a
+    target) use `_utility_scope` instead — "all branches" is not a place to save.
+    """
+    user = request.user
+    if user.is_superuser or user.is_staff:
+        branches = Branch.objects.all().order_by("name")
+        branch_id = request.GET.get("branch_id") or request.GET.get("branch")
+        branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
+        return branch, branches, True
+    worker = getattr(user, "worker_profile", None)
+    branch = worker.branch if worker else None
+    return branch, Branch.objects.none(), False
+
+
 def _utility_scope(request):
     """
-    (branch, branches, can_pick) for the utilities and remittance pages.
+    (branch, branches, can_pick) for pages that act on a single branch.
     Any worker is pinned to their own branch; staff/superusers may pick one
     with ?branch_id=, falling back to the first branch.
     """
@@ -9160,9 +9183,16 @@ def _utility_scope(request):
 
 @worker_or_elevated_required
 def utilities_list(request):
-    """Readings trail for a branch, newest first, filterable by utility/date."""
-    branch, branches, can_pick = _utility_scope(request)
-    if branch is None:
+    """
+    Readings trail, newest first, filterable by utility and date.
+
+    With no branch chosen, staff see every branch together: the trail carries a
+    branch column, and the position panel adds the same utility up across
+    branches. Picking one narrows to it.
+    """
+    branch, branches, can_pick = _aggregate_branch_scope(request)
+    show_all = branch is None
+    if branch is None and not can_pick:
         messages.error(request, "You do not have a branch assigned.")
         return redirect("index")
 
@@ -9183,30 +9213,88 @@ def utilities_list(request):
 
     readings = (
         models.UtilityReading.objects
-        .select_related("utility", "entered_by")
-        .filter(branch=branch, date__range=[start_date, end_date])
+        .select_related("utility", "entered_by", "branch")
+        .filter(date__range=[start_date, end_date])
     )
+    if not show_all:
+        readings = readings.filter(branch=branch)
 
     utility_id = request.GET.get("utility", "").strip()
     if utility_id.isdigit():
         readings = readings.filter(utility_id=int(utility_id))
 
-    readings = readings.order_by("-date", "utility__name")
+    readings = readings.order_by("-date", "branch__name", "utility__name")
+
+    utilities = models.Utility.objects.select_related("branch")
+    if not show_all:
+        utilities = utilities.filter(branch=branch)
+    utilities = utilities.order_by("name", "branch__name")
+
+    # One pass over the window; each utility's rows are picked out in Python so
+    # an all-branches view doesn't fire a query per utility per branch.
+    window = list(readings)
+    by_utility = {}
+    for r in window:
+        by_utility.setdefault(r.utility_id, []).append(r)
 
     # Per-utility totals across the window, plus where each one stands now.
-    utilities = models.Utility.objects.filter(branch=branch).order_by("name")
     summary = []
     for util in utilities:
-        window = readings.filter(utility=util)
+        rows = by_utility.get(util.id, [])
         latest = util.latest_reading()
         summary.append({
             "utility": util,
-            "total_usage": sum(r.usage for r in window),
+            "branch": util.branch,
+            "total_usage": sum(r.usage for r in rows),
             # Includes credit picked up from top-up expenses, not just typed rows.
-            "total_purchase": sum(r.total_purchase for r in window),
+            "total_purchase": sum(r.total_purchase for r in rows),
+            "total_cost": sum(r.expense_amount for r in rows),
             "current_balance": float(latest.closing_balance) if latest else None,
             "last_entry": latest.date if latest else None,
         })
+
+    # Unfiltered, add the same utility up across branches — "Electricity" is one
+    # line whichever branch metered it — and break the spend down per branch so
+    # the combined figure can be traced back to who used it.
+    combined, by_branch = [], []
+    if show_all:
+        grouped = {}
+        for row in summary:
+            key = (row["utility"].name, row["utility"].unit)
+            entry = grouped.setdefault(key, {
+                "name": row["utility"].name, "unit": row["utility"].unit,
+                "branches": 0, "total_usage": 0.0, "total_purchase": 0.0,
+                "total_cost": 0.0, "current_balance": 0.0, "last_entry": None,
+            })
+            entry["branches"] += 1
+            entry["total_usage"] += row["total_usage"]
+            entry["total_purchase"] += row["total_purchase"]
+            entry["total_cost"] += row["total_cost"]
+            if row["current_balance"] is not None:
+                entry["current_balance"] += row["current_balance"]
+            if row["last_entry"] and (entry["last_entry"] is None
+                                      or row["last_entry"] > entry["last_entry"]):
+                entry["last_entry"] = row["last_entry"]
+        combined = sorted(grouped.values(), key=lambda e: e["name"])
+
+        spend = {}
+        for r in window:
+            entry = spend.setdefault(r.branch_id, {
+                "branch": r.branch, "usage": 0.0, "purchase": 0.0, "cost": 0.0,
+                "readings": 0,
+            })
+            entry["usage"] += r.usage
+            entry["purchase"] += r.total_purchase
+            entry["cost"] += r.expense_amount
+            entry["readings"] += 1
+        by_branch = sorted(spend.values(), key=lambda e: -e["cost"])
+
+    totals = {
+        "usage": sum(r.usage for r in window),
+        "purchase": sum(r.total_purchase for r in window),
+        "cost": sum(r.expense_amount for r in window),
+        "readings": len(window),
+    }
 
     # Adding/retiring utilities and deleting readings stay with managers;
     # ordinary workers can read the trail and enter their branch's readings.
@@ -9218,12 +9306,16 @@ def utilities_list(request):
 
     context = {
         "branch": branch,
+        "show_all": show_all,
         "branches": branches,
         "can_pick_branch": can_pick,
         "can_manage": can_manage,
-        "readings": readings,
+        "readings": window,
         "utilities": utilities,
         "summary": summary,
+        "combined": combined,
+        "by_branch": by_branch,
+        "totals": totals,
         "selected": {
             "utility": utility_id,
             "start_date": start_date.strftime("%Y-%m-%d"),
@@ -9656,19 +9748,17 @@ def remittance_setup(request):
     })
 
 
-@staff_or_branch_admin_required
-def remittance_report(request):
+def _remittance_report_data(request):
     """
-    Remittance across a date range, with the running shortfall.
+    Everything the remittance report shows, gathered once.
 
-    With no branch chosen, staff see every branch together — the table carries a
-    branch column and the totals span all of them. Picking one narrows to it.
+    The page and both exports read this, so a figure on a downloaded sheet can't
+    drift from the one on screen. Returns None when the caller has no branch.
     """
-    branch, branches, can_pick = _petty_cash_scope(request)
+    branch, branches, can_pick = _aggregate_branch_scope(request)
     show_all = branch is None
     if branch is None and not can_pick:
-        messages.error(request, "You do not have a branch assigned.")
-        return redirect("index")
+        return None
 
     today = timezone.localdate()
     start_str = request.GET.get("start_date", "")
@@ -9747,7 +9837,7 @@ def remittance_report(request):
         .order_by("-total")
     )
 
-    return render(request, "layouts/admin/remittance_report.html", {
+    return {
         "branch": branch,
         "show_all": show_all,
         "by_branch": by_branch,
@@ -9756,11 +9846,242 @@ def remittance_report(request):
         "rows": rows,
         "totals": totals,
         "by_source": by_source,
+        "start_date": start_date,
+        "end_date": end_date,
         "selected": {
             "start_date": start_date.strftime("%Y-%m-%d"),
             "end_date": end_date.strftime("%Y-%m-%d"),
         },
-    })
+    }
+
+
+@staff_or_branch_admin_required
+def remittance_report(request):
+    """
+    Remittance across a date range, with the running shortfall.
+
+    With no branch chosen, staff see every branch together — the table carries a
+    branch column and the totals span all of them. Picking one narrows to it.
+    """
+    data = _remittance_report_data(request)
+    if data is None:
+        messages.error(request, "You do not have a branch assigned.")
+        return redirect("index")
+    return render(request, "layouts/admin/remittance_report.html", data)
+
+
+def _remittance_export_filename(data, extension):
+    scope = "all_branches" if data["show_all"] else _slugify_branch(data["branch"].name)
+    return (f"remittance_{scope}_{data['start_date']:%Y%m%d}"
+            f"_{data['end_date']:%Y%m%d}.{extension}")
+
+
+def _slugify_branch(name):
+    return "".join(c if c.isalnum() else "_" for c in name).strip("_").lower() or "branch"
+
+
+@staff_or_branch_admin_required
+def remittance_report_excel(request):
+    """The report as a spreadsheet: the day-by-day table, then the breakdowns."""
+    data = _remittance_report_data(request)
+    if data is None:
+        return HttpResponseForbidden("You do not have a branch assigned.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Remittance"
+
+    scope = "All branches" if data["show_all"] else data["branch"].name
+    ws.append(["Remittance Report"])
+    ws.append([f"{scope} — {data['start_date']:%d %b %Y} to {data['end_date']:%d %b %Y}"])
+    ws.append([f"Generated {timezone.localtime(timezone.now()):%Y-%m-%d %H:%M}"])
+    ws.append([])
+
+    header = ["Date"]
+    if data["show_all"]:
+        header.append("Branch")
+    header += ["Net Sales", "Target", "Brought Forward", "Total Due",
+               "Remitted", "Outstanding", "Surplus", "Status"]
+    ws.append(header)
+
+    for r in data["rows"]:
+        if r.is_settled:
+            status = "Settled"
+        elif r.is_carried:
+            status = "Carried"
+        else:
+            status = "Short"
+        row = [r.date.strftime("%Y-%m-%d")]
+        if data["show_all"]:
+            row.append(r.branch.name)
+        row += [
+            float(r.net_sales or 0.0), float(r.target_amount or 0.0),
+            float(r.brought_forward or 0.0), float(r.total_due or 0.0),
+            float(r.amount_remitted or 0.0), float(r.outstanding),
+            float(r.surplus or 0.0), status,
+        ]
+        ws.append(row)
+
+    totals = data["totals"]
+    ws.append([])
+    total_row = ["Totals"]
+    if data["show_all"]:
+        total_row.append("")
+    total_row += [
+        float(totals["net_sales"]), float(totals["target"]), "",
+        float(totals["due"]), float(totals["remitted"]),
+        float(totals["outstanding"]), float(totals["surplus"]), "",
+    ]
+    ws.append(total_row)
+
+    if data["by_branch"]:
+        ws.append([])
+        ws.append(["Breakdown by branch"])
+        ws.append(["Branch", "Net Sales", "Due", "Remitted", "Outstanding"])
+        for b in data["by_branch"]:
+            ws.append([b["branch"].name, float(b["net_sales"]), float(b["due"]),
+                       float(b["remitted"]), float(b["outstanding"])])
+
+    by_source = list(data["by_source"])
+    if by_source:
+        ws.append([])
+        ws.append(["Breakdown by source"])
+        ws.append(["Source", "Total Remitted"])
+        labels = dict(models.REMITTANCE_SOURCE_CHOICES)
+        for s in by_source:
+            ws.append([labels.get(s["source"], s["source"]), float(s["total"] or 0.0)])
+
+    resp = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    fname = _remittance_export_filename(data, "xlsx")
+    resp['Content-Disposition'] = f'attachment; filename="{fname}"'
+    wb.save(resp)
+    return resp
+
+
+@staff_or_branch_admin_required
+def remittance_report_pdf(request):
+    """The same report as a PDF, breakdowns included."""
+    data = _remittance_report_data(request)
+    if data is None:
+        return HttpResponseForbidden("You do not have a branch assigned.")
+
+    response = HttpResponse(content_type='application/pdf')
+    fname = _remittance_export_filename(data, "pdf")
+    response['Content-Disposition'] = f'attachment; filename="{fname}"'
+
+    doc = SimpleDocTemplate(response, pagesize=landscape(letter))
+    styles = getSampleStyleSheet()
+    elements = [Paragraph("Remittance Report", styles['Title'])]
+
+    scope = "All branches" if data["show_all"] else data["branch"].name
+    elements.append(Paragraph(
+        f"{scope} &mdash; {data['start_date']:%d %b %Y} to {data['end_date']:%d %b %Y}",
+        styles['Normal'],
+    ))
+    elements.append(Paragraph(
+        f"Generated on: {timezone.localtime(timezone.now()):%Y-%m-%d %H:%M}",
+        styles['Normal'],
+    ))
+    elements.append(Spacer(1, 12))
+
+    totals = data["totals"]
+    elements.append(Paragraph(
+        f"<b>Outstanding:</b> GHS {totals['outstanding']:,.2f} &nbsp;&nbsp; "
+        f"<b>Remitted:</b> GHS {totals['remitted']:,.2f} &nbsp;&nbsp; "
+        f"<b>Due:</b> GHS {totals['due']:,.2f}",
+        styles['Heading3'],
+    ))
+    elements.append(Spacer(1, 12))
+
+    header = ["Date"]
+    if data["show_all"]:
+        header.append("Branch")
+    header += ["Net Sales", "Target", "B/Fwd", "Due", "Remitted",
+               "Outstanding", "Surplus", "Status"]
+    table_data = [header]
+
+    for r in data["rows"]:
+        if r.is_settled:
+            status = "Settled"
+        elif r.is_carried:
+            status = "Carried"
+        else:
+            status = "Short"
+        row = [r.date.strftime("%d %b %Y")]
+        if data["show_all"]:
+            row.append(r.branch.name)
+        row += [
+            f"{r.net_sales or 0.0:,.2f}", f"{r.target_amount or 0.0:,.2f}",
+            f"{r.brought_forward or 0.0:,.2f}", f"{r.total_due or 0.0:,.2f}",
+            f"{r.amount_remitted or 0.0:,.2f}", f"{r.outstanding:,.2f}",
+            f"{r.surplus or 0.0:,.2f}", status,
+        ]
+        table_data.append(row)
+
+    if len(table_data) == 1:
+        table_data.append(["No remittance days in this range."]
+                          + [""] * (len(header) - 1))
+    else:
+        total_row = ["Totals"]
+        if data["show_all"]:
+            total_row.append("")
+        total_row += [
+            f"{totals['net_sales']:,.2f}", f"{totals['target']:,.2f}", "",
+            f"{totals['due']:,.2f}", f"{totals['remitted']:,.2f}",
+            f"{totals['outstanding']:,.2f}", f"{totals['surplus']:,.2f}", "",
+        ]
+        table_data.append(total_row)
+
+    elements.append(_remittance_pdf_table(table_data, bold_last=len(table_data) > 1))
+
+    if data["by_branch"]:
+        elements.append(Spacer(1, 18))
+        elements.append(Paragraph("Breakdown by branch", styles['Heading3']))
+        rows = [["Branch", "Net Sales", "Due", "Remitted", "Outstanding"]]
+        for b in data["by_branch"]:
+            rows.append([
+                b["branch"].name, f"{b['net_sales']:,.2f}", f"{b['due']:,.2f}",
+                f"{b['remitted']:,.2f}", f"{b['outstanding']:,.2f}",
+            ])
+        elements.append(_remittance_pdf_table(rows))
+
+    by_source = list(data["by_source"])
+    if by_source:
+        elements.append(Spacer(1, 18))
+        elements.append(Paragraph("Breakdown by source", styles['Heading3']))
+        labels = dict(models.REMITTANCE_SOURCE_CHOICES)
+        rows = [["Source", "Total Remitted"]]
+        for s in by_source:
+            rows.append([labels.get(s["source"], s["source"]),
+                         f"{s['total'] or 0.0:,.2f}"])
+        elements.append(_remittance_pdf_table(rows))
+
+    doc.build(elements)
+    return response
+
+
+def _remittance_pdf_table(data, bold_last=False):
+    """Shared styling so every table in the export reads the same."""
+    table = Table(data, repeatRows=1)
+    style = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
+        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ecf0f1')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#bdc3c7')),
+    ]
+    if bold_last:
+        style.append(('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'))
+        style.append(('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#d5dbdb')))
+    table.setStyle(TableStyle(style))
+    return table
 
 
 # ===========================================================================
@@ -9776,16 +10097,7 @@ def _petty_cash_scope(request):
     renders as an aggregate. Silently showing one branch's tin while the header
     says nothing would misreport the money.
     """
-    user = request.user
-    if user.is_superuser or user.is_staff:
-        branches = Branch.objects.all().order_by("name")
-        branch_id = request.GET.get("branch_id") or request.GET.get("branch")
-        branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
-        return branch, branches, True
-    # Every other worker is pinned to their own branch.
-    worker = getattr(user, "worker_profile", None)
-    branch = worker.branch if worker else None
-    return branch, Branch.objects.none(), False
+    return _aggregate_branch_scope(request)
 
 
 @worker_or_elevated_required
